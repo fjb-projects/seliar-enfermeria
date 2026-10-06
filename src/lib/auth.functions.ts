@@ -1,5 +1,4 @@
-import { createServerFn } from "@tanstack/react-start";
-import { getRequest } from "@tanstack/react-start/server";
+import { createServerFn, createServerOnlyFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { desc, eq } from "drizzle-orm";
 import { getDatabase } from "../db/index.server";
@@ -54,11 +53,13 @@ export const signIn = createServerFn({ method: "POST" })
   });
 
 export const signOut = createServerFn({ method: "POST" }).handler(async () => {
+  const { getRequest } = await import("@tanstack/react-start/server");
   await getAuth().api.signOut({ headers: getRequest().headers });
   return { ok: true as const };
 });
 
-export async function currentAccessSession(): Promise<AccessSession | null> {
+export const currentAccessSession = createServerOnlyFn(async (): Promise<AccessSession | null> => {
+  const { getRequest } = await import("@tanstack/react-start/server");
   const current = await getAuth().api.getSession({ headers: getRequest().headers });
   if (!current?.user?.id || !current.session?.expiresAt) return null;
   const db = getDatabase();
@@ -75,9 +76,10 @@ export async function currentAccessSession(): Promise<AccessSession | null> {
     isActive: rows[0]!.isActive,
     roles: effectiveRoles(grants),
   };
-}
+});
 
 export const readSession = createServerFn({ method: "GET" }).handler(async () => {
+  const { getRequest } = await import("@tanstack/react-start/server");
   const current = await getAuth().api.getSession({ headers: getRequest().headers });
   if (!current?.user?.id) return null;
   const access = requireActiveSession(await currentAccessSession());

@@ -10,16 +10,24 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AdminUsuariosRouteImport } from './routes/admin-usuarios'
 import { Route as CambioGuardiaRouteImport } from './routes/cambio-guardia'
 import { Route as CompensatorioRouteImport } from './routes/compensatorio'
 import { Route as ControlGuardiaRouteImport } from './routes/control-guardia'
 import { Route as HorariosRouteImport } from './routes/horarios'
 import { Route as IngresoRouteImport } from './routes/ingreso'
 import { Route as LaoRouteImport } from './routes/lao'
+import { Route as LoginRouteImport } from './routes/login'
+import { Route as PanelRouteImport } from './routes/panel'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminUsuariosRoute = AdminUsuariosRouteImport.update({
+  id: '/admin-usuarios',
+  path: '/admin-usuarios',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CambioGuardiaRoute = CambioGuardiaRouteImport.update({
@@ -52,73 +60,104 @@ const LaoRoute = LaoRouteImport.update({
   path: '/lao',
   getParentRoute: () => rootRouteImport,
 } as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PanelRoute = PanelRouteImport.update({
+  id: '/panel',
+  path: '/panel',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/admin-usuarios': typeof AdminUsuariosRoute
   '/cambio-guardia': typeof CambioGuardiaRoute
   '/compensatorio': typeof CompensatorioRoute
   '/control-guardia': typeof ControlGuardiaRoute
   '/horarios': typeof HorariosRoute
   '/ingreso': typeof IngresoRoute
   '/lao': typeof LaoRoute
+  '/login': typeof LoginRoute
+  '/panel': typeof PanelRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/admin-usuarios': typeof AdminUsuariosRoute
   '/cambio-guardia': typeof CambioGuardiaRoute
   '/compensatorio': typeof CompensatorioRoute
   '/control-guardia': typeof ControlGuardiaRoute
   '/horarios': typeof HorariosRoute
   '/ingreso': typeof IngresoRoute
   '/lao': typeof LaoRoute
+  '/login': typeof LoginRoute
+  '/panel': typeof PanelRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/admin-usuarios': typeof AdminUsuariosRoute
   '/cambio-guardia': typeof CambioGuardiaRoute
   '/compensatorio': typeof CompensatorioRoute
   '/control-guardia': typeof ControlGuardiaRoute
   '/horarios': typeof HorariosRoute
   '/ingreso': typeof IngresoRoute
   '/lao': typeof LaoRoute
+  '/login': typeof LoginRoute
+  '/panel': typeof PanelRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/admin-usuarios'
     | '/cambio-guardia'
     | '/compensatorio'
     | '/control-guardia'
     | '/horarios'
     | '/ingreso'
     | '/lao'
+    | '/login'
+    | '/panel'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/admin-usuarios'
     | '/cambio-guardia'
     | '/compensatorio'
     | '/control-guardia'
     | '/horarios'
     | '/ingreso'
     | '/lao'
+    | '/login'
+    | '/panel'
   id:
     | '__root__'
     | '/'
+    | '/admin-usuarios'
     | '/cambio-guardia'
     | '/compensatorio'
     | '/control-guardia'
     | '/horarios'
     | '/ingreso'
     | '/lao'
+    | '/login'
+    | '/panel'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AdminUsuariosRoute: typeof AdminUsuariosRoute
   CambioGuardiaRoute: typeof CambioGuardiaRoute
   CompensatorioRoute: typeof CompensatorioRoute
   ControlGuardiaRoute: typeof ControlGuardiaRoute
   HorariosRoute: typeof HorariosRoute
   IngresoRoute: typeof IngresoRoute
   LaoRoute: typeof LaoRoute
+  LoginRoute: typeof LoginRoute
+  PanelRoute: typeof PanelRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -128,6 +167,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin-usuarios': {
+      id: '/admin-usuarios'
+      path: '/admin-usuarios'
+      fullPath: '/admin-usuarios'
+      preLoaderRoute: typeof AdminUsuariosRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/cambio-guardia': {
@@ -172,17 +218,34 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LaoRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/panel': {
+      id: '/panel'
+      path: '/panel'
+      fullPath: '/panel'
+      preLoaderRoute: typeof PanelRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AdminUsuariosRoute: AdminUsuariosRoute,
   CambioGuardiaRoute: CambioGuardiaRoute,
   CompensatorioRoute: CompensatorioRoute,
   ControlGuardiaRoute: ControlGuardiaRoute,
   HorariosRoute: HorariosRoute,
   IngresoRoute: IngresoRoute,
   LaoRoute: LaoRoute,
+  LoginRoute: LoginRoute,
+  PanelRoute: PanelRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
