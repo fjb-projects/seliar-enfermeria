@@ -1,6 +1,6 @@
 # Fundación de acceso EFA
 
-**Estado:** T1 y T2 completadas localmente con commits, comprobaciones funcionales y revisiones nativas aprobadas y reconocidas. T3 está en curso localmente. Quedan advertencias no bloqueantes y pruebas reales de PostgreSQL/cookies pendientes antes de uso operativo.
+**Estado:** T1 y T2 completadas localmente con commits, comprobaciones funcionales y revisiones nativas aprobadas y reconocidas. T3 completada localmente y revisada; T4 actualiza solo el bootstrap inicial. Quedan advertencias no bloqueantes y pruebas reales de PostgreSQL/cookies pendientes antes de uso operativo.
 
 **Autorización:** el usuario autorizó la primera etapa local de acceso. Esta tarea documenta su alcance; no autoriza operaciones con una base real, cuentas reales, despliegue ni cambios remotos.
 **Copia Engram:** pendiente porque el runtime no confirmó una identidad de sesión autorizada; las escrituras de memoria no están disponibles.
@@ -21,7 +21,7 @@ La etapa establece identidad y permisos antes de incorporar guardias o registros
 - Toda cuenta de enfermería conserva el rol base de enfermería de ambulancia. Administración hereda EFA aunque no tenga concesión EFA explícita.
 - Autorización del lado servidor en cada operación protegida; una condición visual o `beforeLoad` no basta como límite de seguridad.
 - Eventos de auditoría inmutables con actor, entidad, acción, fecha de base de datos y metadatos anteriores/nuevos permitidos. Nunca guardar contraseñas, hashes, tokens ni secretos.
-- Preparar más adelante un comando manual seguro para crear los tres administradores iniciales, sin credenciales precargadas ni endpoint permanente de instalación.
+- Preparar un comando manual seguro para crear un único administrador inicial, sin credenciales precargadas ni endpoint permanente de instalación. Después del primer acceso, administración puede crear las demás cuentas desde `/admin-usuarios`.
 - La aplicación debe compilar sin credenciales ni una base conectada. Generar migraciones no equivale a aplicarlas.
 
 ## Fuera de alcance
@@ -36,6 +36,7 @@ La etapa establece identidad y permisos antes de incorporar guardias o registros
 - El proyecto ya usa TanStack Start y funciones de servidor en `src/lib/*.functions.ts`; mantener ese límite servidor/cliente y el middleware CSRF de `src/start.ts`.
 - La instalación parcial fijó Better Auth y `@better-auth/drizzle-adapter` 1.7.7, Drizzle ORM 0.45.3, Drizzle Kit 0.31.11, Neon Serverless 1.2.0 y Vitest 5.0.3. Better Auth 1.7.7 requiere Zod `^4.5.4`; npm rechazó la combinación con el Zod 3 existente. El usuario aceptó continuar con Zod 4.6.5 después de revisar las validaciones existentes.
 - El usuario informó que ya creó la DB en Neon, sin Neon Auth. No se verificó ni se accedió a esa DB; conexión, migraciones y cuentas reales siguen fuera de la autorización actual. Better Auth se integrará en la aplicación sobre PostgreSQL, sin requerir Neon Auth.
+- El 2026-10-06 el usuario informó que las migraciones ya fueron aplicadas; este dato no se verificó y no se conectará la DB en T4.
 - Better Auth Admin ofrece operaciones de creación, roles, bloqueo y contraseñas, pero también expone capacidades de eliminación e impersonación. No exponer sin filtro un manejador general de administración ni permitir que se omita la auditoría.
 - La documentación consultada de Better Auth no establece que sus hooks o llamadas administrativas hagan atómica una escritura propia de auditoría. Antes de implementar, demostrar y probar el límite transaccional de cambios de cuenta/rol/estado más auditoría; no atribuir atomicidad a hooks sin evidencia.
 - Desactivar debe bloquear el acceso y revocar sesiones, sin borrar la cuenta ni su historial. Al reactivar, respetar la autorización vigente. Verificar en servidor los roles vigentes después de cambios; no confiar en roles obsoletos de una sesión cliente.
@@ -129,7 +130,7 @@ T1 y T2 están completadas localmente con las limitaciones de verificación docu
 
 ### T3 — Pantallas privadas, bootstrap manual y verificación — estimación: 170–250 líneas
 
-**Estado:** implementación local y comprobaciones requeridas completadas; permanecen pendientes integración real de DB/cookies y cierre del padre. No se probarán DB/cookies reales en esta ejecución.
+**Estado:** implementación local, comprobaciones funcionales y revisión nativa completadas; permanecen pendientes integración real de DB/cookies y comprobación visual móvil. No se probaron DB/cookies reales en esta ejecución.
 
 **Ruta:** delegada directa, por integración coordinada de páginas privadas, funciones administrativas existentes, comando manual seguro y documentación.
 **Estilo aprobado:** reutilizar `WorkflowShell`/`WorkflowHeader` y los componentes UI existentes, siguiendo los tokens y la identidad visual actual. Crear únicamente piezas faltantes para MVP; posponer pulido no esencial. Priorizar tarjetas y controles apilados en móvil.
@@ -156,6 +157,33 @@ El comando `npm run bootstrap:admins` es manual, interactivo y no se ha ejecutad
 
 **Prueba visual pendiente:** se inició un Vite aislado con carga de archivos env deshabilitada, conexión DB ficticia local y valores de auth vacíos confirmados antes de escuchar. El navegador del verificador no pudo observar la página: IAB visible no disponible en subagente y navegación oculta con timeout. No se interpreta como fallo de la aplicación ni se afirma verificación visual móvil. Se comprobó estructuralmente la reutilización de shell/header/componentes responsive. El servidor propio se detuvo y no dejó listeners. Se mantiene como comprobación pendiente, sin instalar herramientas ni modificar estilos para resolver el entorno.
 
+**Commit y revisión de T3:** `766773c693b2f2a92910badc85718524bdb2a71a` — `feat(efa): add private account screens and manual admin bootstrap`. Contiene únicamente 15 archivos de esta unidad (1.328 líneas cambiadas, incluida salida generada de rutas); conserva fuera los cambios previos y adjuntos. El acumulado de autoría es aproximadamente 2.665 líneas excluyendo generados; se mantiene `feature-branch-chain`, sin PR/push. RDD sigue activo por defecto. La evaluación encontró riesgo alto por `src/lib/auth.functions.ts`; la consulta canónica excluyó explícitamente archivos sin seguimiento. El usuario concedió la revisión mediante «1». Se ejecutaron concurrentemente las cuatro capturas nativas en orden de proveedor: riesgo, resiliencia, legibilidad y fiabilidad. La última captura admitida devolvió `approved`, sin bloqueantes ni transición de corrección, para el objetivo `sha256:e511abe081f9ba1bfdf0f114a91239ddecba876f13f8844df5c4e7e8312f5077`, línea `review-683f84dddbfa11e9`. El acuse exacto devolvió `gentle-ai.review-acknowledged/v1`, `action: acknowledged`, `authority: burned`, exit 0, revisión consumida `sha256:9d89cc650fdf18fae1e53a6c5f8e2e611ae21165237688da9f59e12380b9fa72`. El límite revisado avanza al commit T3. No se cambiaron fuentes durante la revisión ni se publicó nada; esto no demuestra integración operativa ni autoriza operaciones remotas.
+
+**Advertencias informativas de T3 (trabajo posterior, sin reabrir el candidato):**
+
+- `R2-001` y `R3-overlapping-mutations`, `src/components/AccountAdminList.tsx:35–55`: un único `busyId` permite iniciar cambios en cuentas distintas mientras otro sigue pendiente. Las respuestas pueden limpiar indicadores/estado de error y las recargas pueden llegar desordenadas (`src/routes/admin-usuarios.tsx:32–39`). Como siguiente unidad, serializar mutaciones en la interfaz o gestionar pendientes y orden de respuestas explícitamente; comprobar el caso con promesas diferidas para dos cuentas. La revisión no abrió corrección y no se modificó este comportamiento en esta ejecución.
+- `R3-interactive-bootstrap-proof`, `scripts/bootstrap-admin.test.mjs:43–53`: falta prueba del flujo interactivo `--apply`, confirmación rechazada, contraseñas diferentes y limpieza de terminal. Agregar pruebas con dependencias/terminal falsos que demuestren cero creación de pool ante rechazo, ausencia de contraseñas en salida y restauración de modo raw/listeners. No ejecutar cuentas reales para cubrir esta carencia.
+
+### T4 — Bootstrap de un administrador inicial — estimación: 100–200 líneas
+
+**Estado:** actualización local acotada completada; commit y revisión quedan a cargo del padre. La persona usuaria informó que las migraciones ya se aplicaron, pero esto no se verificó y no se conectó a la base.
+**Spot-check del padre:** confirmó que `node --test scripts/bootstrap-admin.test.mjs` pasa las 8 pruebas. Checks locales T4 completados; commit/evaluación/revisión nativa pendientes del padre.
+
+**Ruta:** delegada directa para ajuste coordinado de comando, pruebas y guía existente. Estrategia de entrega de la funcionalidad: `feature-branch-chain`.
+**Decisión de producto vigente:** crear exactamente un administrador inicial porque aún se desconocen los demás correos. Tras iniciar sesión, se podrán crear administradores adicionales en `/admin-usuarios`. Esta decisión reemplaza solamente el requisito anterior de tres cuentas en el bootstrap; no reabre ni modifica históricamente la implementación T3.
+**Copia Engram:** pendiente; no hay identidad de sesión autorizada en este runtime y no se usarán herramientas ni CLI alternativos de memoria.
+
+**Superficies autorizadas para T4:** `scripts/bootstrap-admin.mjs`, `scripts/bootstrap-admin.test.mjs`, `docs/efa-access-setup.md` y `odd/tasks/efa-access-foundation.md`. Sin cambios de interfaz ni de otros avisos/recomendaciones pendientes.
+
+- [x] El comando, su confirmación, validación, mensajes y guía aceptan/exigen una única cuenta administradora inicial.
+- [x] Pruebas RED→GREEN verifican exactamente una cuenta, rechazan listas de cero/dos/tres entradas y prueban que confirmación rechazada o contraseñas distintas no crean un pool.
+- [x] Mantener el rechazo si ya existe administración, el hash oficial, transacción/auditoría y lock existentes; no ejecutar `--apply` ni acceder a una DB real.
+- [x] Ejecutar pruebas Node, ayuda sin DB, typecheck y verificaciones de formato/diff dentro de las superficies acotadas.
+
+**Instrucciones de ejecución que se actualizarán:** documentar `node --env-file=.env scripts/bootstrap-admin.mjs --apply` (o el archivo local autorizado equivalente, por ejemplo `.env.local`). El comando no carga archivos `.env` por sí solo; el atajo npm existente puede conservarse, pero necesita que su entorno ya tenga `DATABASE_URL`.
+
+**TDD T4 observado:** antes de cambiar el comando, `node --test scripts/bootstrap-admin.test.mjs` falló en 6 de 8 pruebas tras actualizar expectativas: validación todavía exigía tres cuentas; el servicio no aceptaba una; las pruebas de cuenta existente y rollback quedaron bloqueadas por la validación antigua; y los nuevos casos de password mismatch/confirmación usaron el texto singular que el comando todavía no aceptaba. Los dos casos independientes (help y confirmación rechazada) pasaron. Después del cambio, las 8 pruebas pasaron, incluyendo exactamente una inserción, rechazo de 0/2/3 entradas, rechazo de confirmación y de contraseñas no coincidentes antes de crear pool, y rechazo de una administración existente con rollback fake. El comando ayuda terminó con exit 0, typecheck pasó, Prettier check y `git diff --check` fueron exitosos. Diff de las cuatro superficies: 146 inserciones y 70 eliminaciones según Git. Esto no prueba una transacción real.
+
 **Superficies candidatas:** `src/routes/login.tsx`, `src/routes/admin-usuarios.tsx`, `scripts/bootstrap-admin.ts`, `docs/efa-mvp-scope-and-plan.md`, `src/routeTree.gen.ts` solo como salida generada, `src/routes/**/*.test.tsx`.
 
 ## Comprobaciones y criterios de aceptación
@@ -166,7 +194,7 @@ El comando `npm run bootstrap:admins` es manual, interactivo y no se ha ejecutad
 - El retiro de EFA no retira el acceso heredado de administración; quitar administración conserva EFA solo cuando hay una concesión EFA efectiva.
 - Desactivar bloquea login y sesiones existentes sin borrar usuario ni auditoría; reactivar conserva identidad e historial.
 - Los eventos de auditoría son inmutables y no contienen secretos. El comportamiento atómico se considera probado solo tras testear la implementación real elegida.
-- Las migraciones se generan y revisan localmente; la aplicación a DB, prueba de credenciales, creación de tres administradores y despliegue quedan pendientes de autorización/entorno.
+- Las migraciones se generan y revisan localmente; la aplicación a DB, prueba de credenciales, creación de un administrador inicial y despliegue quedan pendientes de autorización/entorno. El usuario informó que ya aplicó las migraciones, pero no se verificó ese estado.
 - Las pruebas específicas de T1 y la configuración local se ejecutaron; no se realizaron pruebas contra una DB.
 
 ## Progreso y siguiente paso
@@ -178,4 +206,5 @@ El comando `npm run bootstrap:admins` es manual, interactivo y no se ha ejecutad
 - **Revisión de T1 terminada:** RDD activo por defecto; riesgo medio y `slice_budget_reached`. Se excluyeron los archivos sin seguimiento y los cambios preexistentes. Tras el consentimiento del usuario, `review-reliability` terminó con estado `approved` para la línea `review-5ff4b8eaeecf1e06` y el objetivo `sha256:a5aa66fbc7b8ce6e41e02aaa3b73bf0fcf3cafeba543ff3409abc72a5d554458`. El acuse exacto devolvió `gentle-ai.review-acknowledged/v1`, `action: acknowledged`, `authority: burned`, exit 0. La revisión no autoriza publicar. Queda una vulnerabilidad alta preexistente dev documentada, no corregida.
 - **Advertencia no bloqueante de revisión:** `R3-null-version-transition`, en `src/db/schema.ts:125` y `drizzle/0000_black_ravenous.sql:23`. La expresión CHECK permite una transición inicial NULL→2 y versiones consecutivas no positivas; en PostgreSQL, un CHECK cuyo resultado es NULL no rechaza la fila. El revisor la clasificó como informativa y no abrió corrección. El orquestador confirmó la expresión en la fuente, pero no ejecutó SQL. Seguimiento antes de apoyar servicios administrativos en esta restricción: exigir versiones positivas y un predecesor explícitamente no nulo en la rama incremental, generar una nueva migración y comprobar inserciones válidas/inválidas en un entorno PostgreSQL autorizado. Es trabajo posterior, no motivo para reabrir esta revisión.
 - **También pendiente:** confirmación de transacciones/trigger/lock en una DB autorizada y el flujo E2E de cookies. Engram sigue pendiente por ausencia de identidad de sesión autorizada.
-- **Siguiente paso:** continuar con T3 (interfaz/bootstrap) dentro del alcance local acordado, manteniendo las advertencias de T2 como seguimiento separado antes de uso operativo. El uso de DB Neon real y las pruebas de integración requieren autorización específica y configuración segura, no credenciales por chat. Mantener la copia Engram pendiente hasta que el runtime registre una identidad autorizada.
+- **T3 completada localmente y revisada:** pantallas privadas y bootstrap manual en `766773c693b2f2a92910badc85718524bdb2a71a`; cuatro controles nativos aprobados y acuse confirmado. Sin aplicación de migraciones, cuentas reales ni publicación. La comprobación visual móvil y la integración DB/cookies siguen pendientes.
+- **Siguiente paso para la persona usuaria:** tras confirmar el destino autorizado y que las migraciones están aplicadas, crear el único administrador inicial con `node --env-file=.env scripts/bootstrap-admin.mjs --apply` (o el archivo local aprobado equivalente), iniciar sesión y crear las cuentas restantes desde `/admin-usuarios`. La persona usuaria informó que las migraciones ya se aplicaron, pero no se verificó ese estado. No introducir credenciales por chat ni pedir al agente que ejecute el bootstrap. Para el padre, cerrar T4 con commit y evaluación/revisión nativa según el flujo vigente. Mantener las advertencias de T2/T3, la prueba real DB/cookies y la copia Engram pendiente como seguimientos separados; no reabrir las revisiones aprobadas.

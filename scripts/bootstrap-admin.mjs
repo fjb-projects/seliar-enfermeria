@@ -5,7 +5,7 @@ import { Pool } from "@neondatabase/serverless";
 import { hashPassword as betterAuthHashPassword } from "better-auth/crypto";
 
 export const ADMIN_LOCK_KEY = 71420261;
-export const BOOTSTRAP_CONFIRMATION = "CREATE THE THREE INITIAL ADMINISTRATORS";
+export const BOOTSTRAP_CONFIRMATION = "CREATE THE INITIAL ADMINISTRATOR";
 const passwordMinLength = 12;
 const passwordMaxLength = 128;
 
@@ -16,8 +16,8 @@ export function commandMode(args) {
 }
 
 export function validateInitialAdmins(input) {
-  if (!Array.isArray(input) || input.length !== 3) {
-    throw new Error("Bootstrap requires exactly three administrator entries.");
+  if (!Array.isArray(input) || input.length !== 1) {
+    throw new Error("Bootstrap requires exactly one administrator entry.");
   }
   const normalized = input.map(({ name, email, password }) => ({
     name: typeof name === "string" ? name.trim() : "",
@@ -31,9 +31,6 @@ export function validateInitialAdmins(input) {
     normalized.some(({ email }) => email.length > 255 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
   ) {
     throw new Error("Each administrator email must be valid.");
-  }
-  if (new Set(normalized.map(({ email }) => email)).size !== 3) {
-    throw new Error("Administrator email addresses must be distinct.");
   }
   if (
     normalized.some(
@@ -49,26 +46,20 @@ export function validateInitialAdmins(input) {
 
 export async function collectInitialAdmins({ promptLine, promptSecret }) {
   const confirmation = await promptLine(
-    `This creates the first three administrator accounts. Type ${BOOTSTRAP_CONFIRMATION} to continue: `,
+    `This creates the first administrator account. Type ${BOOTSTRAP_CONFIRMATION} to continue: `,
   );
   if (confirmation !== BOOTSTRAP_CONFIRMATION) {
     throw new Error("Initial administrator bootstrap was not confirmed.");
   }
 
-  const admins = [];
-  for (let index = 1; index <= 3; index += 1) {
-    const name = await promptLine(`Administrator ${index} name: `);
-    const email = await promptLine(`Administrator ${index} email: `);
-    const password = await promptSecret(`Administrator ${index} password (hidden): `);
-    const passwordConfirmation = await promptSecret(
-      `Administrator ${index} password again (hidden): `,
-    );
-    if (password !== passwordConfirmation) {
-      throw new Error("The administrator passwords did not match.");
-    }
-    admins.push({ name, email, password });
+  const name = await promptLine("Administrator name: ");
+  const email = await promptLine("Administrator email: ");
+  const password = await promptSecret("Administrator password (hidden): ");
+  const passwordConfirmation = await promptSecret("Administrator password again (hidden): ");
+  if (password !== passwordConfirmation) {
+    throw new Error("The administrator passwords did not match.");
   }
-  return validateInitialAdmins(admins);
+  return validateInitialAdmins([{ name, email, password }]);
 }
 
 export async function readHidden(prompt, { input = stdin, output = stdout } = {}) {
@@ -165,7 +156,7 @@ export async function bootstrapAdminAccounts({
     }
     await client.query("COMMIT");
     transactionStarted = false;
-    return { created: 3 };
+    return { created: 1 };
   } catch (error) {
     if (transactionStarted) {
       try {
@@ -205,7 +196,7 @@ export async function runBootstrap({
   const mode = commandMode(args);
   if (mode === "help") {
     print(
-      "Usage: npm run bootstrap:admins -- --apply\nRequires migrated local/authorized PostgreSQL, DATABASE_URL, an interactive terminal, and explicit confirmation. Never run against an unapproved database.",
+      "Usage: node --env-file=.env scripts/bootstrap-admin.mjs --apply\nCreates exactly one initial administrator; additional accounts can be created after login. Requires an authorized migrated database, DATABASE_URL, an interactive terminal, and explicit confirmation. Never run against an unapproved database.",
     );
     return { status: "help" };
   }
@@ -231,7 +222,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     .then((result) => {
       if (result.status === "help") return;
       stdout.write(
-        "Three initial administrator accounts were created. No account details are displayed.\n",
+        "The initial administrator account was created. No account details are displayed.\n",
       );
     })
     .catch(() => {
