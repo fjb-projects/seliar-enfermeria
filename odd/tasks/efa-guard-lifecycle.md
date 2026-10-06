@@ -26,7 +26,7 @@ El alcance funcional aceptado establece que las personas con acceso EFA inician 
 - Estimación del alcance completo: aproximadamente 800–1.400 líneas de autoría. Es una proyección para planificar, no un límite ni una aceptación; no hacer code golf.
 - Estrategia: `ask-on-risk`, con estrategia de cadena previamente aceptada `feature-branch-chain`; sin PR ni push autorizados.
 - Rama apilada: `feat/efa-guard-lifecycle`; base/punto de rama `ef055a581d91b0928864da88fdf140f1021fbe9d` (trabajo anterior revisado, no reabrir su revisión).
-- B1 fue el alcance del primer work unit. B2 se implementó por separado y permanece como cambio local, pendiente de commit/revisión del padre.
+- B1 fue el alcance del primer work unit. B2 se implementó y quedó en el commit `c72a12f` — `feat(efa): add manual guard lifecycle`; la evaluación/revisión nativa sigue pendiente.
 
 ## Tareas
 
@@ -51,7 +51,7 @@ El alcance funcional aceptado establece que las personas con acceso EFA inician 
 
 ### B2 — Inicio/cierre de guardia y asociaciones temporales a bases
 
-**Estado:** implementación y verificaciones locales completadas en el árbol de trabajo; pendiente de commit/revisión del padre.
+**Estado:** commit local `c72a12f` — `feat(efa): add manual guard lifecycle`; implementación y verificaciones locales completadas. Pendiente de evaluación/revisión nativa; la migración sigue sin aplicarse.
 
 - [x] Permitir a personas con EFA efectivo iniciar y terminar guardias manualmente; pedir declaración explícita de presencia en Central sin usar GPS.
 - [x] Asociar una o varias bases activas por intervalos derivados de eventos append-only; registrar actor autenticado y hora de base de datos para cada alta/baja durante una guardia.
@@ -77,7 +77,7 @@ El alcance funcional aceptado establece que las personas con acceso EFA inician 
 
 - B1 quedó en un commit local de 12 archivos y 1.699 líneas cambiadas (incluido snapshot generado). El spot-check del padre repitió `npm.cmd run test`: 9 archivos y 39 pruebas, exit 0. El usuario confirmó que los dos scripts de bootstrap se conservan localmente pero se dejan intencionalmente sin seguimiento; las eliminaciones staged y las reglas correspondientes de `.gitignore` son deliberadas y deben preservarse.
 - La evaluación nativa dio riesgo `medium`, `review_due: true`, motivo `slice_budget_reached`. La revisión de B1 quedó aprobada y reconocida en la línea `review-00819d4bd8cf2e4e`, con un advisory no bloqueante: `R3-001`, sobre la UI de versiones obsoletas del catálogo. El límite revisado permanece en `ef055a581d91b0928864da88fdf140f1021fbe9d`.
-- La implementación B2 está completa en el árbol de trabajo: pasaron 47/47 pruebas, typecheck, build y dos generaciones offline convergentes. Sigue local y pendiente de commit/revisión del padre; no se aplicó la migración.
+- B2 quedó en el commit `c72a12f` — `feat(efa): add manual guard lifecycle` (14 archivos). El spot-check del padre repitió `npm.cmd run typecheck`: exit 0. También pasaron 47/47 pruebas, build y dos generaciones offline convergentes. La evaluación/revisión nativa está pendiente y no se aplicó la migración.
 
 ## Archivos relevantes
 
