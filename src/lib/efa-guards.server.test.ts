@@ -27,6 +27,7 @@ function createStore() {
   const guardAudit: unknown[] = [];
   let actor = { isActive: true, roles: ["efa"] as Array<"efa" | "admin"> };
   let now = new Date("2026-10-06T10:00:00.000Z");
+  let databaseClockValue: unknown = now;
   const tx = {
     async findActor() {
       return actor;
@@ -76,7 +77,7 @@ function createStore() {
       guardAudit.push(input);
     },
     async databaseNow() {
-      return now;
+      return databaseClockValue;
     },
   } satisfies EfaGuardTransaction;
   return {
@@ -93,11 +94,48 @@ function createStore() {
     },
     setNow(next: Date) {
       now = next;
+      databaseClockValue = next;
+    },
+    setDatabaseNow(value: unknown) {
+      databaseClockValue = value;
     },
   };
 }
 
 describe("EFA guard lifecycle service", () => {
+  it("normalizes raw database timestamp strings for guard start and end", async () => {
+    const db = createStore();
+    const service = createEfaGuardsService(db.store, { newId: () => "guard-1" });
+    db.setDatabaseNow("2026-10-06T10:00:00.000Z");
+
+    await service.start("user-1", { declaredAtCentral: true });
+    expect(db.guards[0]!.startedAt).toEqual(new Date("2026-10-06T10:00:00.000Z"));
+    expect(db.guardAudit[0]).toMatchObject({
+      action: "started",
+      afterState: { startedAt: "2026-10-06T10:00:00.000Z", endedAt: null },
+    });
+
+    db.setDatabaseNow("2026-10-06T18:00:00.000Z");
+    await service.end("user-1", { guardId: "guard-1", expectedVersion: 1 });
+    expect(db.guards[0]!.endedAt).toEqual(new Date("2026-10-06T18:00:00.000Z"));
+  });
+
+  it.each([
+    ["invalid timestamp text", "not-a-timestamp"],
+    ["missing timestamp", undefined],
+    ["invalid Date", new Date(Number.NaN)],
+  ])("rejects a %s without inserting a guard", async (_description, value) => {
+    const db = createStore();
+    const service = createEfaGuardsService(db.store, { newId: () => "guard-1" });
+    db.setDatabaseNow(value);
+
+    await expect(service.start("user-1", { declaredAtCentral: true })).rejects.toThrow(
+      /hora válida de la base de datos/i,
+    );
+    expect(db.guards).toEqual([]);
+    expect(db.guardAudit).toEqual([]);
+  });
+
   it("requires a current EFA actor and an explicit Central declaration to start manually", async () => {
     const db = createStore();
     db.setActor({ isActive: true, roles: [] });

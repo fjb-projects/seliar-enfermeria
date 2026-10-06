@@ -138,6 +138,22 @@ El principal técnico debe usar identidad reservada `.invalid` y colisionar de f
 
 Después de confirmar B5, el siguiente work unit funcional puede abordar episodios, comunicaciones y el catálogo de conductas observables. El ciclo de guardia quedó implementado en B2/B3; planificación/turnos nominales de enfermería permanecen fuera del MVP acordado.
 
+### B6 — Normalizar la hora de base de datos de guardia
+
+**Problema aceptado:** al iniciar una guardia, el flujo puede fallar al serializar la hora de base de datos. El adaptador SQL puede devolver `now()` como texto ISO en vez de `Date`, aunque el tipo declarado diga `Date`; luego el flujo llama `.toISOString()`.
+
+**Ruta:** corrección pequeña en el adaptador de guardias, con prueba determinista sobre el seam real que usa `databaseNow`. Estimación: aproximadamente 60–100 líneas propias. Sin cambios de interfaz, permisos, esquema ni migraciones.
+
+**Aceptación:** normalizar valores `Date` existentes y cadenas de timestamp válidas a una fecha válida antes de devolver el reloj; rechazar explícitamente resultados ausentes o inválidos con mensaje seguro, sin filtrar detalles de base de datos. Probar que inicio/cierre usan el adaptador compatible con ambas formas; no afirmar conexión PostgreSQL real.
+
+- [x] Observar RED inyectando el valor string realista del reloj en el adapter/seam de producción.
+- [x] Implementar conversión validada y mensaje seguro para valores nulos o inválidos, preservando soporte `Date`.
+- [x] Confirmar GREEN focal y ejecutar suite, typecheck, build, formato y `git diff --check`.
+
+**TDD observado:** con el valor raw "2026-10-06T10:00:00.000Z", el inicio primero falló con `startedAt.toISOString is not a function`; valores inválidos/faltantes producían errores JS no seguros. Después de normalizar en el límite de servicio, el set focal `npm.cmd run test -- src/lib/efa-guards.server.test.ts src/lib/efa-guards.functions.test.ts src/components/EfaGuardPanel.test.tsx` pasó 3 archivos/15 pruebas. La suite completa pasó 13 archivos/60 pruebas; `npm.cmd run typecheck` y `npm.cmd run build` pasaron (solo avisos existentes de validadores/dependencia Vite). `npx.cmd --no-install prettier --write/check` y `git diff --check` se confirman en el cierre.
+
+**Límites:** prueba fake/adaptador no acredita el tipo runtime entregado por Neon/PostgreSQL; una verificación real requiere entorno y autorización separados. No leer entorno ni conectar una DB durante B6.
+
 **Límites:** pruebas estructurales no verifican sintaxis/atomicidad/comportamiento de PostgreSQL ni estado previo del destino. No aplicar migración, conectar DB ni alinear journal de una base real sin autorización explícita.
 
 **Commit y evaluación:** `1dab22d` — `feat(db): add a command to apply pending SQL migrations`. El rango B3/B4 desde `d9cab4420b83e78e48f383c98384664ab72d113e` contiene 116 líneas cambiadas, riesgo nativo `medium`, `review_due: false`, motivo `under_budget`. No se inició una revisión nueva de ese rango ni se ejecutó una migración real; ambas comprobaciones se distinguen del resultado funcional local.

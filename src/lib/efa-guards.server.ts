@@ -58,10 +58,19 @@ export interface EfaGuardTransaction {
   listBaseEvents(guardId: string): Promise<EfaGuardBaseEvent[]>;
   appendBaseEvent(input: Omit<EfaGuardBaseEvent, "baseName" | "occurredAt">): Promise<void>;
   appendGuardAudit(input: EfaGuardAuditInput): Promise<void>;
-  databaseNow(): Promise<Date>;
+  databaseNow(): Promise<unknown>;
 }
 export interface EfaGuardStore {
   transaction<T>(work: (tx: EfaGuardTransaction) => Promise<T>): Promise<T>;
+}
+
+function asDatabaseTimestamp(value: unknown): Date {
+  const timestamp =
+    value instanceof Date ? value : typeof value === "string" ? new Date(value) : null;
+  if (!timestamp || !Number.isFinite(timestamp.getTime())) {
+    throw new Error("No se pudo obtener una hora válida de la base de datos.");
+  }
+  return timestamp;
 }
 
 export type EfaGuardServiceDependencies = { newId?: () => string };
@@ -150,7 +159,7 @@ export function createEfaGuardsService(
           throw new Error("Ya tienes una guardia abierta. Termínala antes de iniciar otra.");
         }
         const id = newId();
-        const startedAt = await tx.databaseNow();
+        const startedAt = asDatabaseTimestamp(await tx.databaseNow());
         await tx.insertGuard({
           id,
           ownerUserId: userId,
@@ -218,7 +227,7 @@ export function createEfaGuardsService(
         const guard = await ownedOrAdmin(tx, userId, input.guardId);
         assertVersion(guard, input.expectedVersion);
         if (guard.endedAt) throw new Error("La guardia ya está terminada.");
-        const endedAt = await tx.databaseNow();
+        const endedAt = asDatabaseTimestamp(await tx.databaseNow());
         if (endedAt < guard.startedAt)
           throw new Error("La hora de cierre no puede ser anterior al inicio.");
         await tx.updateGuard(guard.id, guard.version, {
@@ -341,7 +350,7 @@ const drizzleStore: EfaGuardStore = {
         },
         async databaseNow() {
           const result = await db.execute(sql`select now() as now`);
-          return result.rows[0]!["now"] as Date;
+          return result.rows[0]?.["now"];
         },
       };
       return work(tx);
