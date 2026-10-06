@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   createEfaEpisodesService,
+  type EfaEpisodeAuditRecord,
+  type EfaEpisodeNoticeRecord,
   type EfaEpisodeRecord,
   type EfaEpisodeTransaction,
 } from "./efa-episodes.server";
@@ -32,8 +34,8 @@ function createStore() {
     ["guard-other", { id: "guard-other", ownerUserId: "other", startedAt: opened, endedAt: null }],
   ]);
   const episodes: EfaEpisodeRecord[] = [];
-  const audits: Array<Parameters<EfaEpisodeTransaction["appendAudit"]>[0]> = [];
-  const notices: Array<Parameters<EfaEpisodeTransaction["appendNotice"]>[0]> = [];
+  const audits: EfaEpisodeAuditRecord[] = [];
+  const notices: EfaEpisodeNoticeRecord[] = [];
   const operationLookup: Array<{
     id: string;
     episodeId: string;
@@ -49,6 +51,7 @@ function createStore() {
   const guardLocks: string[] = [];
   const episodeLocks: string[] = [];
   let auditNumber = 0;
+  let noticeNumber = 0;
   const detachEpisode = (episode: EfaEpisodeRecord): EfaEpisodeRecord => ({
     ...episode,
     eventAt: new Date(episode.eventAt),
@@ -109,16 +112,36 @@ function createStore() {
       Object.assign(episode, next, { updatedAt: new Date("2026-10-06T11:00:00.000Z") });
     },
     async appendAudit(input: Parameters<EfaEpisodeTransaction["appendAudit"]>[0]) {
-      audits.push(input);
       auditNumber += 1;
       const id = `audit-${auditNumber}`;
+      audits.push({ ...input, id, occurredAt: new Date("2026-10-06T10:00:00.000Z") });
       return id;
     },
     async insertOperation(input: Omit<(typeof operationLookup)[number], "id">) {
       operationLookup.push({ ...input, id: `op-${operationLookup.length + 1}` });
     },
     async appendNotice(input: Parameters<EfaEpisodeTransaction["appendNotice"]>[0]) {
-      notices.push(input);
+      noticeNumber += 1;
+      notices.push({
+        ...input,
+        id: `notice-${noticeNumber}`,
+        createdAt: new Date("2026-10-06T11:00:00.000Z"),
+        readAt: null,
+      });
+    },
+    async listAudits(episodeId: string) {
+      return audits.filter((audit) => audit.episodeId === episodeId);
+    },
+    async listNotices(recipientUserId: string) {
+      return notices.filter((notice) => notice.recipientUserId === recipientUserId);
+    },
+    async markNoticeRead(noticeId: string, recipientUserId: string) {
+      const notice = notices.find(
+        (item) => item.id === noticeId && item.recipientUserId === recipientUserId,
+      );
+      if (!notice) return null;
+      notice.readAt ??= new Date("2026-10-06T12:00:00.000Z");
+      return notice;
     },
   } satisfies EfaEpisodeTransaction;
   return {
@@ -194,6 +217,31 @@ describe("EFA episode draft persistence", () => {
     });
     expect(JSON.stringify(draft)).not.toMatch(/operationId|password|credential|token/i);
     expect(JSON.stringify(db.operationLookup)).not.toContain("Calle 123");
+  });
+
+  it("accepts a time-only draft and allows clearing both optional identifiers", async () => {
+    const db = createStore();
+    const service = createEfaEpisodesService(db.store, { newId: () => "episode-1" });
+    const created = await service.create(
+      owner,
+      createInput({ motive: null, address: null, interventionNumber: null }),
+    );
+    expect(created.episode).toMatchObject({
+      motive: null,
+      address: null,
+      interventionNumber: null,
+    });
+
+    const updated = await service.update(owner, {
+      episodeId: created.episode.id,
+      expectedVersion: 1,
+      operationId: "77777777-7777-4777-8777-777777777777",
+      eventAt: "2026-10-06T11:00:00.000Z",
+      motive: null,
+      address: null,
+      interventionNumber: null,
+    });
+    expect(updated.episode).toMatchObject({ version: 2, motive: null, address: null });
   });
 
   it("rejects inactive actors, revoked editors, and foreign or closed guards without audit", async () => {
@@ -439,5 +487,72 @@ describe("EFA episode draft persistence", () => {
     expect(db.audits).toHaveLength(1);
     expect(db.operationLookup).toHaveLength(1);
     expect(db.guardLocks).toEqual([guardId, guardId]);
+  });
+
+  it("returns append-only history only to the owner or an administrator", async () => {
+    const db = createStore();
+    const service = createEfaEpisodesService(db.store, { newId: () => "episode-1" });
+    await service.create(owner, createInput());
+    await service.update(owner, {
+      episodeId: "episode-1",
+      expectedVersion: 1,
+      operationId: "99999999-9999-4999-8999-999999999999",
+      eventAt: "2026-10-06T10:15:00.000Z",
+      motive: "Cambio de prioridad",
+      address: "Calle 123, piso 2",
+      interventionNumber: "00073",
+    });
+
+    db.setRoles(owner, []);
+    const history = await service.history(owner, "episode-1");
+    expect(history).toEqual([
+      expect.objectContaining({
+        action: "created",
+        versionBefore: null,
+        versionAfter: 1,
+        beforeState: null,
+        afterState: expect.objectContaining({ motive: "Traslado de paciente" }),
+      }),
+      expect.objectContaining({
+        action: "updated",
+        versionBefore: 1,
+        versionAfter: 2,
+        beforeState: expect.objectContaining({ motive: "Traslado de paciente" }),
+        afterState: expect.objectContaining({ motive: "Cambio de prioridad" }),
+      }),
+    ]);
+    await expect(service.history("admin", "episode-1")).resolves.toHaveLength(2);
+    await expect(service.history(owner, "foreign-episode")).rejects.toThrow(/encontró/i);
+  });
+
+  it("lists correction notices only for their active recipient and acknowledges them idempotently", async () => {
+    const db = createStore();
+    const service = createEfaEpisodesService(db.store, { newId: () => "episode-1" });
+    await service.create(owner, createInput());
+    await service.update(admin, {
+      episodeId: "episode-1",
+      expectedVersion: 1,
+      operationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      eventAt: "2026-10-06T10:15:00.000Z",
+      motive: "Ajuste administrativo",
+      address: "Calle 123, piso 2",
+      interventionNumber: "00073",
+    });
+    const noticeId = db.notices[0]!.id;
+    db.setRoles(owner, []);
+    const notice = await service.listNotices("owner");
+    expect(notice).toEqual([
+      expect.objectContaining({ id: noticeId, episodeId: "episode-1", readAt: null }),
+    ]);
+    expect(JSON.stringify(notice)).not.toMatch(/address|Ajuste administrativo|Calle 123/i);
+    await expect(service.listNotices("admin")).resolves.toEqual([]);
+    await expect(service.markNoticeRead("admin", noticeId)).rejects.toThrow(/encontró/i);
+
+    const first = await service.markNoticeRead("owner", noticeId);
+    const repeated = await service.markNoticeRead("owner", noticeId);
+    expect(first.readAt).toBeTruthy();
+    expect(repeated.readAt).toBe(first.readAt);
+    expect(db.notices).toHaveLength(1);
+    expect(db.audits).toHaveLength(2);
   });
 });

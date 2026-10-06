@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import { getDatabase } from "../db/index.server";
 import {
@@ -45,6 +45,25 @@ export type EfaEpisodeOperationRecord = {
   appliedVersion: number;
   changed: boolean;
 };
+export type EfaEpisodeAuditRecord = {
+  id: string;
+  episodeId: string;
+  actorUserId: string;
+  action: "created" | "updated";
+  versionBefore: number | null;
+  versionAfter: number;
+  beforeState: EfaEpisodeState | null;
+  afterState: EfaEpisodeState;
+  occurredAt: Date;
+};
+export type EfaEpisodeNoticeRecord = {
+  id: string;
+  episodeId: string;
+  auditId: string;
+  recipientUserId: string;
+  createdAt: Date;
+  readAt: Date | null;
+};
 
 export interface EfaEpisodeTransaction {
   findActor(userId: string): Promise<EfaEpisodeActor | null>;
@@ -83,6 +102,9 @@ export interface EfaEpisodeTransaction {
     recipientUserId: string;
   }): Promise<void>;
   insertOperation(input: Omit<EfaEpisodeOperationRecord, "id">): Promise<void>;
+  listAudits(episodeId: string): Promise<EfaEpisodeAuditRecord[]>;
+  listNotices(recipientUserId: string): Promise<EfaEpisodeNoticeRecord[]>;
+  markNoticeRead(noticeId: string, recipientUserId: string): Promise<EfaEpisodeNoticeRecord | null>;
 }
 export interface EfaEpisodeStore {
   transaction<T>(work: (tx: EfaEpisodeTransaction) => Promise<T>): Promise<T>;
@@ -202,6 +224,49 @@ export function createEfaEpisodesService(
           throw new Error("No se encontró el episodio.");
         }
         return view(record, canEdit);
+      });
+    },
+
+    async history(userId: string, episodeId: string) {
+      return store.transaction(async (tx) => {
+        const { roles } = await actor(tx, userId, false);
+        const record = await tx.findEpisode(episodeId);
+        if (!record || (record.ownerUserId !== userId && !roles.includes("admin"))) {
+          throw new Error("No se encontró el episodio.");
+        }
+        return tx.listAudits(episodeId).then((history) =>
+          history.map((item) => ({
+            ...item,
+            occurredAt: item.occurredAt.toISOString(),
+          })),
+        );
+      });
+    },
+
+    async listNotices(userId: string) {
+      return store.transaction(async (tx) => {
+        await actor(tx, userId, false);
+        const notices = await tx.listNotices(userId);
+        return notices.map(({ id, episodeId, createdAt, readAt }) => ({
+          id,
+          episodeId,
+          createdAt: createdAt.toISOString(),
+          readAt: readAt?.toISOString() ?? null,
+        }));
+      });
+    },
+
+    async markNoticeRead(userId: string, noticeId: string) {
+      return store.transaction(async (tx) => {
+        await actor(tx, userId, false);
+        const notice = await tx.markNoticeRead(noticeId, userId);
+        if (!notice) throw new Error("No se encontró el aviso.");
+        return {
+          id: notice.id,
+          episodeId: notice.episodeId,
+          createdAt: notice.createdAt.toISOString(),
+          readAt: notice.readAt?.toISOString() ?? null,
+        };
       });
     },
 
@@ -517,6 +582,47 @@ const drizzleStore: EfaEpisodeStore = {
         },
         async insertOperation(input) {
           await db.insert(efaEpisodeOperation).values(input);
+        },
+        async listAudits(episodeId) {
+          const rows = await db
+            .select()
+            .from(efaEpisodeAudit)
+            .where(eq(efaEpisodeAudit.episodeId, episodeId))
+            .orderBy(asc(efaEpisodeAudit.versionAfter));
+          return rows as unknown as EfaEpisodeAuditRecord[];
+        },
+        async listNotices(recipientUserId) {
+          const rows = await db
+            .select()
+            .from(efaEpisodeNotice)
+            .where(eq(efaEpisodeNotice.recipientUserId, recipientUserId))
+            .orderBy(desc(efaEpisodeNotice.createdAt));
+          return rows;
+        },
+        async markNoticeRead(noticeId, recipientUserId) {
+          const updated = await db
+            .update(efaEpisodeNotice)
+            .set({ readAt: sql`coalesce(${efaEpisodeNotice.readAt}, now())` })
+            .where(
+              and(
+                eq(efaEpisodeNotice.id, noticeId),
+                eq(efaEpisodeNotice.recipientUserId, recipientUserId),
+                isNull(efaEpisodeNotice.readAt),
+              ),
+            )
+            .returning();
+          if (updated[0]) return updated[0];
+          const existing = await db
+            .select()
+            .from(efaEpisodeNotice)
+            .where(
+              and(
+                eq(efaEpisodeNotice.id, noticeId),
+                eq(efaEpisodeNotice.recipientUserId, recipientUserId),
+              ),
+            )
+            .limit(1);
+          return existing[0] ?? null;
         },
       };
       return work(tx);

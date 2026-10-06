@@ -3,6 +3,7 @@ import {
   episodeCreateSchema,
   episodeIdSchema,
   episodeUpdateSchema,
+  noticeIdSchema,
 } from "./efa-episodes.functions";
 
 const episodeId = "11111111-1111-4111-8111-111111111111";
@@ -50,5 +51,13 @@ describe("EFA episode server function inputs", () => {
     expect(episodeUpdateSchema.safeParse({ ...input, actorUserId: "attacker" }).success).toBe(
       false,
     );
+  });
+
+  it("accepts only a notice UUID for a recipient-scoped read acknowledgement", () => {
+    expect(noticeIdSchema.safeParse(episodeId).success).toBe(true);
+    expect(
+      noticeIdSchema.safeParse({ noticeId: episodeId, recipientUserId: "other" }).success,
+    ).toBe(false);
+    expect(noticeIdSchema.safeParse("not-a-uuid").success).toBe(false);
   });
 });

@@ -44,13 +44,40 @@ Permitir que una persona EFA registre episodios de atención propios desde su gu
 
 ### E2 — Interfaz mobile-first, historial y avisos
 
-**Ruta:** delegado; nueva vista privada y enlaces desde el flujo EFA. Estimación: 300–500 líneas propias. Derivar superficies exactas antes de delegar.
+**Ruta:** delegado; página privada, panel reutilizable, navegación y endpoints de avisos. Estimación: 500–800 líneas propias; no comprimir para cumplir un umbral.
+**Estado:** implementado localmente; commit y revisión del padre pendientes. Sin conexión a base real.
 
-- [ ] Listar episodios propios y ofrecer lectura administrativa autorizada; mostrar identificación por motivo/dirección o fecha cuando faltan ambos.
-- [ ] Crear desde la guardia propia abierta, editar datos de borrador y consultar historial con pocas decisiones por pantalla.
-- [ ] Mostrar guardado pendiente/confirmado/error y conflictos sin sobrescritura silenciosa; bloquear edición tras revocar EFA sin perder lectura del historial.
-- [ ] Mostrar avisos de corrección administrativa y permitir al destinatario marcar lectura.
-- [ ] Probar controles y visibilidad con los runners existentes, sin nuevas dependencias si no son necesarias.
+- [x] Agregar `/episodios-efa` bajo el panel autenticado, visible a cualquier cuenta activa; enlazarlo desde navegación y el panel de guardia. No exigir EFA para leer el propio historial.
+- [x] Crear/editar en español neutral y mobile-first: campo focalizado por paso, fecha/hora local correctamente convertida, motivo, dirección exacta privada e intervención opcionales; mostrar borrador sin estados terminales.
+- [x] Ofrecer historial propio a cuenta activa tras revocar EFA y administración de todos; habilitar escritura solo con `canEdit` y creación únicamente desde guardia propia abierta.
+- [x] Mostrar historial de auditoría autorizado con valores antes/después, versiones y hora de captura/hecho; distinguir motivo/dirección de fallback temporal.
+- [x] Implementar lectura/confirmación idempotente de avisos solo para su destinatario, sin contenido privado ni privilegio administrativo transversal.
+- [x] Reintentar con la misma identidad y payload congelado; distinguir resultado aplicado del estado de refresco, preservar borrador en conflicto y exigir carga explícita de versión remota antes de volver a editar. Sin cola offline persistente (E3).
+- [x] Agregar helper cliente puro para pruebas de UUID/payload estable, congelamiento, conflicto y conversiones horarias; no agregar dependencias.
+- [x] Corregir el baseline del formulario después de una escritura confirmada para que coincida con la versión actual del servidor antes de liberar el reintento; mantener el conflicto sin rebasar silenciosamente.
+- [x] Aceptar episodios identificados solo por fecha/hora y serializar doble envío mientras carga el helper cliente para evitar UUID distintos.
+- [x] Fijar locale/zona horaria en la primera representación para que SSR e hidratación no dependan de la zona horaria del navegador.
+
+**Aceptación:** lectura/autorización conserva las reglas de E1; formularios no informan éxito hasta confirmar la operación, ni convierten errores de refresco en supuestos errores de escritura. Avisos propios se pueden marcar leídos una vez o reintentarse con seguridad. Navegar fuera puede perder cambios pendientes en memoria, comunicado explícitamente; no se reclama almacenamiento offline.
+
+**Superficies E2:** `src/components/EfaEpisodePanel.tsx`, `src/components/EfaEpisodePanel.test.tsx`, `src/routes/episodios-efa.tsx`, `src/routes/panel.tsx`, `src/components/EfaGuardPanel.tsx`, `src/components/EfaGuardPanel.test.tsx`, `src/lib/efa-episodes.functions.ts`, `src/lib/efa-episodes.functions.test.ts`, `src/lib/efa-episodes.server.ts`, `src/lib/efa-episodes.server.test.ts`, `src/lib/efa-episodes.client.ts`, `src/lib/efa-episodes.client.test.ts`, `src/routeTree.gen.ts` y este documento. No modificar persistencia o migraciones, autenticación común, ni formularios públicos.
+
+- [x] Listar episodios propios y ofrecer lectura administrativa autorizada; mostrar identificación por motivo/dirección o fecha cuando faltan ambos.
+- [x] Crear desde la guardia propia abierta, editar datos de borrador y consultar historial con pocas decisiones por pantalla.
+- [x] Mostrar guardado pendiente/confirmado/error y conflictos sin sobrescritura silenciosa; bloquear edición tras revocar EFA sin perder lectura del historial.
+- [x] Mostrar avisos de corrección administrativa y permitir al destinatario marcar lectura.
+- [x] Probar controles y visibilidad con los runners existentes, sin nuevas dependencias.
+
+#### E2 — Evidencia observada
+
+- RED observado antes de las cuatro correcciones: 4 pruebas fallaron para baseline confirmado, formulario solo temporal, doble envío con helper diferido y formato con zona fija. GREEN focal: `npm.cmd run test -- src/lib/efa-episodes.server.test.ts src/lib/efa-episodes.functions.test.ts src/lib/efa-episodes.client.test.ts src/components/EfaEpisodePanel.test.tsx src/components/EfaGuardPanel.test.tsx` pasó 25/25; el test del panel además verifica que helper diferido solo crea un UUID y una escritura.
+- `npm.cmd run test`: 17 archivos, 86/86 pruebas; `npm.cmd run typecheck`: aprobado.
+- `npm.cmd run build`: aprobado después de las correcciones y generó la ruta `/episodios-efa` en `src/routeTree.gen.ts`. Se mantienen advertencias existentes de `vite-tsconfig-paths` y `inputValidator()` de otros módulos.
+- ESLint focalizado de los 12 archivos TypeScript E2: aprobado sin errores ni advertencias; Prettier check del documento y archivos soportados: aprobado; `git diff --check` de superficies E2, incluida la ruta generada: aprobado.
+- No hubo prueba de navegador ni uso de PostgreSQL/Neon. La autorización servidor/fake, serialización de recibos y restricciones de destinatario sí tienen pruebas deterministas, pero la experiencia real con sesiones vigentes y timestamps del servidor requiere integración posterior.
+- El volumen propio observado supera la previsión inicial y ronda 1.200 líneas (sin contar `src/routeTree.gen.ts` generado). Incluye el panel con estados explícitos de reintento/conflicto, historial/avisos, endpoints autorizados y regresiones; no se acortó por el umbral orientativo.
+- Verificación independiente posterior identificó cuatro defectos del panel: baseline que podía quedar viejo tras confirmar/actualizar, validación UI que exigía motivo o dirección, doble envío antes de resolver la importación dinámica y formato de fecha dependiente de timezone SSR/navegador. Corrección autorizada en el mismo alcance E2; agregar RED/GREEN con helpers compartidos consumidos por producción, no solo pruebas SSR.
+- Rollback limitado a las superficies E2; no modificar migración E1. Commit y revisión nativa pendientes del padre; validación de la migración y persistencia offline permanecen fuera de E2.
 
 ### E3 — Continuidad temporal del navegador
 
@@ -91,8 +118,8 @@ Permitir que una persona EFA registre episodios de atención propios desde su gu
 - [x] Corregir el fake de `src/lib/efa-episodes.server.test.ts` para devolver registros separados del objeto almacenado y comprobar versiones/estados completos antes y después de actualizaciones propias y administrativas. Advisory `R3-001`: el fake compartía referencias mutables, lo que elevaba `versionBefore` antes de guardar la auditoría. Se corrigió el fake; no se requirió cambio productivo.
 - RED observado: `npm.cmd run test -- src/lib/efa-episodes.server.test.ts` falló 2/9 casos nuevos: ambos recibieron `versionBefore: 2` donde correspondía `1`.
 - GREEN y checks: focused server tests 9/9; `npm.cmd run test` 15 archivos/73 pruebas; `npm.cmd run typecheck`; Prettier check de los dos archivos; `git diff --check`. Todo aprobado.
-- Runtime harness: N/A, es un cambio de test fake/documentación, sin nueva frontera de ejecución. Rollback: revertir únicamente este test y su evidencia; el servicio productivo no cambió. Commit identity pendiente del padre.
+- Runtime harness: N/A, es un cambio de test fake/documentación, sin nueva frontera de ejecución. Rollback: revertir únicamente este test y su evidencia; el servicio productivo no cambió. Commit local informado por el padre: `01b0f69`.
 
 ## Estado y siguiente paso
 
-E1 quedó implementada, registrada y revisada; E1-A1 ahora refuerza sus aserciones de auditoría sin modificar el servicio. Siguen pendientes el commit padre de este seguimiento, la aplicación/verificación real de la migración y E2 (interfaz privada)/E3 (cola local). Comunicaciones, conductas observables, despachos y coordinación policial continúan conforme al alcance acordado. El espejo Engram permanece pendiente por falta de identidad runtime registrada.
+E1 y E1-A1 quedaron implementadas; E1-A1 refuerza las aserciones del fake sin modificar el servicio. E2 implementa la interfaz privada y avisos, con commit y revisión del padre pendientes. Siguen pendientes la aplicación/verificación real de la migración y E3 (cola local). Comunicaciones, conductas observables, despachos y coordinación policial continúan conforme al alcance acordado. El espejo Engram permanece pendiente por falta de identidad runtime registrada.

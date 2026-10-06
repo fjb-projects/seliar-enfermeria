@@ -1,9 +1,17 @@
 import { renderToStaticMarkup } from "react-dom/server";
+import type { ComponentProps } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { EfaGuardPanel, type GuardView } from "./EfaGuardPanel";
 
 vi.mock("@tanstack/react-start", () => ({
   useServerFn: () => vi.fn(async () => []),
+}));
+vi.mock("@tanstack/react-router", () => ({
+  Link: ({ children, to, ...props }: ComponentProps<"a"> & { to: string }) => (
+    <a href={to} {...props}>
+      {children}
+    </a>
+  ),
 }));
 vi.mock("@/lib/efa-guards.functions", () => ({
   correctEfaGuardEnd: vi.fn(),
@@ -59,5 +67,6 @@ describe("EfaGuardPanel", () => {
 
     expect(selectedBases).toEqual(["Central", "Norte"]);
     expect(html).toContain("Oeste");
+    expect(html).toContain("/episodios-efa");
   });
 });

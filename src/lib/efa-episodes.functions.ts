@@ -4,6 +4,7 @@ import { currentAccessSession } from "./auth.functions";
 import { requireActiveSession, requireEfa } from "./access";
 
 export const episodeIdSchema = z.string().uuid();
+export const noticeIdSchema = z.string().uuid();
 const positiveVersion = z.number().int().positive();
 const eventAt = z.iso.datetime({ offset: true });
 const motive = z.string().trim().max(2000).nullable().optional();
@@ -46,6 +47,25 @@ export const getEfaEpisode = createServerFn({ method: "GET" })
   .handler(async ({ data }) => {
     const access = requireActiveSession(await currentAccessSession());
     return getService().then((service) => service.get(access.userId, data));
+  });
+
+export const getEfaEpisodeHistory = createServerFn({ method: "GET" })
+  .validator((data: unknown) => episodeIdSchema.parse(data))
+  .handler(async ({ data }) => {
+    const access = requireActiveSession(await currentAccessSession());
+    return getService().then((service) => service.history(access.userId, data));
+  });
+
+export const listEfaEpisodeNotices = createServerFn({ method: "GET" }).handler(async () => {
+  const access = requireActiveSession(await currentAccessSession());
+  return getService().then((service) => service.listNotices(access.userId));
+});
+
+export const markEfaEpisodeNoticeRead = createServerFn({ method: "POST" })
+  .validator((data: unknown) => noticeIdSchema.parse(data))
+  .handler(async ({ data }) => {
+    const access = requireActiveSession(await currentAccessSession());
+    return getService().then((service) => service.markNoticeRead(access.userId, data));
   });
 
 export const createEfaEpisode = createServerFn({ method: "POST" })

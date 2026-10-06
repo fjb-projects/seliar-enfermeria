@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -99,6 +100,9 @@ export function EfaGuardPanel({
 
   return (
     <div className="space-y-5">
+      <Button asChild variant="outline" className="min-h-11">
+        <Link to="/episodios-efa">Ver episodios de atención</Link>
+      </Button>
       <Card>
         <CardHeader>
           <CardTitle>Guardia EFA</CardTitle>
