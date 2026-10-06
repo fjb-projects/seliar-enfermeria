@@ -32,8 +32,11 @@ CREATE TABLE "efa_guard_base_event" (
 	"guard_id" uuid NOT NULL,
 	"base_id" uuid NOT NULL,
 	"actor_user_id" text NOT NULL,
+	"sequence" integer NOT NULL,
 	"action" text NOT NULL,
 	"occurred_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "efa_guard_base_event_guard_sequence_unique" UNIQUE("guard_id","sequence"),
+	CONSTRAINT "efa_guard_base_event_sequence_positive" CHECK ("efa_guard_base_event"."sequence" > 0),
 	CONSTRAINT "efa_guard_base_event_action_allowed" CHECK ("efa_guard_base_event"."action" in ('added', 'removed'))
 );
 --> statement-breakpoint

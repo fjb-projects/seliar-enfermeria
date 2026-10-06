@@ -78,8 +78,15 @@ describe("database schema foundation", () => {
     expect(getTableConfig(efaGuard).checks.map((item) => item.name)).toEqual(
       expect.arrayContaining(["efa_guard_version_positive", "efa_guard_end_after_start"]),
     );
-    expect(getTableConfig(efaGuardBaseEvent).checks.map((item) => item.name)).toContain(
-      "efa_guard_base_event_action_allowed",
+    const baseEvents = getTableConfig(efaGuardBaseEvent);
+    expect(baseEvents.uniqueConstraints.map((constraint) => constraint.name)).toContain(
+      "efa_guard_base_event_guard_sequence_unique",
+    );
+    expect(baseEvents.checks.map((item) => item.name)).toEqual(
+      expect.arrayContaining([
+        "efa_guard_base_event_sequence_positive",
+        "efa_guard_base_event_action_allowed",
+      ]),
     );
     expect(getTableName(efaGuardAudit)).toBe("efa_guard_audit");
     expect(getTableConfig(efaGuardAudit).checks.map((item) => item.name)).toEqual(

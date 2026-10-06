@@ -24,6 +24,7 @@ export type EfaGuardBaseEvent = {
   baseId: string;
   baseName: string;
   actorUserId: string;
+  sequence: number;
   action: "added" | "removed";
   occurredAt: Date;
 };
@@ -193,19 +194,22 @@ export function createEfaGuardsService(
         const add = requested.filter((id) => !current.has(id));
         const remove = [...current].filter((id) => !next.has(id));
         if (!add.length && !remove.length) return;
+        let sequence = guard.version;
         for (const baseId of [...add, ...remove]) {
+          sequence += 1;
+          await tx.updateGuard(guard.id, sequence - 1, {
+            startedAt: guard.startedAt,
+            endedAt: null,
+            version: sequence,
+          });
           await tx.appendBaseEvent({
             guardId: guard.id,
             baseId,
             actorUserId: userId,
+            sequence,
             action: add.includes(baseId) ? "added" : "removed",
           });
         }
-        await tx.updateGuard(guard.id, guard.version, {
-          startedAt: guard.startedAt,
-          endedAt: null,
-          version: guard.version + 1,
-        });
       });
     },
 
@@ -319,15 +323,14 @@ const drizzleStore: EfaGuardStore = {
               baseId: efaGuardBaseEvent.baseId,
               baseName: efaBase.name,
               actorUserId: efaGuardBaseEvent.actorUserId,
+              sequence: efaGuardBaseEvent.sequence,
               action: efaGuardBaseEvent.action,
               occurredAt: efaGuardBaseEvent.occurredAt,
             })
             .from(efaGuardBaseEvent)
             .innerJoin(efaBase, eq(efaBase.id, efaGuardBaseEvent.baseId))
             .where(eq(efaGuardBaseEvent.guardId, guardId))
-            .orderBy(asc(efaGuardBaseEvent.occurredAt), asc(efaGuardBaseEvent.id)) as Promise<
-            EfaGuardBaseEvent[]
-          >;
+            .orderBy(asc(efaGuardBaseEvent.sequence)) as Promise<EfaGuardBaseEvent[]>;
         },
         async appendBaseEvent(input) {
           await db.insert(efaGuardBaseEvent).values(input);

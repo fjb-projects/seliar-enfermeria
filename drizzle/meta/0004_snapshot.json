@@ -783,6 +783,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "sequence": {
+          "name": "sequence",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
         "action": {
           "name": "action",
           "type": "text",
@@ -828,12 +834,22 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "efa_guard_base_event_guard_sequence_unique": {
+          "name": "efa_guard_base_event_guard_sequence_unique",
+          "nullsNotDistinct": false,
+          "columns": ["guard_id", "sequence"]
+        }
+      },
       "policies": {},
       "checkConstraints": {
         "efa_guard_base_event_action_allowed": {
           "name": "efa_guard_base_event_action_allowed",
           "value": "\"efa_guard_base_event\".\"action\" in ('added', 'removed')"
+        },
+        "efa_guard_base_event_sequence_positive": {
+          "name": "efa_guard_base_event_sequence_positive",
+          "value": "\"efa_guard_base_event\".\"sequence\" > 0"
         }
       },
       "isRLSEnabled": false

@@ -20,6 +20,7 @@ function createStore() {
     baseId: string;
     baseName: string;
     actorUserId: string;
+    sequence: number;
     action: "added" | "removed";
     occurredAt: Date;
   }> = [];
@@ -55,9 +56,16 @@ function createStore() {
       Object.assign(guard, next);
     },
     async listBaseEvents(guardId: string) {
-      return events.filter((event) => event.guardId === guardId);
+      return events
+        .filter((event) => event.guardId === guardId)
+        .sort((left, right) => left.sequence - right.sequence);
     },
     async appendBaseEvent(input: Omit<(typeof events)[number], "baseName" | "occurredAt">) {
+      if (
+        events.some((event) => event.guardId === input.guardId && event.sequence === input.sequence)
+      ) {
+        throw new Error("duplicate-guard-sequence");
+      }
       events.push({
         ...input,
         baseName: bases.find((base) => base.id === input.baseId)!.name,
@@ -134,7 +142,7 @@ describe("EFA guard lifecycle service", () => {
     db.setNow(new Date("2026-10-06T10:30:00.000Z"));
     await service.setBases("user-1", {
       guardId: "guard-1",
-      expectedVersion: 2,
+      expectedVersion: 3,
       baseIds: ["base-b"],
     });
     expect(db.events.at(-1)).toMatchObject({
@@ -142,6 +150,51 @@ describe("EFA guard lifecycle service", () => {
       action: "removed",
       actorUserId: "user-1",
     });
+  });
+
+  it("replays membership by serialized mutation order when transaction timestamps arrive out of order", async () => {
+    const db = createStore();
+    const service = createEfaGuardsService(db.store, { newId: () => "guard-1" });
+    await service.start("user-1", { declaredAtCentral: true });
+    db.setNow(new Date("2026-10-06T12:00:00.000Z"));
+    await service.setBases("user-1", {
+      guardId: "guard-1",
+      expectedVersion: 1,
+      baseIds: ["base-a"],
+    });
+    db.setNow(new Date("2026-10-06T09:00:00.000Z"));
+    await service.setBases("user-1", {
+      guardId: "guard-1",
+      expectedVersion: 2,
+      baseIds: ["base-b"],
+    });
+    const [guard] = await service.list("user-1");
+    expect(guard!.bases.map((base) => base.id)).toEqual(["base-b"]);
+    expect(db.events.map((event) => event.sequence)).toEqual([2, 3, 4]);
+    expect(db.events[0]!.occurredAt.getTime()).toBeGreaterThan(db.events[2]!.occurredAt.getTime());
+  });
+
+  it("serializes concurrent base changes through the expected guard version", async () => {
+    const db = createStore();
+    const service = createEfaGuardsService(db.store, { newId: () => "guard-1" });
+    await service.start("user-1", { declaredAtCentral: true });
+    const attempts = await Promise.allSettled([
+      service.setBases("user-1", {
+        guardId: "guard-1",
+        expectedVersion: 1,
+        baseIds: ["base-a"],
+      }),
+      service.setBases("user-1", {
+        guardId: "guard-1",
+        expectedVersion: 1,
+        baseIds: ["base-b"],
+      }),
+    ]);
+    expect(attempts.filter((attempt) => attempt.status === "fulfilled")).toHaveLength(1);
+    expect(attempts.filter((attempt) => attempt.status === "rejected")).toHaveLength(1);
+    expect(db.events).toHaveLength(1);
+    expect(db.events[0]!.sequence).toBe(2);
+    expect(db.guards[0]!.version).toBe(2);
   });
 
   it("prevents access to another EFA owner's guards while permitting admin reads", async () => {

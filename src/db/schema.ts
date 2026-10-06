@@ -276,10 +276,13 @@ export const efaGuardBaseEvent = pgTable(
     actorUserId: text("actor_user_id")
       .notNull()
       .references(() => user.id, { onDelete: "restrict" }),
+    sequence: integer("sequence").notNull(),
     action: text("action").notNull(),
     occurredAt: timestamp("occurred_at").notNull().defaultNow(),
   },
   (table) => [
+    unique("efa_guard_base_event_guard_sequence_unique").on(table.guardId, table.sequence),
+    check("efa_guard_base_event_sequence_positive", sql`${table.sequence} > 0`),
     check("efa_guard_base_event_action_allowed", sql`${table.action} in ('added', 'removed')`),
   ],
 );
