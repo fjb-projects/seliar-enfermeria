@@ -23,6 +23,8 @@ Al repetirlo, Drizzle omite las migraciones que ya están registradas. No ejecut
 
 Si migraciones anteriores se aplicaron manualmente desde el editor SQL de Neon o mediante `push`, el historial de `drizzle.__drizzle_migrations` podría no reflejar ese estado. No supongas que el journal está alineado, no marques migraciones como aplicadas manualmente ni reintentes a ciegas: pide verificación del historial y del esquema real por un canal autorizado antes de usar `db:migrate`.
 
+La migración `0005_seed_efa_base_catalog.sql` agrega al catálogo EFA, como bases operativas del MVP, las 14 etiquetas de Móvil existentes en los formularios. Su actor es una identidad técnica reservada sin credenciales, sesiones ni permisos de acceso; no representa una persona. Los nombres existentes no se modifican ni reactivan por la siembra.
+
 La aplicación necesita `BETTER_AUTH_SECRET` y `BETTER_AUTH_URL` cuando se usa autenticación. No se incluyen valores de ejemplo válidos ni credenciales precargadas.
 
 ## Crear el administrador inicial

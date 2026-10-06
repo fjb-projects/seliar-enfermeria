@@ -36,7 +36,7 @@ El alcance funcional aceptado establece que las personas con acceso EFA inician 
 
 - [x] Crear modelo y migración aditiva para bases con ID estable, nombre normalizable, estado activo/inactivo, versión y auditoría/historial de cambios con actor autenticado y hora de base de datos.
 - [x] Implementar list/create/rename/activate/deactivate para administración y listado de bases activas para EFA. Los servicios revalidan acceso y roles actuales, además de la guardia de cada función servidor.
-- [x] Añadir una sección clara de catálogo en `/admin-usuarios`; permitir crear, corregir nombre y activar/desactivar sin borrado físico. No hay datos sembrados ni supuestos de catálogo.
+- [x] Añadir una sección clara de catálogo en `/admin-usuarios`; permitir crear, corregir nombre y activar/desactivar sin borrado físico. Al cierre de B1 el catálogo quedaba vacío; la decisión posterior de sembrar las etiquetas operativas de Móvil fue aceptada el 06-10-2026 y se implementa en B5.
 - [x] Rechazar nombres vacíos, nombres fuera de longitud admitida y duplicados tras normalización; exigir versión esperada en cambios para evitar sobreescritura obsoleta.
 - [x] Probar autorización admin/EFA, duplicado normalizado, conflicto de versión, historial de desactivación y visibilidad solo de bases activas. Las pruebas fake no acreditan transacciones/locks PostgreSQL.
 - [x] Ejecutar pruebas, typecheck, build, generación de migración dos veces convergente, revisión del SQL generado, formato y `git diff --check` acotados; no acceder a una DB real.
@@ -110,6 +110,29 @@ El alcance funcional aceptado establece que las personas con acceso EFA inician 
 **Resultado observado:** Node `v24.13.0` documenta `--env-file-if-exists` en `node --help`; existe la CLI local `node_modules/drizzle-kit/bin.cjs`; su ayuda directa y la comprobación estructural del alias pasaron sin cargar archivos de entorno. `npm.cmd run test` pasó 12 archivos/51 pruebas; `npm.cmd run typecheck` y `npm.cmd run build` pasaron; Prettier y `git diff --check` pasaron. El build emitió avisos existentes de `inputValidator()` y `vite-tsconfig-paths`. No se ejecutó `npm run db:migrate`, no se leyeron archivos de entorno y no se conectó a DB.
 
 **Pendiente:** verificar historial/journal y aplicar migraciones en PostgreSQL/Neon solo después de autorización explícita del destino; espejo Engram pendiente por identidad runtime no registrada.
+
+### B5 — Sembrar opciones institucionales de Móvil en el catálogo EFA
+
+**Aclaración aceptada por la persona usuaria (06-10-2026):** para el MVP, cada opción de “Móvil” es una base operativa seleccionable de EFA. No se requiere catálogo separado de flota/patentes ni asignación de móviles a enfermería; esas relaciones quedan para trabajo futuro. Esta decisión reemplaza la premisa anterior de catálogo sin datos iniciales, sin alterar el historial de B1–B4.
+
+**Ruta:** cambio de datos aditivo y autocontenido en `drizzle/0005_seed_efa_base_catalog.sql`, entrada de journal y prueba estructural. No cambia esquema ni snapshot, y no ejecuta la migración. La migración usa un principal técnico reservado solo como actor FK; no crea credenciales, cuenta de acceso, sesión, grants ni atribución humana. Estimación: hasta 250 líneas propias incluyendo prueba y documentación.
+
+**Aceptación:** cargar exactamente las 14 opciones de `MOBILE_CHOICES` de `src/lib/compensatorio.functions.ts`, verificadas también contra `src/routes/compensatorio.tsx`, incluidos `Móvil Flotante` y `Otro Movil no Nomenclado`. Preservar cada etiqueta literalmente y codificar su `normalized_name` explícito conforme a `normalizeBaseName` (NFKC, trim, espacios colapsados y lowercase estable), sin depender de locale. Insertar como activas versión 1; conflicto de nombre normalizado usa solo `DO NOTHING`, nunca renombra, reactiva ni modifica filas existentes. Solo filas insertadas reciben auditoría `created`, con versión inicial, estado anterior nulo, y posterior `{name, isActive: true}`.
+
+El principal técnico debe usar identidad reservada `.invalid` y colisionar de forma segura: si ya existe cualquier fila con esa identidad o ya tiene credenciales, sesión, `account_access` o grants, la migración aborta en vez de repurposar una persona. No se concede acceso de inicio de sesión; el registro público está deshabilitado y la UI de cuentas lista mediante `account_access`, por lo que este actor no se presenta ni se habilita como cuenta humana.
+
+- [x] Crear primero una prueba RED que verifique las 14 parejas exactas contra ambos catálogos, migración inexistente/journal, no privilegios, guards del actor, `ON CONFLICT DO NOTHING` y auditoría solo de filas insertadas.
+- [x] Añadir migración SQL DATA-ONLY y entrada monotónica `idx: 5`, con guardas fail-closed y auditoría de las inserciones nuevas.
+- [x] Documentar en español la interpretación MVP, opciones cargadas automáticamente al aplicar migraciones y el alcance futuro excluido.
+- [x] Confirmar GREEN y ejecutar checks focales, suite, typecheck, build, `db:generate` offline sin cambios de snapshot/esquema, Prettier y `git diff --check`.
+
+**TDD y comprobaciones observadas:** la suite estructural inicial falló en cuatro expectativas por faltar SQL/journal; la comparación de catálogos pasó. Después de implementar, el comando focal `npm.cmd run test -- src/db/seed-efa-bases.migration.test.ts src/db/schema.test.ts src/lib/efa-bases.server.test.ts` pasó 3 archivos/22 pruebas. `npm.cmd run test` pasó 13 archivos/56 pruebas; `npm.cmd run typecheck` y `npm.cmd run build` pasaron (avisos preexistentes de `inputValidator()` y `vite-tsconfig-paths`); `npm.cmd run db:generate` terminó en `No schema changes, nothing to migrate` y no creó snapshot 0005; `npx.cmd --no-install prettier --write` solo sobre superficies B5 autorizadas y luego Prettier check y `git diff --check` pasaron.
+
+**Alcance documental:** `docs/efa-access-setup.md` describe la semilla y el actor técnico; en el documento de alcance preexistente sin seguimiento se aclararon únicamente “Guardias EFA y bases” y el pendiente de mapeo (ahora no requerido en MVP; flota/patentes y asignaciones a personal quedan futuras). La guía ya rastreada junto con B5 sí forma parte de las superficies commit-ready; no stagear el documento de alcance sin seguimiento completo.
+
+**Pendiente:** pruebas estructurales no validan SQL, transacción ni FK real en PostgreSQL; no se ejecutó ni se conectó a `db:migrate`/Neon. La semilla se aplicará solo bajo el procedimiento/autoridad para la base elegida; espejo Engram pendiente.
+
+**Límites:** pruebas estructurales no verifican sintaxis/atomicidad/comportamiento de PostgreSQL ni estado previo del destino. No aplicar migración, conectar DB ni alinear journal de una base real sin autorización explícita.
 
 **Commit y evaluación:** `1dab22d` — `feat(db): add a command to apply pending SQL migrations`. El rango B3/B4 desde `d9cab4420b83e78e48f383c98384664ab72d113e` contiene 116 líneas cambiadas, riesgo nativo `medium`, `review_due: false`, motivo `under_budget`. No se inició una revisión nueva de ese rango ni se ejecutó una migración real; ambas comprobaciones se distinguen del resultado funcional local.
 
