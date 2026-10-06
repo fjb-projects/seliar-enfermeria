@@ -122,7 +122,7 @@ export const accountAudit = pgTable(
     ),
     check(
       "account_audit_version_transition_valid",
-      sql`(${table.versionBefore} is null and ${table.versionAfter} = 1) or ${table.versionAfter} = ${table.versionBefore} + 1`,
+      sql`(${table.versionBefore} is null and ${table.versionAfter} = 1) or (${table.versionBefore} is not null and ${table.versionBefore} > 0 and ${table.versionAfter} = ${table.versionBefore} + 1)`,
     ),
     check(
       "account_audit_state_is_object",

@@ -15,6 +15,13 @@
       "when": 1791243002637,
       "tag": "0001_mighty_lilith",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791248628231,
+      "tag": "0002_fixed_stellaris",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,2 @@
+ALTER TABLE "account_audit" DROP CONSTRAINT "account_audit_version_transition_valid";--> statement-breakpoint
+ALTER TABLE "account_audit" ADD CONSTRAINT "account_audit_version_transition_valid" CHECK (("account_audit"."version_before" is null and "account_audit"."version_after" = 1) or ("account_audit"."version_before" is not null and "account_audit"."version_before" > 0 and "account_audit"."version_after" = "account_audit"."version_before" + 1));
