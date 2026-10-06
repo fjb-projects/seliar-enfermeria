@@ -45,7 +45,7 @@ Permitir que una persona EFA registre episodios de atención propios desde su gu
 ### E2 — Interfaz mobile-first, historial y avisos
 
 **Ruta:** delegado; página privada, panel reutilizable, navegación y endpoints de avisos. Estimación: 500–800 líneas propias; no comprimir para cumplir un umbral.
-**Estado:** implementado localmente; commit y revisión del padre pendientes. Sin conexión a base real.
+**Estado:** implementado y registrado en `12fd88854d58d82a4c4f907c787e8c7e1efbf6e2`; revisión nativa aprobada y reconocida. Sin conexión a base real.
 
 - [x] Agregar `/episodios-efa` bajo el panel autenticado, visible a cualquier cuenta activa; enlazarlo desde navegación y el panel de guardia. No exigir EFA para leer el propio historial.
 - [x] Crear/editar en español neutral y mobile-first: campo focalizado por paso, fecha/hora local correctamente convertida, motivo, dirección exacta privada e intervención opcionales; mostrar borrador sin estados terminales.
@@ -77,7 +77,19 @@ Permitir que una persona EFA registre episodios de atención propios desde su gu
 - No hubo prueba de navegador ni uso de PostgreSQL/Neon. La autorización servidor/fake, serialización de recibos y restricciones de destinatario sí tienen pruebas deterministas, pero la experiencia real con sesiones vigentes y timestamps del servidor requiere integración posterior.
 - El volumen propio observado supera la previsión inicial y ronda 1.200 líneas (sin contar `src/routeTree.gen.ts` generado). Incluye el panel con estados explícitos de reintento/conflicto, historial/avisos, endpoints autorizados y regresiones; no se acortó por el umbral orientativo.
 - Verificación independiente posterior identificó cuatro defectos del panel: baseline que podía quedar viejo tras confirmar/actualizar, validación UI que exigía motivo o dirección, doble envío antes de resolver la importación dinámica y formato de fecha dependiente de timezone SSR/navegador. Corrección autorizada en el mismo alcance E2; agregar RED/GREEN con helpers compartidos consumidos por producción, no solo pruebas SSR.
-- Rollback limitado a las superficies E2; no modificar migración E1. Commit y revisión nativa pendientes del padre; validación de la migración y persistencia offline permanecen fuera de E2.
+- Verificador independiente posterior: las cuatro correcciones resueltas en las rutas reales del panel; 25/25 pruebas focales, typecheck y diff check aprobados. El padre repitió pruebas de panel/helper con 9/9 aprobadas. No se ejecutaron handlers completos en navegador ni hidratación real.
+- Rollback limitado a las superficies E2; no modificar migración E1. Validación de la migración y persistencia offline permanecen fuera de E2.
+
+#### E2 — Commit y revisión cerrada
+
+- Commits del segmento: `01b0f69` (prueba de auditoría E1-A1) y `12fd88854d58d82a4c4f907c787e8c7e1efbf6e2` (E2). E1-A1 pasó verificación independiente 9/9 y evaluación `medium`, `under_budget`; se incorporó al siguiente segmento desde `645d181`. E2 registró 1.336 adiciones/eliminaciones, 21 generadas; el segmento completo incluye 1.400 líneas en 14 archivos. Entrega futura `feature-branch-chain`; sin publicación ni PR.
+- Con consentimiento explícito, la revisión `review-27ac9978f6dd86df` evaluó confiabilidad sobre el candidato `sha256:f4a6834e79e4632db812631f37bb3b8085ec7fdd1adff9722b2bbf20e8205051`, riesgo `medium`, motivo `slice_budget_reached`.
+- Resultado aprobado con dos observaciones informativas. El reconocimiento exacto devolvió `gentle-ai.review-acknowledged/v1`, acción `acknowledged`, autoridad `burned`. El límite revisado avanza a `12fd88854d58d82a4c4f907c787e8c7e1efbf6e2`; no reabrir este candidato por observaciones no bloqueantes. No hubo validación de navegador, PostgreSQL ni autorización de publicación.
+
+#### E2-A — Seguimientos no bloqueantes, pendientes
+
+- [ ] R3-001, `src/lib/efa-episodes.client.ts:109`: distinguir rechazos definitivos (por ejemplo, guardia cerrada antes de crear) de una respuesta incierta, y permitir recuperar el formulario conservando lo ingresado sin quedar limitado al mismo reintento. Registrar como trabajo posterior separado; no hubo transición de corrección nativa.
+- [ ] R3-002, `src/lib/efa-episodes.client.ts:79`: conservar segundos/milisegundos de la hora original al editar otro campo, o mantener esa precisión en el control. La conversión actual a minutos puede alterar inadvertidamente la hora del hecho. Agregar regresión de edición con timestamp no alineado al minuto.
 
 ### E3 — Continuidad temporal del navegador
 
@@ -122,4 +134,4 @@ Permitir que una persona EFA registre episodios de atención propios desde su gu
 
 ## Estado y siguiente paso
 
-E1 y E1-A1 quedaron implementadas; E1-A1 refuerza las aserciones del fake sin modificar el servicio. E2 implementa la interfaz privada y avisos, con commit y revisión del padre pendientes. Siguen pendientes la aplicación/verificación real de la migración y E3 (cola local). Comunicaciones, conductas observables, despachos y coordinación policial continúan conforme al alcance acordado. El espejo Engram permanece pendiente por falta de identidad runtime registrada.
+E1 y E1-A1 quedaron implementadas; E1-A1 refuerza las aserciones del fake sin modificar el servicio. E2 implementa la interfaz privada y avisos, registrada y con revisión aprobada/cerrada. Siguen pendientes E2-A (dos seguimientos informativos), la aplicación/verificación real de la migración y E3 (cola local). Próximo paso recomendado: corregir recuperación de rechazos y precisión horaria antes de la prueba manual en navegador. Comunicaciones, conductas observables, despachos y coordinación policial continúan conforme al alcance acordado. El espejo Engram permanece pendiente por falta de identidad runtime registrada; no usar otra identidad ni invocar herramientas de memoria.
