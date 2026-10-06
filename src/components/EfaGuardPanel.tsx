@@ -55,7 +55,12 @@ export function EfaGuardPanel({
   const correctGuardEnd = useServerFn(correctEfaGuardEnd);
   const [guards, setGuards] = useState(initialGuards);
   const [bases, setBases] = useState(activeBases);
-  const [selectedBaseIds, setSelectedBaseIds] = useState<string[]>([]);
+  const [selectedBaseIds, setSelectedBaseIds] = useState<string[]>(() => {
+    const openOwnGuard = initialGuards.find(
+      (guard) => guard.ownerUserId === currentUserId && !guard.endedAt,
+    );
+    return openOwnGuard?.bases.map((base) => base.id) ?? [];
+  });
   const [centralConfirmed, setCentralConfirmed] = useState(false);
   const [corrections, setCorrections] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);

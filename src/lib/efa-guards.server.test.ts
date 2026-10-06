@@ -254,4 +254,24 @@ describe("EFA guard lifecycle service", () => {
       afterState: { endedAt: "2026-10-06T18:30:00.000Z" },
     });
   });
+
+  it("rejects correcting the end time of an open guard without changing history", async () => {
+    const db = createStore();
+    const service = createEfaGuardsService(db.store, { newId: () => "guard-1" });
+    await service.start("owner-1", { declaredAtCentral: true });
+    db.setActor({ isActive: true, roles: ["admin"] });
+    const guardBefore = { ...db.guards[0]! };
+    const auditBefore = [...db.guardAudit];
+
+    await expect(
+      service.correctEnd("admin-1", {
+        guardId: "guard-1",
+        expectedVersion: 1,
+        endedAt: new Date("2026-10-06T18:30:00Z"),
+      }),
+    ).rejects.toThrow(/abierta|en curso|terminada/i);
+
+    expect(db.guards[0]).toEqual(guardBefore);
+    expect(db.guardAudit).toEqual(auditBefore);
+  });
 });

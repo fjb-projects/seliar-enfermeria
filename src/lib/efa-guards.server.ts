@@ -248,6 +248,7 @@ export function createEfaGuardsService(
         if (!current) throw new Error("No se encontró la guardia.");
         const guard = { ...current };
         assertVersion(guard, input.expectedVersion);
+        if (!guard.endedAt) throw new Error("No se puede corregir una guardia abierta.");
         if (input.endedAt < guard.startedAt)
           throw new Error("La hora de cierre no puede ser anterior al inicio.");
         if (guard.endedAt?.getTime() === input.endedAt.getTime()) return;
