@@ -95,7 +95,7 @@ Permitir que una persona EFA registre episodios de atención propios desde su gu
 ### E3 — Continuidad temporal del navegador
 
 **Ruta:** delegado; persistencia IndexedDB inyectable, integración cliente y estados explícitos del panel. Estimación: 350–650 líneas propias; la cifra es orientativa, sin comprimir una máquina de estados para cumplirla.
-**Estado:** implementación y corrección precommit locales verificadas; pendiente de revisión/commit del padre. No reemplaza los dos seguimientos E2-A pendientes.
+**Estado:** implementación registrada en `c1be9a93a62604593cf7bc958e62d7b03f00c6a8`, checks locales y revisión nativa aprobados; reconocimiento exacto completado. No reemplaza los dos seguimientos E2-A pendientes. Dos observaciones nuevas E3-A siguen sin implementar.
 
 - La cola guarda solo operaciones enviadas, con propietario actual, UUID y payload exactos e inmutables. La escritura local ocurre antes del envío; un payload diferente no puede ocupar una clave existente.
 - El adaptador real usa IndexedDB en navegador; las pruebas inyectan una tienda determinista sin sumar dependencias. Las claves separan propietario y operación, no se persiste un arreglo compartido de cuenta.
@@ -134,6 +134,19 @@ Permitir que una persona EFA registre episodios de atención propios desde su gu
 - Evidencia de esta corrección: RED focal (`npm.cmd run test -- src/lib/efa-episodes.queue.test.ts`) falló 1 prueba porque faltaba el predicado de selección por identidad. GREEN (`npm.cmd run test -- src/lib/efa-episodes.queue.test.ts src/components/EfaEpisodePanel.test.tsx`) pasó 20/20; se verifica que A no es la operación activa mientras B está seleccionada, y que resolver explícitamente A elimina solo A y preserva UUID/payload/campos de B. El panel consulta el helper desde el módulo de cola cargado dinámicamente, preservando el límite SSR/client-only.
 - Checks finales posteriores a esta corrección: `npm.cmd run test` 18 archivos/102 pruebas; `npm.cmd run typecheck`; `npm.cmd run build`; ESLint focal de los cuatro TS/TSX E3; Prettier check de las cuatro superficies de código y este documento; `git diff --check` de las cinco superficies. Todo aprobado. Build mantiene advertencias conocidas de `vite-tsconfig-paths` y `inputValidator()` legado en funciones ajenas. Sin prueba de navegador real ni PostgreSQL/Neon.
 
+#### E3 — Commit y revisión cerrada
+
+- Commit local: `c1be9a93a62604593cf7bc958e62d7b03f00c6a8`. Volumen: 1.671 adiciones y 82 eliminaciones, 1.753 líneas propias en cinco archivos; no generados. Se conservó la unidad cola/panel/pruebas sin comprimir por la previsión orientativa. Entrega futura `feature-branch-chain`; sin push ni PR.
+- Verificador independiente: 25/25 pruebas focales de cola/cliente/panel, typecheck y diff check aprobados; los hallazgos precommit de recuperación, propietario, selección y conflicto A/B quedaron resueltos en los bindings reales. Spot check del padre: 15/15 pruebas de cola. Estos checks no prueban IndexedDB ni handlers en un navegador real.
+- Riesgo `medium`, motivo `slice_budget_reached`. Consentimiento explícito para la revisión `review-a7450716767c6435`, lens `review-reliability`, candidato `sha256:55524391f79a6b7e9a2d4255c9250c587e849a4eb2171aca431091affed14ac8` desde `685d0f3`.
+- Resultado aprobado, con dos observaciones informativas no bloqueantes. El reconocimiento exacto devolvió `gentle-ai.review-acknowledged/v1`, acción `acknowledged`, autoridad `burned`; límite revisado `c1be9a93a62604593cf7bc958e62d7b03f00c6a8`. No reabrir esta revisión por sus advisories; no se ofreció corrección nativa. La aprobación no acredita navegador, PostgreSQL ni publicación.
+
+#### E3-A — Seguimientos no bloqueantes, pendientes
+
+- [ ] R3-001, `src/lib/efa-episodes.queue.ts:197-205`: persistir un estado no despachable para recibos incongruentes y escrituras confirmadas cuya limpieza local falla. Actualmente permanecen `pending`, por lo que otra reconciliación online puede volver a enviarlas con el mismo UUID; esto contradice los avisos de no reenvío. Las confirmadas deben permitir solamente limpieza local. Añadir regresiones de una segunda reconciliación después de ambos resultados.
+- [ ] R3-002, `src/lib/efa-episodes.queue.ts:246-249`: releer el estado persistido antes de cada despacho. Dos reconciliaciones superpuestas pueden usar una lista vieja y volver a enviar B después de que otra ya la pausó mientras la primera esperaba A; el bloqueo in-flight evita simultaneidad, no este envío posterior. Añadir regresión de A en espera/B pausada y confirmar que B no vuelve a despacharse.
+- Estos seguimientos describen límites actuales de las garantías de no reenvío/pausa. Son trabajo posterior separado, no correcciones realizadas ni una nueva autorización de implementación. E2-A conserva su postergación explícita.
+
 ## Comprobaciones
 
 - TDD aplicable a comportamientos deterministas: RED observado antes del cambio, GREEN después.
@@ -168,4 +181,4 @@ Permitir que una persona EFA registre episodios de atención propios desde su gu
 
 ## Estado y siguiente paso
 
-E1 y E1-A1 quedaron implementadas; E1-A1 refuerza las aserciones del fake sin modificar el servicio. E2 implementa la interfaz privada y avisos, registrada y con revisión aprobada/cerrada. E2-A conserva sus dos seguimientos expresamente pendientes por decisión de la persona usuaria; E3 no los cambia. E3 implementa la continuidad local de operaciones enviadas; la corrección precommit cubre persistencia recuperable, cuenta actual y selección de pendientes. Queda pendiente probar IndexedDB en navegador real y la aplicación/verificación real de la migración. Comunicaciones, conductas observables, despachos y coordinación policial continúan conforme al alcance acordado. El espejo Engram permanece pendiente por falta de identidad runtime registrada; no usar otra identidad ni invocar herramientas de memoria.
+E1 y E1-A1 quedaron implementadas; E1-A1 refuerza las aserciones del fake sin modificar el servicio. E2 implementa la interfaz privada y avisos, registrada y con revisión aprobada/cerrada. E2-A conserva sus dos seguimientos expresamente pendientes por decisión de la persona usuaria; E3 no los cambia. E3 implementa continuidad local de operaciones enviadas, registrada y con revisión aprobada/cerrada; E3-A conserva dos observaciones informativas de reconciliación para trabajo posterior. Queda pendiente probar IndexedDB en navegador real y la aplicación/verificación real de la migración. El siguiente bloque funcional del MVP es comunicaciones/llamadas del episodio, seguido por conductas observables, despachos y coordinación policial conforme al alcance acordado; derivar superficies y tareas antes de implementar. El espejo Engram permanece pendiente por falta de identidad runtime registrada; no usar otra identidad ni invocar herramientas de memoria.
