@@ -70,7 +70,14 @@ describe("EFA mobile catalog migration", () => {
     expect(matching).toHaveLength(1);
     expect(matching[0]).toMatchObject({ idx: 5, tag: "0005_seed_efa_base_catalog" });
     expect(matching[0]!.when).toBeGreaterThan(journal.entries[4]!.when);
-    expect(journal.entries.map((entry) => entry.idx)).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(journal.entries.slice(0, 6).map((entry) => entry.idx)).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(journal.entries[5]).toMatchObject({ idx: 5, tag: "0005_seed_efa_base_catalog" });
+    expect(journal.entries.every((entry, index) => entry.idx === index)).toBe(true);
+    expect(
+      journal.entries.every(
+        (entry, index) => index === 0 || entry.when > journal.entries[index - 1]!.when,
+      ),
+    ).toBe(true);
     expect(() => readFileSync(resolve(root, "drizzle/meta/0005_snapshot.json"))).toThrow();
   });
 

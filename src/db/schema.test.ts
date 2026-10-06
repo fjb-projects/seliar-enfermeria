@@ -1,4 +1,6 @@
 import { getTableName } from "drizzle-orm";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { getTableConfig, PgDialect } from "drizzle-orm/pg-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as schema from "./schema";
@@ -11,7 +13,17 @@ import {
   user,
   verification,
 } from "./schema";
-import { efaBase, efaBaseAudit, efaGuard, efaGuardAudit, efaGuardBaseEvent } from "./schema";
+import {
+  efaBase,
+  efaBaseAudit,
+  efaGuard,
+  efaGuardAudit,
+  efaGuardBaseEvent,
+  efaEpisode,
+  efaEpisodeAudit,
+  efaEpisodeNotice,
+  efaEpisodeOperation,
+} from "./schema";
 
 describe("database schema foundation", () => {
   it("exposes the singular model keys used by Better Auth's Drizzle adapter", () => {
@@ -78,6 +90,9 @@ describe("database schema foundation", () => {
     expect(getTableConfig(efaGuard).checks.map((item) => item.name)).toEqual(
       expect.arrayContaining(["efa_guard_version_positive", "efa_guard_end_after_start"]),
     );
+    expect(getTableConfig(efaGuard).indexes.map((item) => item.config.name)).toContain(
+      "efa_guard_id_owner_user_unique",
+    );
     const baseEvents = getTableConfig(efaGuardBaseEvent);
     expect(baseEvents.uniqueConstraints.map((constraint) => constraint.name)).toContain(
       "efa_guard_base_event_guard_sequence_unique",
@@ -97,6 +112,56 @@ describe("database schema foundation", () => {
         "efa_guard_audit_state_keys_allowlisted",
       ]),
     );
+  });
+
+  it("defines versioned draft episodes, append-only audit, and recipient-scoped notices", () => {
+    expect(getTableName(efaEpisode)).toBe("efa_episode");
+    expect(getTableName(efaEpisodeAudit)).toBe("efa_episode_audit");
+    expect(getTableName(efaEpisodeNotice)).toBe("efa_episode_notice");
+    const episode = getTableConfig(efaEpisode);
+    expect(episode.uniqueConstraints.map((item) => item.name)).toContain(
+      "efa_episode_owner_creation_key_unique",
+    );
+    expect(episode.checks.map((item) => item.name)).toEqual(
+      expect.arrayContaining(["efa_episode_version_positive", "efa_episode_draft_only"]),
+    );
+    const audit = getTableConfig(efaEpisodeAudit);
+    expect(audit.uniqueConstraints.map((item) => item.name)).toContain(
+      "efa_episode_audit_episode_version_unique",
+    );
+    expect(audit.checks.map((item) => item.name)).toEqual(
+      expect.arrayContaining([
+        "efa_episode_audit_action_allowed",
+        "efa_episode_audit_version_transition_valid",
+        "efa_episode_audit_action_version_valid",
+      ]),
+    );
+    expect(getTableConfig(efaEpisodeNotice).foreignKeys).toHaveLength(3);
+    expect(getTableName(efaEpisodeOperation)).toBe("efa_episode_operation");
+    const operation = getTableConfig(efaEpisodeOperation);
+    expect(operation.uniqueConstraints.map((item) => item.name)).toContain(
+      "efa_episode_operation_episode_client_unique",
+    );
+    expect(operation.checks.map((item) => item.name)).toEqual(
+      expect.arrayContaining([
+        "efa_episode_operation_action_allowed",
+        "efa_episode_operation_create_result_valid",
+        "efa_episode_operation_version_positive",
+        "efa_episode_operation_hash_sha256",
+      ]),
+    );
+  });
+
+  it("orders composite referenced uniqueness before migration FKs and protects receipts/history", () => {
+    const migration = readFileSync(
+      resolve(process.cwd(), "drizzle/0006_efa_episode_drafts.sql"),
+      "utf8",
+    );
+    expect(migration.indexOf('CREATE UNIQUE INDEX "efa_guard_id_owner_user_unique"')).toBeLessThan(
+      migration.indexOf('ADD CONSTRAINT "efa_episode_origin_owner_guard_fk"'),
+    );
+    expect(migration).toContain("CREATE TRIGGER efa_episode_audit_append_only");
+    expect(migration).toContain("CREATE TRIGGER efa_episode_operation_append_only");
   });
 });
 

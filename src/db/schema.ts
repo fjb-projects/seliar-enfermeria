@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   boolean,
   check,
+  foreignKey,
   integer,
   jsonb,
   pgEnum,
@@ -209,6 +210,7 @@ export const efaGuard = pgTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (table) => [
+    uniqueIndex("efa_guard_id_owner_user_unique").on(table.id, table.ownerUserId),
     check("efa_guard_version_positive", sql`${table.version} > 0`),
     check(
       "efa_guard_end_after_start",
@@ -284,5 +286,141 @@ export const efaGuardBaseEvent = pgTable(
     unique("efa_guard_base_event_guard_sequence_unique").on(table.guardId, table.sequence),
     check("efa_guard_base_event_sequence_positive", sql`${table.sequence} > 0`),
     check("efa_guard_base_event_action_allowed", sql`${table.action} in ('added', 'removed')`),
+  ],
+);
+
+export const efaEpisode = pgTable(
+  "efa_episode",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    clientCreationKey: uuid("client_creation_key").notNull(),
+    ownerUserId: text("owner_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    originGuardId: uuid("origin_guard_id").notNull(),
+    eventAt: timestamp("event_at").notNull(),
+    motive: text("motive"),
+    address: text("address"),
+    interventionNumber: text("intervention_number"),
+    state: text("state").notNull().default("draft"),
+    version: integer("version").notNull().default(1),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: "efa_episode_origin_owner_guard_fk",
+      columns: [table.originGuardId, table.ownerUserId],
+      foreignColumns: [efaGuard.id, efaGuard.ownerUserId],
+    }).onDelete("restrict"),
+    unique("efa_episode_owner_creation_key_unique").on(table.ownerUserId, table.clientCreationKey),
+    unique("efa_episode_id_owner_unique").on(table.id, table.ownerUserId),
+    check("efa_episode_version_positive", sql`${table.version} > 0`),
+    check("efa_episode_draft_only", sql`${table.state} = 'draft'`),
+    check(
+      "efa_episode_optional_text_bounds",
+      sql`(${table.motive} is null or char_length(${table.motive}) <= 2000) and (${table.address} is null or char_length(${table.address}) <= 1000) and (${table.interventionNumber} is null or char_length(${table.interventionNumber}) <= 100)`,
+    ),
+  ],
+);
+
+export const efaEpisodeAudit = pgTable(
+  "efa_episode_audit",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    episodeId: uuid("episode_id")
+      .notNull()
+      .references(() => efaEpisode.id, { onDelete: "restrict" }),
+    actorUserId: text("actor_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    operationId: uuid("operation_id").notNull(),
+    action: text("action").notNull(),
+    versionBefore: integer("version_before"),
+    versionAfter: integer("version_after").notNull(),
+    beforeState: jsonb("before_state").$type<Record<string, unknown> | null>(),
+    afterState: jsonb("after_state").$type<Record<string, unknown>>().notNull(),
+    occurredAt: timestamp("occurred_at").notNull().defaultNow(),
+  },
+  (table) => [
+    unique("efa_episode_audit_episode_version_unique").on(table.episodeId, table.versionAfter),
+    unique("efa_episode_audit_operation_unique").on(table.episodeId, table.operationId),
+    unique("efa_episode_audit_id_episode_unique").on(table.id, table.episodeId),
+    check("efa_episode_audit_action_allowed", sql`${table.action} in ('created', 'updated')`),
+    check(
+      "efa_episode_audit_version_transition_valid",
+      sql`(${table.versionBefore} is null and ${table.versionAfter} = 1) or (${table.versionBefore} is not null and ${table.versionBefore} > 0 and ${table.versionAfter} = ${table.versionBefore} + 1)`,
+    ),
+    check(
+      "efa_episode_audit_action_version_valid",
+      sql`(${table.action} = 'created' and ${table.versionBefore} is null and ${table.versionAfter} = 1) or (${table.action} = 'updated' and ${table.versionBefore} is not null and ${table.versionAfter} = ${table.versionBefore} + 1)`,
+    ),
+    check(
+      "efa_episode_audit_state_is_object",
+      sql`jsonb_typeof(${table.afterState}) = 'object' and (${table.beforeState} is null or jsonb_typeof(${table.beforeState}) = 'object')`,
+    ),
+    check(
+      "efa_episode_audit_state_keys_allowlisted",
+      sql`(${table.afterState} - 'eventAt' - 'motive' - 'address' - 'interventionNumber' - 'state') = '{}'::jsonb and (${table.beforeState} is null or (${table.beforeState} - 'eventAt' - 'motive' - 'address' - 'interventionNumber' - 'state') = '{}'::jsonb)`,
+    ),
+  ],
+);
+
+export const efaEpisodeNotice = pgTable(
+  "efa_episode_notice",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    episodeId: uuid("episode_id").notNull(),
+    auditId: uuid("audit_id").notNull(),
+    recipientUserId: text("recipient_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    readAt: timestamp("read_at"),
+  },
+  (table) => [
+    foreignKey({
+      name: "efa_episode_notice_owner_fk",
+      columns: [table.episodeId, table.recipientUserId],
+      foreignColumns: [efaEpisode.id, efaEpisode.ownerUserId],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "efa_episode_notice_audit_episode_fk",
+      columns: [table.auditId, table.episodeId],
+      foreignColumns: [efaEpisodeAudit.id, efaEpisodeAudit.episodeId],
+    }).onDelete("restrict"),
+    unique("efa_episode_notice_audit_recipient_unique").on(table.auditId, table.recipientUserId),
+  ],
+);
+
+export const efaEpisodeOperation = pgTable(
+  "efa_episode_operation",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    episodeId: uuid("episode_id")
+      .notNull()
+      .references(() => efaEpisode.id, { onDelete: "restrict" }),
+    actorUserId: text("actor_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    clientOperationId: uuid("client_operation_id").notNull(),
+    action: text("action").notNull(),
+    requestHash: text("request_hash").notNull(),
+    appliedVersion: integer("applied_version").notNull(),
+    changed: boolean("changed").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    unique("efa_episode_operation_episode_client_unique").on(
+      table.episodeId,
+      table.clientOperationId,
+    ),
+    check("efa_episode_operation_action_allowed", sql`${table.action} in ('created', 'updated')`),
+    check(
+      "efa_episode_operation_create_result_valid",
+      sql`${table.action} <> 'created' or (${table.appliedVersion} = 1 and ${table.changed})`,
+    ),
+    check("efa_episode_operation_version_positive", sql`${table.appliedVersion} > 0`),
+    check("efa_episode_operation_hash_sha256", sql`${table.requestHash} ~ '^[0-9a-f]{64}$'`),
   ],
 );
