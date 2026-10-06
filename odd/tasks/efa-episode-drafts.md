@@ -76,8 +76,19 @@ Permitir que una persona EFA registre episodios de atención propios desde su gu
 - `npm.cmd run db:generate -- --name=efa_episode_drafts`, dos ejecuciones offline posteriores: ambas sin cambios de esquema. Snapshot/journal convergen en idx 6; SQL conserva trigger append-only y crea la unicidad compuesta de guardia antes de sus FKs.
 - ESLint focalizado de los siete archivos TypeScript cambiados, Prettier check de las superficies soportadas y `git diff --check` más escaneo de espacios finales: aprobados.
 - No se inspeccionaron credenciales ni se aplicó SQL. La prueba fake modela serialización y reintentos; no demuestra comportamiento real de PostgreSQL/Neon.
-- Pendiente al cierre de E1: validación PostgreSQL/Neon de la migración, no autorizada en esta sesión, y evaluación nativa a cargo del padre. Los errores de lint/formato identificados en un chequeo anterior quedaron re-verificados después de normalizar.
+- Pendiente al cierre de E1: validación PostgreSQL/Neon de la migración, no autorizada en esta sesión. Los errores de lint/formato identificados en un chequeo anterior quedaron re-verificados después de normalizar.
+
+### E1 — Commit y revisión
+
+- Commit local: `67732cba2b8b41859db1cb288d6a497c85394791`. Verificador independiente: 25/25 pruebas focales y typecheck aprobados; el padre repitió las pruebas del servicio con 9/9 aprobadas.
+- Volumen observado: 1.343 líneas propias en código, pruebas y documento; SQL 91 líneas (generación y ajustes manuales), snapshot generado 1.550 y journal 7. El segmento nativo incluye 2.991 adiciones/eliminaciones en 11 archivos. El crecimiento conserva recibos, permisos, pruebas e invariantes de auditoría en una unidad; no se recortó contenido para cumplir una cifra. La entrega futura mantiene `feature-branch-chain`; no se creó ni publicó un PR.
+- Evaluación: riesgo `medium`, `review_due: true`, motivo `slice_budget_reached`. Tras consentimiento explícito, la línea `review-97270d1d93afa128` revisó el candidato `sha256:9da99511a9ab5f7eb9a75b89f91bd05ae985a0d7b747e8d80c8bc618ac200c1f` con `review-reliability`.
+- Resultado: aprobado, con un seguimiento no bloqueante. El reconocimiento exacto devolvió `gentle-ai.review-acknowledged/v1`, acción `acknowledged`, autoridad `burned`. La transacción quedó cerrada y el límite revisado avanza a `67732cba2b8b41859db1cb288d6a497c85394791`; no reabrir esta revisión por su advisory. La aprobación no acredita PostgreSQL ni autoriza publicación.
+
+### E1-A1 — Seguimiento de pruebas, no bloqueante
+
+- [ ] Corregir el fake de `src/lib/efa-episodes.server.test.ts` para devolver registros separados del objeto almacenado y comprobar versiones/estados completos antes y después de una actualización. Advisory `R3-001`: el fake comparte la referencia y su actualización altera el objeto previo; las aserciones actuales solo cuentan eventos y no prueban correctamente la transición de auditoría. Es trabajo posterior separado, no una corrección nativa ni una razón para repetir la revisión aprobada.
 
 ## Estado y siguiente paso
 
-E1 quedó implementada y verificada localmente; siguen pendientes el commit/evaluación nativa del padre y la aplicación/verificación real de la migración. E2 (interfaz privada) y E3 (cola local) aún no están implementadas. Comunicaciones, conductas observables, despachos y coordinación policial continúan después de este bloque conforme al alcance acordado.
+E1 quedó implementada, registrada y revisada. Siguen pendientes E1-A1, la aplicación/verificación real de la migración y E2 (interfaz privada)/E3 (cola local). El siguiente bloque es reforzar la prueba de auditoría y construir la pantalla mobile-first; comunicaciones, conductas observables, despachos y coordinación policial continúan conforme al alcance acordado. El espejo Engram permanece pendiente por falta de identidad runtime registrada.
