@@ -1,5 +1,6 @@
 import { createFileRoute, redirect, Link } from "@tanstack/react-router";
 import { PrivateAccountShell, type PrivateSession } from "@/components/PrivateAccountShell";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { readSession } from "@/lib/auth.functions";
 
@@ -27,14 +28,13 @@ function PanelPage() {
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            Tu sesión está activa. Las funciones de trabajo EFA se incorporarán en una etapa
-            posterior.
+            Tu sesión está activa. Desde aquí puedes gestionar tus guardias y revisar las funciones
+            disponibles para tu cuenta.
           </p>
-          {session.roles.includes("efa") && (
-            <p className="rounded-lg border border-dashed p-4 text-sm">
-              El acceso EFA está habilitado para esta cuenta; todavía no hay flujos operativos
-              disponibles.
-            </p>
+          {(session.roles.includes("efa") || session.roles.includes("admin")) && (
+            <Button asChild className="min-h-11">
+              <Link to="/guardia-efa">Gestionar guardia EFA</Link>
+            </Button>
           )}
           {session.roles.includes("admin") && (
             <p className="text-sm">

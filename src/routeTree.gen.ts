@@ -14,6 +14,7 @@ import { Route as AdminUsuariosRouteImport } from './routes/admin-usuarios'
 import { Route as CambioGuardiaRouteImport } from './routes/cambio-guardia'
 import { Route as CompensatorioRouteImport } from './routes/compensatorio'
 import { Route as ControlGuardiaRouteImport } from './routes/control-guardia'
+import { Route as GuardiaEfaRouteImport } from './routes/guardia-efa'
 import { Route as HorariosRouteImport } from './routes/horarios'
 import { Route as IngresoRouteImport } from './routes/ingreso'
 import { Route as LaoRouteImport } from './routes/lao'
@@ -43,6 +44,11 @@ const CompensatorioRoute = CompensatorioRouteImport.update({
 const ControlGuardiaRoute = ControlGuardiaRouteImport.update({
   id: '/control-guardia',
   path: '/control-guardia',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const GuardiaEfaRoute = GuardiaEfaRouteImport.update({
+  id: '/guardia-efa',
+  path: '/guardia-efa',
   getParentRoute: () => rootRouteImport,
 } as any)
 const HorariosRoute = HorariosRouteImport.update({
@@ -77,6 +83,7 @@ export interface FileRoutesByFullPath {
   '/cambio-guardia': typeof CambioGuardiaRoute
   '/compensatorio': typeof CompensatorioRoute
   '/control-guardia': typeof ControlGuardiaRoute
+  '/guardia-efa': typeof GuardiaEfaRoute
   '/horarios': typeof HorariosRoute
   '/ingreso': typeof IngresoRoute
   '/lao': typeof LaoRoute
@@ -89,6 +96,7 @@ export interface FileRoutesByTo {
   '/cambio-guardia': typeof CambioGuardiaRoute
   '/compensatorio': typeof CompensatorioRoute
   '/control-guardia': typeof ControlGuardiaRoute
+  '/guardia-efa': typeof GuardiaEfaRoute
   '/horarios': typeof HorariosRoute
   '/ingreso': typeof IngresoRoute
   '/lao': typeof LaoRoute
@@ -102,6 +110,7 @@ export interface FileRoutesById {
   '/cambio-guardia': typeof CambioGuardiaRoute
   '/compensatorio': typeof CompensatorioRoute
   '/control-guardia': typeof ControlGuardiaRoute
+  '/guardia-efa': typeof GuardiaEfaRoute
   '/horarios': typeof HorariosRoute
   '/ingreso': typeof IngresoRoute
   '/lao': typeof LaoRoute
@@ -116,6 +125,7 @@ export interface FileRouteTypes {
     | '/cambio-guardia'
     | '/compensatorio'
     | '/control-guardia'
+    | '/guardia-efa'
     | '/horarios'
     | '/ingreso'
     | '/lao'
@@ -128,6 +138,7 @@ export interface FileRouteTypes {
     | '/cambio-guardia'
     | '/compensatorio'
     | '/control-guardia'
+    | '/guardia-efa'
     | '/horarios'
     | '/ingreso'
     | '/lao'
@@ -140,6 +151,7 @@ export interface FileRouteTypes {
     | '/cambio-guardia'
     | '/compensatorio'
     | '/control-guardia'
+    | '/guardia-efa'
     | '/horarios'
     | '/ingreso'
     | '/lao'
@@ -153,6 +165,7 @@ export interface RootRouteChildren {
   CambioGuardiaRoute: typeof CambioGuardiaRoute
   CompensatorioRoute: typeof CompensatorioRoute
   ControlGuardiaRoute: typeof ControlGuardiaRoute
+  GuardiaEfaRoute: typeof GuardiaEfaRoute
   HorariosRoute: typeof HorariosRoute
   IngresoRoute: typeof IngresoRoute
   LaoRoute: typeof LaoRoute
@@ -195,6 +208,13 @@ declare module '@tanstack/react-router' {
       path: '/control-guardia'
       fullPath: '/control-guardia'
       preLoaderRoute: typeof ControlGuardiaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/guardia-efa': {
+      id: '/guardia-efa'
+      path: '/guardia-efa'
+      fullPath: '/guardia-efa'
+      preLoaderRoute: typeof GuardiaEfaRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/horarios': {
@@ -241,6 +261,7 @@ const rootRouteChildren: RootRouteChildren = {
   CambioGuardiaRoute: CambioGuardiaRoute,
   CompensatorioRoute: CompensatorioRoute,
   ControlGuardiaRoute: ControlGuardiaRoute,
+  GuardiaEfaRoute: GuardiaEfaRoute,
   HorariosRoute: HorariosRoute,
   IngresoRoute: IngresoRoute,
   LaoRoute: LaoRoute,

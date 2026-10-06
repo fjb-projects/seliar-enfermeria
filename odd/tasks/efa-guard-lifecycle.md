@@ -26,13 +26,13 @@ El alcance funcional aceptado establece que las personas con acceso EFA inician 
 - Estimación del alcance completo: aproximadamente 800–1.400 líneas de autoría. Es una proyección para planificar, no un límite ni una aceptación; no hacer code golf.
 - Estrategia: `ask-on-risk`, con estrategia de cadena previamente aceptada `feature-branch-chain`; sin PR ni push autorizados.
 - Rama apilada: `feat/efa-guard-lifecycle`; base/punto de rama `ef055a581d91b0928864da88fdf140f1021fbe9d` (trabajo anterior revisado, no reabrir su revisión).
-- B1 es el único alcance de este primer work unit. B2 permanece planificado y no se implementa hasta la siguiente delegación/autorización de unidad del padre.
+- B1 fue el alcance del primer work unit. B2 se implementó por separado y permanece como cambio local, pendiente de commit/revisión del padre.
 
 ## Tareas
 
 ### B1 — Catálogo institucional de bases
 
-**Estado:** implementación y comprobaciones locales completadas; pendiente de commit/revisión/cierre por el padre.
+**Estado:** implementación y comprobaciones locales completadas en `7ce38401e2da7db8d57ab0e2b73172c1bbe9bc42` — `feat(efa): add audited institutional base catalog`. La revisión nativa quedó aprobada y reconocida para la línea `review-00819d4bd8cf2e4e`; dejó un único advisory no bloqueante, `R3-001`, sobre la UI de versiones obsoletas del catálogo.
 
 - [x] Crear modelo y migración aditiva para bases con ID estable, nombre normalizable, estado activo/inactivo, versión y auditoría/historial de cambios con actor autenticado y hora de base de datos.
 - [x] Implementar list/create/rename/activate/deactivate para administración y listado de bases activas para EFA. Los servicios revalidan acceso y roles actuales, además de la guardia de cada función servidor.
@@ -51,13 +51,21 @@ El alcance funcional aceptado establece que las personas con acceso EFA inician 
 
 ### B2 — Inicio/cierre de guardia y asociaciones temporales a bases
 
-**Estado:** planificado, fuera del work unit actual.
+**Estado:** implementación y verificaciones locales completadas en el árbol de trabajo; pendiente de commit/revisión del padre.
 
-- [ ] Permitir a personas con EFA efectivo iniciar y terminar guardias manualmente; capturar presencia declarada en Central sin geolocalización.
-- [ ] Asociar varias bases por intervalos efectivos; permitir agregar/quitar bases durante una guardia, conservando actor y tiempo de cada cambio.
-- [ ] Conservar autoría y aislar lecturas/correcciones de guardias propias para EFA; administración puede consultar según permisos vigentes. Catálogo compartido no concede acceso a registros ajenos.
-- [ ] No cerrar guardias automáticamente por horario planificado o disponibilidad de móvil. Permitir terminar después registros iniciados durante una guardia según alcance aceptado.
-- [ ] Probar permisos, límites temporales, concurrencia/versión y relaciones; mantener pendiente la demostración real de garantías PostgreSQL y cookies hasta contar con entorno autorizado.
+- [x] Permitir a personas con EFA efectivo iniciar y terminar guardias manualmente; pedir declaración explícita de presencia en Central sin usar GPS.
+- [x] Asociar una o varias bases activas por intervalos derivados de eventos append-only; registrar actor autenticado y hora de base de datos para cada alta/baja durante una guardia.
+- [x] Conservar autoría y limitar EFA a sus guardias; administración puede consultar todas y corregir la hora de cierre con historial versionado. El catálogo compartido no concede acceso a registros ajenos.
+- [x] No cerrar guardias automáticamente. Las guardias terminadas permanecen disponibles; el flujo de registros posteriores al fin de guardia no está implementado en este work unit y no queda bloqueado por este modelo.
+- [x] Probar permisos, conflictos de versión, asociaciones temporales y relaciones con fake store; mantener pendiente la demostración real de garantías PostgreSQL y cookies hasta contar con entorno autorizado.
+
+**Implementación:** `efa_guard` conserva propietario, horas de inicio/cierre manuales, declaración de Central y versión; una restricción parcial impide dos guardias abiertas simultáneas por cuenta. `efa_guard_base_event` es un registro inmutable `added`/`removed` con guardia, base, actor y hora; el conjunto vigente se deriva de esa secuencia. `efa_guard_audit` registra inicio, cierre y corrección de cierre con estado antes/después y versión, con triggers que impiden actualizar o borrar el historial. Cada función servidor y servicio vuelve a comprobar acceso/rol actual. El flujo UI mobile-first está en `/guardia-efa`; no modifica formularios públicos ni conecta/aplica la migración.
+
+**TDD observado:** `npm.cmd run test -- src/db/schema.test.ts src/lib/efa-guards.server.test.ts src/lib/efa-guards.functions.test.ts` primero falló por los modelos y módulos nuevos ausentes (6/6 pruebas de schema existentes pasaron; el test nuevo de schema falló y ambas suites nuevas no encontraron sus módulos). Tras implementar esquema/servicios/funciones/UI, GREEN: 3 archivos focales, 14/14 pruebas.
+
+**Comprobaciones finales:** `npm.cmd run test` (11 archivos, 47 pruebas, exit 0); `npm.cmd run typecheck` (exit 0); `npm.cmd run build` (exit 0; solo avisos existentes de `inputValidator()` y `vite-tsconfig-paths`); `npm.cmd run db:generate` dos veces (ambas sin cambios de esquema); `npm.cmd exec prettier -- --check` en todos los archivos fuente/documentación modificados (exit 0); `git diff --check` (exit 0).
+
+**Límites:** no se conectó a Neon/PostgreSQL, no se aplicó migración ni se probaron triggers/transacciones/índice parcial en una base real. El fake store verifica la orquestación del servicio, no garantías del motor. No se agregaron flujos de observaciones/episodios; estos podrán referenciar guardias ya terminadas conforme a su unidad funcional.
 
 ## Verificación y límites globales
 
@@ -67,8 +75,9 @@ El alcance funcional aceptado establece que las personas con acceso EFA inician 
 
 ## Progreso y siguiente paso
 
-- B1 terminó localmente; el padre conserva el cierre del work unit y la revisión nativa.
-- Siguiente paso tras el cierre B1: delegar B2 por separado para ciclo de guardias y vínculos temporales a varias bases.
+- B1 quedó en un commit local de 12 archivos y 1.699 líneas cambiadas (incluido snapshot generado). El spot-check del padre repitió `npm.cmd run test`: 9 archivos y 39 pruebas, exit 0. El usuario confirmó que los dos scripts de bootstrap se conservan localmente pero se dejan intencionalmente sin seguimiento; las eliminaciones staged y las reglas correspondientes de `.gitignore` son deliberadas y deben preservarse.
+- La evaluación nativa dio riesgo `medium`, `review_due: true`, motivo `slice_budget_reached`. La revisión de B1 quedó aprobada y reconocida en la línea `review-00819d4bd8cf2e4e`, con un advisory no bloqueante: `R3-001`, sobre la UI de versiones obsoletas del catálogo. El límite revisado permanece en `ef055a581d91b0928864da88fdf140f1021fbe9d`.
+- La implementación B2 está completa en el árbol de trabajo: pasaron 47/47 pruebas, typecheck, build y dos generaciones offline convergentes. Sigue local y pendiente de commit/revisión del padre; no se aplicó la migración.
 
 ## Archivos relevantes
 
@@ -76,3 +85,7 @@ El alcance funcional aceptado establece que las personas con acceso EFA inician 
 - `odd/tasks/efa-access-foundation.md` — historial anterior de acceso/autorización; lectura de referencia, sin modificar.
 - `src/db/schema.ts` — modelos existentes Better Auth, acceso, grants y auditoría.
 - `src/routes/admin-usuarios.tsx` — página privada existente para administración de cuentas.
+- `src/lib/efa-guards.server.ts` — servicio de guardias manuales y eventos temporales de bases con autorización revalidada.
+- `src/components/EfaGuardPanel.tsx` — interfaz mobile-first para gestión e historial de guardias.
+- `src/routes/guardia-efa.tsx` — ruta autenticada del ciclo EFA.
+- `drizzle/0004_closed_sleeper.sql` — migración aditiva del ciclo de guardias; no aplicada a una base.

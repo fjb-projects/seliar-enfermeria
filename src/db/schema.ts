@@ -10,6 +10,7 @@ import {
   text,
   timestamp as timestampColumn,
   unique,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 
@@ -190,5 +191,95 @@ export const efaBaseAudit = pgTable(
       "efa_base_audit_state_keys_allowlisted",
       sql`(${table.afterState} - 'name' - 'isActive') = '{}'::jsonb and (${table.beforeState} is null or (${table.beforeState} - 'name' - 'isActive') = '{}'::jsonb)`,
     ),
+  ],
+);
+
+export const efaGuard = pgTable(
+  "efa_guard",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    ownerUserId: text("owner_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    startedAt: timestamp("started_at").notNull().defaultNow(),
+    endedAt: timestamp("ended_at"),
+    declaredAtCentral: boolean("declared_at_central").notNull(),
+    version: integer("version").notNull().default(1),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => [
+    check("efa_guard_version_positive", sql`${table.version} > 0`),
+    check(
+      "efa_guard_end_after_start",
+      sql`${table.endedAt} is null or ${table.endedAt} >= ${table.startedAt}`,
+    ),
+    uniqueIndex("efa_guard_one_open_per_owner_unique")
+      .on(table.ownerUserId)
+      .where(sql`${table.endedAt} is null`),
+  ],
+);
+
+export const efaGuardAudit = pgTable(
+  "efa_guard_audit",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    guardId: uuid("guard_id")
+      .notNull()
+      .references(() => efaGuard.id, { onDelete: "restrict" }),
+    actorUserId: text("actor_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    action: text("action").notNull(),
+    versionBefore: integer("version_before"),
+    versionAfter: integer("version_after").notNull(),
+    beforeState: jsonb("before_state").$type<{
+      startedAt: string;
+      endedAt: string | null;
+    } | null>(),
+    afterState: jsonb("after_state")
+      .$type<{ startedAt: string; endedAt: string | null }>()
+      .notNull(),
+    occurredAt: timestamp("occurred_at").notNull().defaultNow(),
+  },
+  (table) => [
+    unique("efa_guard_audit_guard_version_unique").on(table.guardId, table.versionAfter),
+    check(
+      "efa_guard_audit_action_allowed",
+      sql`${table.action} in ('started', 'ended', 'end_corrected')`,
+    ),
+    check(
+      "efa_guard_audit_version_transition_valid",
+      sql`(${table.versionBefore} is null and ${table.versionAfter} = 1) or (${table.versionBefore} is not null and ${table.versionBefore} > 0 and ${table.versionAfter} = ${table.versionBefore} + 1)`,
+    ),
+    check(
+      "efa_guard_audit_state_is_object",
+      sql`jsonb_typeof(${table.afterState}) = 'object' and (${table.beforeState} is null or jsonb_typeof(${table.beforeState}) = 'object')`,
+    ),
+    check(
+      "efa_guard_audit_state_keys_allowlisted",
+      sql`(${table.afterState} - 'startedAt' - 'endedAt') = '{}'::jsonb and (${table.beforeState} is null or (${table.beforeState} - 'startedAt' - 'endedAt') = '{}'::jsonb)`,
+    ),
+  ],
+);
+
+export const efaGuardBaseEvent = pgTable(
+  "efa_guard_base_event",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    guardId: uuid("guard_id")
+      .notNull()
+      .references(() => efaGuard.id, { onDelete: "restrict" }),
+    baseId: uuid("base_id")
+      .notNull()
+      .references(() => efaBase.id, { onDelete: "restrict" }),
+    actorUserId: text("actor_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    action: text("action").notNull(),
+    occurredAt: timestamp("occurred_at").notNull().defaultNow(),
+  },
+  (table) => [
+    check("efa_guard_base_event_action_allowed", sql`${table.action} in ('added', 'removed')`),
   ],
 );

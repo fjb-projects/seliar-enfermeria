@@ -11,7 +11,7 @@ import {
   user,
   verification,
 } from "./schema";
-import { efaBase, efaBaseAudit } from "./schema";
+import { efaBase, efaBaseAudit, efaGuard, efaGuardAudit, efaGuardBaseEvent } from "./schema";
 
 describe("database schema foundation", () => {
   it("exposes the singular model keys used by Better Auth's Drizzle adapter", () => {
@@ -70,6 +70,26 @@ describe("database schema foundation", () => {
     expect(condition).toContain("version_before is not null");
     expect(condition).toContain("version_before > 0");
     expect(condition).toContain("version_after = version_before + 1");
+  });
+
+  it("models manually owned EFA guards and an actor-attributed temporal base event log", () => {
+    expect(getTableName(efaGuard)).toBe("efa_guard");
+    expect(getTableName(efaGuardBaseEvent)).toBe("efa_guard_base_event");
+    expect(getTableConfig(efaGuard).checks.map((item) => item.name)).toEqual(
+      expect.arrayContaining(["efa_guard_version_positive", "efa_guard_end_after_start"]),
+    );
+    expect(getTableConfig(efaGuardBaseEvent).checks.map((item) => item.name)).toContain(
+      "efa_guard_base_event_action_allowed",
+    );
+    expect(getTableName(efaGuardAudit)).toBe("efa_guard_audit");
+    expect(getTableConfig(efaGuardAudit).checks.map((item) => item.name)).toEqual(
+      expect.arrayContaining([
+        "efa_guard_audit_action_allowed",
+        "efa_guard_audit_version_transition_valid",
+        "efa_guard_audit_state_is_object",
+        "efa_guard_audit_state_keys_allowlisted",
+      ]),
+    );
   });
 });
 
