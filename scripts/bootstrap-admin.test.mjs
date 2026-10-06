@@ -13,16 +13,27 @@ const initialAdmin = {
   password: "Replacement-Initial-Password",
 };
 
-function fakePool({ existingAdmin = false, failOnUserInsert = false } = {}) {
+function fakePool({
+  existingAdmin = false,
+  failOnUserInsert = false,
+  failureAt,
+  failure,
+  failPoolEnd = false,
+} = {}) {
   const statements = [];
   let insertedUsers = 0;
   const client = {
     async query(statement, values = []) {
       statements.push({ statement: String(statement), values });
-      if (String(statement).includes("EXISTS (SELECT")) {
+      const query = String(statement);
+      if (failureAt === "begin" && query === "BEGIN") throw failure;
+      if (failureAt === "admin_check" && query.includes("EXISTS (SELECT")) throw failure;
+      if (failureAt === "insert_user" && query.includes('INSERT INTO "user"')) throw failure;
+      if (failureAt === "commit" && query === "COMMIT") throw failure;
+      if (query.includes("EXISTS (SELECT")) {
         return { rows: [{ has_active_admin: existingAdmin, has_admin_grant: existingAdmin }] };
       }
-      if (failOnUserInsert && String(statement).includes('INSERT INTO "user"')) {
+      if (failOnUserInsert && query.includes('INSERT INTO "user"')) {
         insertedUsers += 1;
         if (insertedUsers === 1) throw new Error("simulated storage failure");
       }
@@ -34,11 +45,37 @@ function fakePool({ existingAdmin = false, failOnUserInsert = false } = {}) {
     statements,
     pool: {
       async connect() {
+        if (failureAt === "connection") throw failure;
         return client;
       },
-      async end() {},
+      async end() {
+        if (failPoolEnd) throw failure;
+      },
     },
   };
+}
+
+function unsafeFailure(code = "PRIVATE-CODE") {
+  const error = new Error(
+    `password=${initialAdmin.password}; DATABASE_URL=postgres://user:private@internal.example/db`,
+  );
+  error.code = code;
+  error.cause = new Error(`token=PRIVATE-CAUSE-${initialAdmin.password}`);
+  return error;
+}
+
+async function captureFailure(operation) {
+  try {
+    await operation();
+    assert.fail("Expected operation to fail.");
+  } catch (error) {
+    return error;
+  }
+}
+
+async function diagnostic(error) {
+  const { formatBootstrapDiagnostic } = await import("./bootstrap-admin.mjs");
+  return formatBootstrapDiagnostic(error);
 }
 
 test("accepts only explicit apply mode and permits a no-database help mode", async () => {
@@ -114,6 +151,15 @@ test("refuses an existing admin before inserting accounts and rolls back", async
     0,
   );
   assert.equal(statements.at(-1).statement, "ROLLBACK");
+  const existingError = await captureFailure(() =>
+    bootstrapAdminAccounts({
+      pool: fakePool({ existingAdmin: true }).pool,
+      admins: [initialAdmin],
+    }),
+  );
+  const message = await diagnostic(existingError);
+  assert.match(message, /administrator already exists/i);
+  assert.match(message, /sign in/i);
 });
 
 test("rolls back if any insert fails, leaving the parent transaction uncommitted", async () => {
@@ -124,7 +170,7 @@ test("rolls back if any insert fails, leaving the parent transaction uncommitted
       admins: [initialAdmin],
       hashPassword: async (password) => `hash:${password}`,
     }),
-    /bootstrap transaction failed/i,
+    /user_write/i,
   );
   assert.equal(statements.at(-1).statement, "ROLLBACK");
   assert.ok(!statements.some(({ statement }) => statement === "COMMIT"));
@@ -184,10 +230,115 @@ test("accepts one confirmed administrator and creates the database pool afterwar
     },
     hashPassword: async (password) => `hashed:${password}`,
   });
-  assert.deepEqual(result, { created: 1 });
+  assert.deepEqual(result, { created: 1, committed: true });
   assert.equal(poolCount, 1);
   assert.equal(
     statements.filter(({ statement }) => statement.includes('INSERT INTO "user"')).length,
     1,
   );
 });
+
+test("reports an actionable connection failure with an allowlisted network code", async () => {
+  const { pool } = fakePool({ failureAt: "connection", failure: unsafeFailure("ECONNREFUSED") });
+  const error = await captureFailure(() =>
+    runBootstrap({
+      args: ["--apply"],
+      env: { DATABASE_URL: "postgres://user:private@internal.example/db" },
+      promptLine: promptLineForInitialAdmin(),
+      promptSecret: promptSecretsForInitialAdmin(),
+      createPool: () => pool,
+      hashPassword: async () => "fake-hash",
+    }),
+  );
+  const message = await diagnostic(error);
+  assert.match(message, /connection/i);
+  assert.match(message, /ECONNREFUSED/);
+  assert.match(message, /check/i);
+  assert.doesNotMatch(
+    message,
+    /private|internal\.example|PRIVATE-CODE|PRIVATE-CAUSE|Replacement-Initial-Password/i,
+  );
+});
+
+test("reports a known SQLSTATE at its write stage without leaking driver details", async () => {
+  const { pool } = fakePool({ failureAt: "insert_user", failure: unsafeFailure("23505") });
+  const error = await captureFailure(() =>
+    bootstrapAdminAccounts({ pool, admins: [initialAdmin], hashPassword: async () => "fake-hash" }),
+  );
+  const message = await diagnostic(error);
+  assert.match(message, /user_write/i);
+  assert.match(message, /23505/);
+  assert.match(message, /email|account/i);
+  assert.doesNotMatch(
+    message,
+    /private|internal\.example|PRIVATE-CAUSE|Replacement-Initial-Password/i,
+  );
+});
+
+test("hides arbitrary error codes, messages, and causes", async () => {
+  const { pool } = fakePool({ failureAt: "admin_check", failure: unsafeFailure("PRIVATE-CODE") });
+  const error = await captureFailure(() =>
+    bootstrapAdminAccounts({ pool, admins: [initialAdmin], hashPassword: async () => "fake-hash" }),
+  );
+  const message = await diagnostic(error);
+  assert.match(message, /admin_check/i);
+  assert.match(message, /BOOTSTRAP_ERROR/);
+  assert.doesNotMatch(
+    message,
+    /PRIVATE-CODE|password=|DATABASE_URL=|postgres:\/\/|internal\.example|PRIVATE-CAUSE|Replacement-Initial-Password/i,
+  );
+});
+
+test("marks a failed commit as uncertain and advises checking before retry", async () => {
+  const { pool, statements } = fakePool({
+    failureAt: "commit",
+    failure: unsafeFailure("ECONNRESET"),
+  });
+  const error = await captureFailure(() =>
+    bootstrapAdminAccounts({ pool, admins: [initialAdmin], hashPassword: async () => "fake-hash" }),
+  );
+  const message = await diagnostic(error);
+  assert.match(error.message, /uncertain|unknown/i);
+  assert.match(error.message, /verify|check/i);
+  assert.match(message, /commit/i);
+  assert.match(message, /uncertain|unknown/i);
+  assert.match(message, /check|verify/i);
+  assert.doesNotMatch(message, /no accounts were created|private|Replacement-Initial-Password/i);
+  assert.ok(statements.some(({ statement }) => statement === "ROLLBACK"));
+});
+
+test("reports pool cleanup failure after confirmed commit as created, not retryable", async () => {
+  const { pool, statements } = fakePool({
+    failPoolEnd: true,
+    failure: unsafeFailure("PRIVATE-CODE"),
+  });
+  const result = await runBootstrap({
+    args: ["--apply"],
+    env: { DATABASE_URL: "postgres://user:private@internal.example/db" },
+    promptLine: promptLineForInitialAdmin(),
+    promptSecret: promptSecretsForInitialAdmin(),
+    createPool: () => pool,
+    hashPassword: async () => "fake-hash",
+  });
+  assert.equal(result.created, 1);
+  assert.equal(result.committed, true);
+  assert.equal(result.cleanupWarning.stage, "pool_cleanup");
+  const message = await diagnostic(result.cleanupWarning);
+  assert.match(message, /created|committed/i);
+  assert.match(message, /sign in|login/i);
+  assert.doesNotMatch(
+    message,
+    /PRIVATE-CODE|password=|DATABASE_URL=|private|Replacement-Initial-Password/i,
+  );
+  assert.equal(statements.at(-1).statement, "COMMIT");
+});
+
+function promptLineForInitialAdmin() {
+  const responses = ["CREATE THE INITIAL ADMINISTRATOR", initialAdmin.name, initialAdmin.email];
+  return async () => responses.shift();
+}
+
+function promptSecretsForInitialAdmin() {
+  const responses = [initialAdmin.password, initialAdmin.password];
+  return async () => responses.shift();
+}
