@@ -6,8 +6,22 @@ El área privada permite iniciar sesión, consultar el panel y administrar cuent
 
 1. Confirma que el destino PostgreSQL/Neon y la ventana de operación estén autorizados por la persona responsable.
 2. Configura localmente `DATABASE_URL`, `BETTER_AUTH_SECRET` y `BETTER_AUTH_URL` en el entorno aprobado. No pegues secretos en chat, argumentos, registros ni repositorio.
-3. Aplica manualmente las migraciones revisadas solo después de obtener autorización específica para ese destino.
+3. Ejecuta `npm run db:migrate` solo después de obtener autorización específica para aplicar las migraciones al destino elegido.
 4. Ejecuta el bootstrap en una terminal interactiva segura, desde el checkout y entorno autorizados.
+
+## Aplicar migraciones pendientes
+
+El comando requiere `DATABASE_URL` en el entorno y una autorización explícita para el destino PostgreSQL/Neon. Carga `.env` y `.env.local` si existen; cuando ambos definen la misma variable, `.env.local` prevalece. Lee los `.sql` de `drizzle/` en orden, consulta el registro `drizzle.__drizzle_migrations`, ejecuta las migraciones que no figuran como aplicadas y registra cada éxito:
+
+```sh
+npm run db:migrate
+```
+
+Al repetirlo, Drizzle omite las migraciones que ya están registradas. No ejecutes este comando como prueba local sin autorización: conecta y escribe en la base configurada. El alias carga ambos archivos de forma opcional y también admite `DATABASE_URL` provisto en el proceso. No inspecciones ni compartas los valores de entorno.
+
+`npm run db:generate` solo compara el esquema TypeScript y genera archivos SQL; no conecta ni aplica cambios. `npm run db:migrate` sí ejecuta los SQL pendientes del directorio de migraciones. `drizzle-kit push` difiere del flujo de archivos y no ejecuta SQL personalizado que no puede inferir del esquema, como los triggers append-only de auditoría. Por eso `generate` o `push` no sustituyen la aplicación de esas migraciones.
+
+Si migraciones anteriores se aplicaron manualmente desde el editor SQL de Neon o mediante `push`, el historial de `drizzle.__drizzle_migrations` podría no reflejar ese estado. No supongas que el journal está alineado, no marques migraciones como aplicadas manualmente ni reintentes a ciegas: pide verificación del historial y del esquema real por un canal autorizado antes de usar `db:migrate`.
 
 La aplicación necesita `BETTER_AUTH_SECRET` y `BETTER_AUTH_URL` cuando se usa autenticación. No se incluyen valores de ejemplo válidos ni credenciales precargadas.
 
@@ -19,7 +33,7 @@ El comando rechaza cualquier modo que no sea explícito. `--help` no requiere ni
 node --env-file=.env scripts/bootstrap-admin.mjs --help
 ```
 
-La persona usuaria informó que ya aplicó las migraciones; este estado no se verificó en la base. Antes de ejecutar el bootstrap, confirma por un canal autorizado que el destino tiene el esquema requerido. El comando no aplica migraciones.
+La persona usuaria informó que ya aplicó migraciones anteriormente; este estado y el journal de Drizzle no se verificaron en la base. Antes de ejecutar el bootstrap, confirma por un canal autorizado que el destino tiene el esquema requerido. El comando de bootstrap no aplica migraciones.
 
 Ejecuta el bootstrap solo con autorización para la base elegida y para crear una cuenta:
 

@@ -13,6 +13,7 @@
     "format": "prettier --write .",
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
+    "db:migrate": "node --env-file-if-exists=.env --env-file-if-exists=.env.local node_modules/drizzle-kit/bin.cjs migrate",
     "bootstrap:admins": "node scripts/bootstrap-admin.mjs"
   },
   "overrides": {
