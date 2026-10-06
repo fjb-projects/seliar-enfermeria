@@ -144,15 +144,21 @@ Después de confirmar B5, el siguiente work unit funcional puede abordar episodi
 
 **Ruta:** corrección pequeña en el adaptador de guardias, con prueba determinista sobre el seam real que usa `databaseNow`. Estimación: aproximadamente 60–100 líneas propias. Sin cambios de interfaz, permisos, esquema ni migraciones.
 
-**Aceptación:** normalizar valores `Date` existentes y cadenas de timestamp válidas a una fecha válida antes de devolver el reloj; rechazar explícitamente resultados ausentes o inválidos con mensaje seguro, sin filtrar detalles de base de datos. Probar que inicio/cierre usan el adaptador compatible con ambas formas; no afirmar conexión PostgreSQL real.
+**Aceptación:** normalizar valores `Date` existentes y cadenas de timestamp válidas a una fecha válida antes de persistir inicio/cierre; rechazar explícitamente resultados ausentes o inválidos con mensaje seguro, sin filtrar detalles de base de datos. Probar ambas formas en el contrato de reloj del servicio; no afirmar conexión PostgreSQL real.
 
-- [x] Observar RED inyectando el valor string realista del reloj en el adapter/seam de producción.
+- [x] Observar RED inyectando un timestamp textual realista en el contrato de reloj del servicio.
 - [x] Implementar conversión validada y mensaje seguro para valores nulos o inválidos, preservando soporte `Date`.
 - [x] Confirmar GREEN focal y ejecutar suite, typecheck, build, formato y `git diff --check`.
 
 **TDD observado:** con el valor raw "2026-10-06T10:00:00.000Z", el inicio primero falló con `startedAt.toISOString is not a function`; valores inválidos/faltantes producían errores JS no seguros. Después de normalizar en el límite de servicio, el set focal `npm.cmd run test -- src/lib/efa-guards.server.test.ts src/lib/efa-guards.functions.test.ts src/components/EfaGuardPanel.test.tsx` pasó 3 archivos/15 pruebas. La suite completa pasó 13 archivos/60 pruebas; `npm.cmd run typecheck` y `npm.cmd run build` pasaron (solo avisos existentes de validadores/dependencia Vite). `npx.cmd --no-install prettier --write/check` y `git diff --check` se confirman en el cierre.
 
 **Límites:** prueba fake/adaptador no acredita el tipo runtime entregado por Neon/PostgreSQL; una verificación real requiere entorno y autorización separados. No leer entorno ni conectar una DB durante B6.
+
+**Cierre local B6:** commit `3cfb110abbe25787ca00a34de9344820e938b27b`; el padre repitió `npm.cmd run test -- src/lib/efa-guards.server.test.ts` con 12/12 aprobadas. Los checks de formato y diff del escritor pasaron. El arreglo no cambia la estructura de datos ni requiere otra migración.
+
+**Revisión del segmento B3–B6:** la evaluación del rango `d9cab4420b83e78e48f383c98384664ab72d113e..3cfb110abbe25787ca00a34de9344820e938b27b` dio riesgo `medium`, 11 archivos y 455 líneas, `review_due: true`, motivo `slice_budget_reached`. Tras consentimiento explícito, la línea `review-b15b23789b2234ae` revisó el candidato inmutable `sha256:557c9d7666752e78050ff7369bad38952cdb62a6247d6f79a48e75fde11ad240` con una revisión consolidada `review-reliability`, sin hallazgos. El reconocimiento exacto devolvió `gentle-ai.review-acknowledged/v1`, acción `acknowledged` y autoridad `burned`; revisión aprobada y cerrada. El límite revisado avanza a `3cfb110abbe25787ca00a34de9344820e938b27b`. La aprobación no acredita ejecución PostgreSQL ni autoriza publicación.
+
+**Siguiente comprobación:** la persona usuaria debe recargar `/guardia-efa` y probar inicio/cierre con su conexión existente. No se ejecutó una migración, no se inspeccionaron secretos y no se conectó a Neon. El espejo Engram permanece pendiente por identidad runtime no registrada.
 
 **Límites:** pruebas estructurales no verifican sintaxis/atomicidad/comportamiento de PostgreSQL ni estado previo del destino. No aplicar migración, conectar DB ni alinear journal de una base real sin autorización explícita.
 
