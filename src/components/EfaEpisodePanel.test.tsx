@@ -115,4 +115,23 @@ describe("EfaEpisodePanel", () => {
     expect(html).toContain("Marcar como leído");
     expect(html).not.toContain("Calle 123");
   });
+
+  it("explains local queue privacy and blocks submission until storage is ready", () => {
+    const html = renderToStaticMarkup(
+      <EfaEpisodePanel
+        initialEpisodes={[]}
+        initialNotices={[]}
+        openOwnGuard={{ id: "guard-1", startedAt: "2026-10-06T09:00:00.000Z", endedAt: null }}
+        currentUserId="owner"
+        canWrite={true}
+        isAdmin={false}
+      />,
+    );
+
+    expect(html).toContain("Preparando el almacenamiento local");
+    expect(html).toContain("No es una bóveda segura");
+    expect(html).toMatch(/id="episode-event-at"[^>]*disabled=""/);
+    expect(html).toMatch(/Guardar borrador<\/button>/);
+    expect(html).toMatch(/disabled=""[^>]*>Guardar borrador<\/button>/);
+  });
 });
