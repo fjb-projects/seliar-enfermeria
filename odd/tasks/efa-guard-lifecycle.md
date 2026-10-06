@@ -26,7 +26,7 @@ El alcance funcional aceptado establece que las personas con acceso EFA inician 
 - Estimación del alcance completo: aproximadamente 800–1.400 líneas de autoría. Es una proyección para planificar, no un límite ni una aceptación; no hacer code golf.
 - Estrategia: `ask-on-risk`, con estrategia de cadena previamente aceptada `feature-branch-chain`; sin PR ni push autorizados.
 - Rama apilada: `feat/efa-guard-lifecycle`; base/punto de rama `ef055a581d91b0928864da88fdf140f1021fbe9d` (trabajo anterior revisado, no reabrir su revisión).
-- B1 fue el alcance del primer work unit. B2 se implementó y quedó en el commit `c72a12f` — `feat(efa): add manual guard lifecycle`; la evaluación/revisión nativa sigue pendiente.
+- B1 fue el alcance del primer work unit. B2 se implementó en `c72a12f`, se corrigió en `b96aecb` y su revisión nativa quedó aprobada y reconocida. B3 y B4 completan las correcciones posteriores y el comando de aplicación de migraciones.
 
 ## Tareas
 
@@ -79,7 +79,39 @@ El alcance funcional aceptado establece que las personas con acceso EFA inician 
 - La evaluación nativa dio riesgo `medium`, `review_due: true`, motivo `slice_budget_reached`. La revisión de B1 quedó aprobada y reconocida en la línea `review-00819d4bd8cf2e4e`, con un advisory no bloqueante: `R3-001`, sobre la UI de versiones obsoletas del catálogo. El límite revisado de B1 avanzó a `7ce38401e2da7db8d57ab0e2b73172c1bbe9bc42`.
 - B2 quedó en `c72a12f` — `feat(efa): add manual guard lifecycle`, con la corrección de R3-001 en `b96aecb`. RED/GREEN se observó para la regresión de replay fuera de orden; el cierre pasó 49/49 pruebas, typecheck, build y dos generaciones offline convergentes. El spot-check del padre de pruebas focales de servicio dio 7/7.
 - La línea `review-74fbd291620ce690` quedó detenida en `captured_artifacts_unverifiable`; no se reusó para el candidato corregido. La revisión nueva `review-ae8374d4949e7d2f` cubrió el target `sha256:ef85d0eec3876ccfba72f5f2bd316df0b13548924e8f839d669c6ef002abde2b` y terminó aprobada y reconocida; la autoridad se consumió y el límite revisado de B2 avanzó a `b96aecb`.
-- La revisión posterior dejó dos observaciones no bloqueantes pendientes, fuera del alcance de esta corrección y sin cambios de código: `R3-001`, `EfaGuardPanel` inicializa `selectedBaseIds` vacío al cargar, por lo que guardar podría quitar bases ya asociadas; `R3-002`, la corrección administrativa de hora final acepta una guardia abierta y debería rechazarla preservando estado y auditoría. Queda pendiente verificar la migración en PostgreSQL/Neon real; no se usó DB. El espejo Engram también queda pendiente por identidad runtime no registrada.
+- La revisión posterior dejó dos observaciones no bloqueantes que luego se corrigieron en B3: `R3-001`, selección inicial de bases existentes en `EfaGuardPanel`; `R3-002`, rechazo de correcciones administrativas de hora final para guardias abiertas, preservando estado y auditoría. Queda pendiente verificar la migración en PostgreSQL/Neon real; no se usó DB. El espejo Engram también queda pendiente por identidad runtime no registrada.
+
+### B3 — Corregir selección inicial y hora de cierre administrativa
+
+**Ruta:** escritor único delegado; dos correcciones delimitadas en UI/servicio con regresiones focales. Se extiende `vitest.config.ts` para que el runner normal incluya la prueba SSR `.test.tsx` y resuelva el alias `@`. Estimación: aproximadamente 120 líneas propias (adiciones y eliminaciones), excluyendo artefactos generados.
+
+**Aceptación:** al cargar una guardia propia abierta, todas sus bases existentes aparecen seleccionadas; la selección de una guardia ajena no se inicializa aunque administración pueda verla. Guardar conserva la selección existente salvo cambios elegidos explícitamente. Administración no puede corregir hora final en una guardia abierta: el servicio rechaza antes de mutar versión, guardia o auditoría; correcciones para guardias terminadas siguen funcionando.
+
+- [x] Observar RED para selección existente en componente con render SSR/atributos de checkbox; ampliar la configuración Vitest para ejecutar el `.test.tsx` con el runner normal, sin incorporar dependencias.
+- [x] Observar RED del servicio al intentar corregir el cierre de una guardia abierta y confirmar que el caso de guardia terminada sigue siendo válido.
+- [x] Implementar cambios mínimos y confirmar GREEN focal.
+- [x] Ejecutar test, typecheck, build, Prettier y `git diff --check`; no conectar una base.
+
+**Resultado observado:** la regresión SSR primero falló porque no seleccionaba ninguna base; el servicio primero aceptó la corrección de una guardia abierta. Tras corregir ambos, las pruebas focales quedaron en 9/9.
+
+**Commit y comprobación del padre:** `e3e16bc` — `fix(efa): preserve base selection and require an existing closure`. El padre repitió las pruebas focales: 2 archivos, 9/9, exit 0. Evaluación nativa: `medium`, `review_due: false`, `under_budget`; la revisión del segmento queda diferida, sin atribuir aprobación nueva a este commit.
+
+### B4 — Añadir un comando explícito para aplicar migraciones pendientes
+
+**Ruta:** cambio pequeño de configuración y guía operativa. Estimación: aproximadamente 45 líneas propias. No implica ni autoriza ejecutar migraciones contra una base.
+
+**Aceptación:** agregar `npm run db:migrate` con los flags Node `--env-file-if-exists` para `.env` y `.env.local` y la CLI local instalada de Drizzle Kit, sin runner ni dependencia nuevos. Documentar el uso, que aplica SQL pendiente en orden con el journal, que repetirlo omite las migraciones registradas, y la diferencia entre `generate`, `migrate` y `push` (este último no ejecuta el SQL personalizado/trigger de auditoría de los archivos de migración). Aclarar que aplicaciones manuales previas por Neon SQL editor o `push` no garantizan un journal alineado; no inventar baseline ni sugerir borrar la base.
+
+- [x] Confirmar soporte local para `node --env-file-if-exists` y ubicación de CLI sin inspeccionar archivos de entorno ni conectarse.
+- [x] Añadir alias npm y documentar uso/semántica y el posible desalineamiento del journal.
+- [x] Verificar `drizzle-kit migrate --help` directamente sin cargar entorno real; comprobar configuración/guía de forma estructural.
+- [x] Ejecutar test, typecheck, build, Prettier y `git diff --check`; dejar pendiente una ejecución PostgreSQL/Neon autorizada.
+
+**Resultado observado:** Node `v24.13.0` documenta `--env-file-if-exists` en `node --help`; existe la CLI local `node_modules/drizzle-kit/bin.cjs`; su ayuda directa y la comprobación estructural del alias pasaron sin cargar archivos de entorno. `npm.cmd run test` pasó 12 archivos/51 pruebas; `npm.cmd run typecheck` y `npm.cmd run build` pasaron; Prettier y `git diff --check` pasaron. El build emitió avisos existentes de `inputValidator()` y `vite-tsconfig-paths`. No se ejecutó `npm run db:migrate`, no se leyeron archivos de entorno y no se conectó a DB.
+
+**Pendiente:** verificar historial/journal y aplicar migraciones en PostgreSQL/Neon solo después de autorización explícita del destino; espejo Engram pendiente por identidad runtime no registrada.
+
+**Commit y evaluación:** `1dab22d` — `feat(db): add a command to apply pending SQL migrations`. El rango B3/B4 desde `d9cab4420b83e78e48f383c98384664ab72d113e` contiene 116 líneas cambiadas, riesgo nativo `medium`, `review_due: false`, motivo `under_budget`. No se inició una revisión nueva de ese rango ni se ejecutó una migración real; ambas comprobaciones se distinguen del resultado funcional local.
 
 ## Archivos relevantes
 
