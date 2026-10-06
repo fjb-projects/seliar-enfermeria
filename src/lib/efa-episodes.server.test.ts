@@ -49,6 +49,12 @@ function createStore() {
   const guardLocks: string[] = [];
   const episodeLocks: string[] = [];
   let auditNumber = 0;
+  const detachEpisode = (episode: EfaEpisodeRecord): EfaEpisodeRecord => ({
+    ...episode,
+    eventAt: new Date(episode.eventAt),
+    createdAt: new Date(episode.createdAt),
+    updatedAt: new Date(episode.updatedAt),
+  });
   const tx = {
     async findActor(userId: string) {
       return actors.get(userId) ?? null;
@@ -58,22 +64,24 @@ function createStore() {
       return guards.get(id) ?? null;
     },
     async listEpisodes(ownerUserId: string | null) {
-      return episodes.filter((episode) => !ownerUserId || episode.ownerUserId === ownerUserId);
+      return episodes
+        .filter((episode) => !ownerUserId || episode.ownerUserId === ownerUserId)
+        .map(detachEpisode);
     },
     async findEpisode(id: string, lock = false) {
       if (lock) episodeLocks.push(id);
-      return episodes.find((episode) => episode.id === id) ?? null;
+      const episode = episodes.find((item) => item.id === id);
+      return episode ? detachEpisode(episode) : null;
     },
     async findEpisodeByCreationKey(userId: string, key: string) {
       if (forcedCreationMisses > 0) {
         forcedCreationMisses -= 1;
         return null;
       }
-      return (
-        episodes.find(
-          (episode) => episode.ownerUserId === userId && episode.clientCreationKey === key,
-        ) ?? null
+      const episode = episodes.find(
+        (item) => item.ownerUserId === userId && item.clientCreationKey === key,
       );
+      return episode ? detachEpisode(episode) : null;
     },
     async findOperation(episodeId: string, clientOperationId: string) {
       return (
@@ -271,6 +279,26 @@ describe("EFA episode draft persistence", () => {
     );
     expect(db.episodeLocks).toEqual(["episode-1", "episode-1"]);
     expect(db.audits).toHaveLength(2);
+    expect(db.audits[1]).toMatchObject({
+      actorUserId: admin,
+      action: "updated",
+      versionBefore: 1,
+      versionAfter: 2,
+      beforeState: {
+        eventAt: "2026-10-06T09:30:00.000Z",
+        motive: "Traslado de paciente",
+        address: "Calle 123, piso 2",
+        interventionNumber: "00073",
+        state: "draft",
+      },
+      afterState: {
+        eventAt: "2026-10-06T10:15:00.000Z",
+        motive: "Actualizado",
+        address: "Calle 123, piso 2",
+        interventionNumber: "00073",
+        state: "draft",
+      },
+    });
     expect(db.notices).toHaveLength(1);
     expect(db.notices[0]).toMatchObject({
       episodeId: "episode-1",
@@ -310,6 +338,26 @@ describe("EFA episode draft persistence", () => {
     expect(result).toMatchObject({
       episode: { version: 2, canEdit: true },
       operation: { changed: true },
+    });
+    expect(db.audits[1]).toMatchObject({
+      actorUserId: owner,
+      action: "updated",
+      versionBefore: 1,
+      versionAfter: 2,
+      beforeState: {
+        eventAt: "2026-10-06T09:30:00.000Z",
+        motive: "Traslado de paciente",
+        address: "Calle 123, piso 2",
+        interventionNumber: "00073",
+        state: "draft",
+      },
+      afterState: {
+        eventAt: "2026-10-06T10:15:00.000Z",
+        motive: null,
+        address: null,
+        interventionNumber: null,
+        state: "draft",
+      },
     });
     expect(db.notices).toHaveLength(0);
     await expect(service.get("revoked", "episode-1")).rejects.toThrow(/encontró/i);

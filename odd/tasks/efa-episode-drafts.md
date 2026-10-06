@@ -87,8 +87,12 @@ Permitir que una persona EFA registre episodios de atención propios desde su gu
 
 ### E1-A1 — Seguimiento de pruebas, no bloqueante
 
-- [ ] Corregir el fake de `src/lib/efa-episodes.server.test.ts` para devolver registros separados del objeto almacenado y comprobar versiones/estados completos antes y después de una actualización. Advisory `R3-001`: el fake comparte la referencia y su actualización altera el objeto previo; las aserciones actuales solo cuentan eventos y no prueban correctamente la transición de auditoría. Es trabajo posterior separado, no una corrección nativa ni una razón para repetir la revisión aprobada.
+- **Estado:** pruebas y evidencia completadas; solo se modificaron el fake/pruebas y este documento.
+- [x] Corregir el fake de `src/lib/efa-episodes.server.test.ts` para devolver registros separados del objeto almacenado y comprobar versiones/estados completos antes y después de actualizaciones propias y administrativas. Advisory `R3-001`: el fake compartía referencias mutables, lo que elevaba `versionBefore` antes de guardar la auditoría. Se corrigió el fake; no se requirió cambio productivo.
+- RED observado: `npm.cmd run test -- src/lib/efa-episodes.server.test.ts` falló 2/9 casos nuevos: ambos recibieron `versionBefore: 2` donde correspondía `1`.
+- GREEN y checks: focused server tests 9/9; `npm.cmd run test` 15 archivos/73 pruebas; `npm.cmd run typecheck`; Prettier check de los dos archivos; `git diff --check`. Todo aprobado.
+- Runtime harness: N/A, es un cambio de test fake/documentación, sin nueva frontera de ejecución. Rollback: revertir únicamente este test y su evidencia; el servicio productivo no cambió. Commit identity pendiente del padre.
 
 ## Estado y siguiente paso
 
-E1 quedó implementada, registrada y revisada. Siguen pendientes E1-A1, la aplicación/verificación real de la migración y E2 (interfaz privada)/E3 (cola local). El siguiente bloque es reforzar la prueba de auditoría y construir la pantalla mobile-first; comunicaciones, conductas observables, despachos y coordinación policial continúan conforme al alcance acordado. El espejo Engram permanece pendiente por falta de identidad runtime registrada.
+E1 quedó implementada, registrada y revisada; E1-A1 ahora refuerza sus aserciones de auditoría sin modificar el servicio. Siguen pendientes el commit padre de este seguimiento, la aplicación/verificación real de la migración y E2 (interfaz privada)/E3 (cola local). Comunicaciones, conductas observables, despachos y coordinación policial continúan conforme al alcance acordado. El espejo Engram permanece pendiente por falta de identidad runtime registrada.
