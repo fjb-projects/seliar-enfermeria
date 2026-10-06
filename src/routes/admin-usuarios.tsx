@@ -2,9 +2,11 @@ import { createFileRoute, redirect } from "@tanstack/react-router";
 import { useState } from "react";
 import { AccountAdminForm } from "@/components/AccountAdminForm";
 import { AccountAdminList, type AccountView } from "@/components/AccountAdminList";
+import { AdminBaseCatalog, type AdminBaseView } from "@/components/AdminBaseCatalog";
 import { PrivateAccountShell, type PrivateSession } from "@/components/PrivateAccountShell";
 import { Button } from "@/components/ui/button";
 import { listAccounts } from "@/lib/accounts.functions";
+import { listAdminBases } from "@/lib/efa-bases.functions";
 import { readSession } from "@/lib/auth.functions";
 import { isAdministrator } from "@/lib/private-ui";
 
@@ -20,7 +22,10 @@ export const Route = createFileRoute("/admin-usuarios")({
     if (!isAdministrator(session.roles)) throw redirect({ href: "/panel" });
     return { session: session as PrivateSession };
   },
-  loader: async () => ({ accounts: (await listAccounts()) as AccountView[] }),
+  loader: async () => ({
+    accounts: (await listAccounts()) as AccountView[],
+    bases: (await listAdminBases()) as AdminBaseView[],
+  }),
   component: AdminAccountsPage,
 });
 
@@ -59,6 +64,7 @@ function AdminAccountsPage() {
           }}
         />
         <AccountAdminList accounts={accounts} onReload={reload} actorId={session.user.id} />
+        <AdminBaseCatalog initialBases={data.bases} />
         <Button asChild variant="outline" className="min-h-11">
           <a href="/panel">Volver al panel</a>
         </Button>

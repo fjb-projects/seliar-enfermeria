@@ -134,3 +134,61 @@ export const accountAudit = pgTable(
     ),
   ],
 );
+
+export const efaBase = pgTable(
+  "efa_base",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    name: text("name").notNull(),
+    normalizedName: text("normalized_name").notNull(),
+    isActive: boolean("is_active").notNull().default(true),
+    version: integer("version").notNull().default(1),
+    createdByUserId: text("created_by_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => [
+    unique("efa_base_normalized_name_unique").on(table.normalizedName),
+    check(
+      "efa_base_name_valid",
+      sql`char_length(btrim(${table.name})) between 1 and 120 and char_length(${table.normalizedName}) between 1 and 120`,
+    ),
+    check("efa_base_version_positive", sql`${table.version} > 0`),
+  ],
+);
+
+export const efaBaseAudit = pgTable(
+  "efa_base_audit",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    baseId: uuid("base_id")
+      .notNull()
+      .references(() => efaBase.id, { onDelete: "restrict" }),
+    actorUserId: text("actor_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    action: text("action").notNull(),
+    versionBefore: integer("version_before"),
+    versionAfter: integer("version_after").notNull(),
+    beforeState: jsonb("before_state").$type<{ name: string; isActive: boolean } | null>(),
+    afterState: jsonb("after_state").$type<{ name: string; isActive: boolean }>().notNull(),
+    occurredAt: timestamp("occurred_at").notNull().defaultNow(),
+  },
+  (table) => [
+    unique("efa_base_audit_base_version_unique").on(table.baseId, table.versionAfter),
+    check(
+      "efa_base_audit_action_allowed",
+      sql`${table.action} in ('created', 'renamed', 'disabled', 'reactivated')`,
+    ),
+    check(
+      "efa_base_audit_version_transition_valid",
+      sql`(${table.versionBefore} is null and ${table.versionAfter} = 1) or (${table.versionBefore} is not null and ${table.versionBefore} > 0 and ${table.versionAfter} = ${table.versionBefore} + 1)`,
+    ),
+    check(
+      "efa_base_audit_state_keys_allowlisted",
+      sql`(${table.afterState} - 'name' - 'isActive') = '{}'::jsonb and (${table.beforeState} is null or (${table.beforeState} - 'name' - 'isActive') = '{}'::jsonb)`,
+    ),
+  ],
+);
