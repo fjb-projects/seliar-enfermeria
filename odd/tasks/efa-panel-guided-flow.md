@@ -37,13 +37,25 @@ The current `/panel` presents the same episode link to every account and hides t
 **Observed checks:** focused Vitest command passed (3 files, 10 tests); `npm run typecheck` passed; `npm run build` passed with existing TanStack route-test and deprecated `inputValidator()` warnings; `git diff --check` passed. No live database, commit, or remote action was performed.
 
 ### P2 — Guard-to-episode handoff and context
+**Work-unit commit:** `1246a3d`.
+
 - [x] Align the guard and episode panels around the guided flow without changing route permissions. The guard panel explains that episodes are the next step after starting a guard, makes base selection explicitly optional, and links to episode recording only when a guard is already open. The episode panel identifies the caller's open guard, clearly returns to the guard panel, and states once that its list is not the complete cross-guard history.
 - [x] Add focused rendering assertions for both handoffs, the no-open-guard state without a premature episode CTA, and the single read-only scope notice. Tests observed RED before the UI update and GREEN afterward.
 
 **Observed P2 checks:** `npm run test -- src/components/EfaGuardPanel.test.tsx src/components/EfaEpisodePanel.test.tsx` passed (2 files, 14 tests); `npm run typecheck` passed; `npm run build` passed with existing TanStack route-test and deprecated `inputValidator()` warnings; `git diff --check -- odd/tasks/efa-panel-guided-flow.md src/components/EfaGuardPanel.tsx src/components/EfaGuardPanel.test.tsx src/components/EfaEpisodePanel.tsx src/components/EfaEpisodePanel.test.tsx` passed. No route permission, server, schema, or deep-link behavior changed.
 
 ### P3 — Concise history cards and detail
-- [ ] Improve panel/history presentation without adding sensitive records to the panel summary.
+#### P3a — Compact guard history
+**Route:** delegated direct; one bounded UI/test/doc work unit.
+
+- [x] Collapse historical and other-owner guard details by default; expand the current user's open guard so staffing remains immediately accessible. The native `details` disclosure shows “Ver detalles” or “Ocultar detalles” based on its state. The compact summary shows status/date, and the episode-recording action remains outside the disclosure.
+- [x] Preserve base/declaration/version history, observation access, base-change history, staffing, coverage planning, and admin correction inside the details area without changing permissions or server/data behavior.
+- [x] Add rendering assertions for collapsed historical/other-owner guards, expanded own-active details, state-aware disclosure labels, and the visible episode action. Test-first RED was observed before the active-guard expansion; GREEN followed the refinement.
+
+**Observed P3a checks:** `npm run test -- src/components/EfaGuardPanel.test.tsx` passed (1 file, 9 tests); `npm run typecheck` passed; `npm run build` passed with existing TanStack route-test and deprecated `inputValidator()` warnings; `git diff --check -- odd/tasks/efa-panel-guided-flow.md src/components/EfaGuardPanel.tsx src/components/EfaGuardPanel.test.tsx` passed. No live database, commit, staging, or remote action was performed.
+
+#### P3b — Episode history
+- [ ] Improve episode history presentation, keeping existing history access and permission behavior intact.
 
 ### V1 — Integration and mobile validation
 - [ ] Validate end-to-end navigation, state transitions, and narrow-screen layout with available local checks.
@@ -58,4 +70,4 @@ The current `/panel` presents the same episode link to every account and hides t
 Engram mirror is pending because this delegated worker has no authoritative registered session identity. The parent session should mirror the full current document after completing the feature.
 
 ## Next step
-P1 and P2 are complete. Keep P3 and V1 open for the parent to route; do not broaden this task into history-card redesign or end-to-end/mobile validation.
+P1, P2, and P3a are complete. Route P3b episode history and V1 integration/mobile validation separately; do not broaden P3a into those follow-up tasks.

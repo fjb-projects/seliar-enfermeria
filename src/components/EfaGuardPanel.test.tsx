@@ -66,6 +66,91 @@ vi.mock("@/lib/efa-police-coordination.functions", () => ({
 }));
 
 describe("EfaGuardPanel", () => {
+  it("keeps guard history summaries compact and exposes existing details on demand", () => {
+    const html = renderToStaticMarkup(
+      <EfaGuardPanel
+        initialGuards={[
+          {
+            id: "closed-guard",
+            ownerUserId: "current-user",
+            startedAt: "2026-10-07T08:00:00.000Z",
+            endedAt: "2026-10-07T12:00:00.000Z",
+            declaredAtCentral: true,
+            version: 3,
+            bases: [{ id: "base-a", name: "Central", isActive: true }],
+            baseEvents: [
+              {
+                baseId: "base-a",
+                baseName: "Central",
+                actorUserId: "admin-user",
+                action: "added",
+                occurredAt: "2026-10-07T08:05:00.000Z",
+              },
+            ],
+          },
+        ]}
+        activeBases={[]}
+        initialStaffing={{}}
+        currentUserId="current-user"
+        isAdmin
+        canWrite
+      />,
+    );
+
+    expect(html).toContain("Finalizada");
+    expect(html).toContain("2026-10-07");
+    expect(html).toContain('<details class="space-y-3">');
+    expect(html).not.toMatch(/<details[^>]*\bopen(?:="")?[^>]*>/);
+    expect(html).toContain("Ver detalles");
+    expect(html).toContain("Presencia declarada en Central · versión 3");
+    expect(html).toContain("Historial de cambios de base");
+    expect(html).toContain("Responsable: current-user");
+    expect(html).toContain("Corregir hora de cierre");
+    expect(html).toContain("Dotación observada");
+  });
+
+  it("makes an open guard status obvious without hiding the episode action", () => {
+    const html = renderToStaticMarkup(
+      <EfaGuardPanel
+        initialGuards={[
+          {
+            id: "open-guard",
+            ownerUserId: "current-user",
+            startedAt: "2026-10-07T08:00:00.000Z",
+            endedAt: null,
+            declaredAtCentral: false,
+            version: 1,
+            bases: [],
+            baseEvents: [],
+          },
+          {
+            id: "other-open-guard",
+            ownerUserId: "other-user",
+            startedAt: "2026-10-07T09:00:00.000Z",
+            endedAt: null,
+            declaredAtCentral: true,
+            version: 1,
+            bases: [],
+            baseEvents: [],
+          },
+        ]}
+        activeBases={[]}
+        initialStaffing={{}}
+        currentUserId="current-user"
+        isAdmin
+        canWrite
+      />,
+    );
+
+    expect(html).toContain("Guardia en curso");
+    expect(html).toContain("/episodios-efa");
+    expect(html).toContain("Registrar atenciones");
+    expect([...html.matchAll(/<details[^>]*>/g)].map(([tag]) => /\bopen(?:="")?/.test(tag))).toEqual(
+      [true, false],
+    );
+    expect(html).toContain("Ocultar detalles");
+  });
+
   it("initializes selected bases only from the current user's open guard", () => {
     const initialGuards: GuardView[] = [
       {

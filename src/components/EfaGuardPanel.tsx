@@ -591,6 +591,14 @@ export function EfaGuardPanel({
   });
   const [centralConfirmed, setCentralConfirmed] = useState(false);
   const [corrections, setCorrections] = useState<Record<string, string>>({});
+  const [guardDetailsOpen, setGuardDetailsOpen] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(
+      initialGuards.map((guard) => [
+        guard.id,
+        guard.ownerUserId === currentUserId && !guard.endedAt,
+      ]),
+    ),
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -807,130 +815,165 @@ export function EfaGuardPanel({
           </p>
         </CardHeader>
         <CardContent className="space-y-4">
-          {guards.map((guard) => (
-            <article key={guard.id} className="space-y-3 rounded-lg border p-4">
-              <div>
-                {isAdmin && <p className="text-sm font-medium">Responsable: {guard.ownerUserId}</p>}
-                <p className="text-sm">Inicio: {new Date(guard.startedAt).toLocaleString()}</p>
-                <p className="text-sm">
-                  {guard.endedAt ? `Fin: ${new Date(guard.endedAt).toLocaleString()}` : "En curso"}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  Presencia declarada en Central · versión {guard.version}
-                </p>
-              </div>
-              <div className="space-y-1 text-sm">
-                <p className="font-medium">Bases seguidas</p>
-                <p>
-                  {guard.bases.length
-                    ? guard.bases.map((base) => base.name).join(", ")
-                    : "Sin base activa"}
-                </p>
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                className="min-h-11"
-                onClick={() => setObservationGuardId(guard.id)}
-              >
-                Ver conductas observadas
-              </Button>
-              {observationGuardId === guard.id && (
-                <section key={`${currentUserId}:${guard.id}`} className="space-y-3">
+          {guards.map((guard) => {
+            const detailsOpen =
+              guardDetailsOpen[guard.id] ?? (guard.ownerUserId === currentUserId && !guard.endedAt);
+            return (
+              <article key={guard.id} className="space-y-3 rounded-lg border p-4">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <span
+                    className={`inline-flex min-h-7 items-center rounded-full px-2 text-xs font-medium ${
+                      guard.endedAt
+                        ? "bg-muted text-muted-foreground"
+                        : "bg-primary/10 text-primary"
+                    }`}
+                  >
+                    {guard.endedAt ? "Finalizada" : "En curso"}
+                  </span>
+                  <p className="text-sm">
+                    Inicio: {new Date(guard.startedAt).toLocaleDateString()}
+                    {guard.endedAt && ` · Fin: ${new Date(guard.endedAt).toLocaleDateString()}`}
+                  </p>
+                </div>
+                <details
+                  className="space-y-3"
+                  open={detailsOpen}
+                  onToggle={(event) => {
+                    const nextOpen = event.currentTarget.open;
+                    setGuardDetailsOpen((current) =>
+                      current[guard.id] === nextOpen
+                        ? current
+                        : { ...current, [guard.id]: nextOpen },
+                    );
+                  }}
+                >
+                  <summary className="min-h-11 cursor-pointer py-2 text-sm font-medium">
+                    {detailsOpen ? "Ocultar detalles" : "Ver detalles"}
+                  </summary>
+                  <div className="space-y-3">
+                    <div className="text-sm">
+                      {isAdmin && <p className="font-medium">Responsable: {guard.ownerUserId}</p>}
+                      <p>Inicio: {new Date(guard.startedAt).toLocaleString()}</p>
+                      {guard.endedAt && <p>Fin: {new Date(guard.endedAt).toLocaleString()}</p>}
+                      <p className="text-xs text-muted-foreground">
+                        Presencia declarada en Central · versión {guard.version}
+                      </p>
+                    </div>
+                  <div className="space-y-1 text-sm">
+                    <p className="font-medium">Bases seguidas</p>
+                    <p>
+                      {guard.bases.length
+                        ? guard.bases.map((base) => base.name).join(", ")
+                        : "Sin base activa"}
+                    </p>
+                  </div>
                   <Button
                     type="button"
                     variant="outline"
                     className="min-h-11"
-                    onClick={() => setObservationGuardId(null)}
+                    onClick={() => setObservationGuardId(guard.id)}
                   >
-                    Cerrar conductas observadas
+                    Ver conductas observadas
                   </Button>
-                  <EfaObservationPanel
-                    root={{
-                      guardId: guard.id,
-                      ownerUserId: guard.ownerUserId,
-                      guardEndedAt: guard.endedAt,
-                    }}
-                    title="Conductas observadas de la guardia"
-                    currentUserId={currentUserId}
-                    canWrite={canWrite && (isAdmin || guard.ownerUserId === currentUserId)}
-                    isAdmin={isAdmin}
+                  {observationGuardId === guard.id && (
+                    <section key={`${currentUserId}:${guard.id}`} className="space-y-3">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="min-h-11"
+                        onClick={() => setObservationGuardId(null)}
+                      >
+                        Cerrar conductas observadas
+                      </Button>
+                      <EfaObservationPanel
+                        root={{
+                          guardId: guard.id,
+                          ownerUserId: guard.ownerUserId,
+                          guardEndedAt: guard.endedAt,
+                        }}
+                        title="Conductas observadas de la guardia"
+                        currentUserId={currentUserId}
+                        canWrite={canWrite && (isAdmin || guard.ownerUserId === currentUserId)}
+                        isAdmin={isAdmin}
+                      />
+                    </section>
+                  )}
+                  {guard.baseEvents.length > 0 && (
+                    <details>
+                      <summary className="min-h-11 cursor-pointer py-2 text-sm font-medium">
+                        Historial de cambios de base
+                      </summary>
+                      <ul className="space-y-2 pl-5 text-sm">
+                        {guard.baseEvents.map((event, index) => (
+                          <li key={`${event.baseId}-${event.action}-${index}`}>
+                            {event.action === "added" ? "Agregó" : "Quitó"} {event.baseName} ·{" "}
+                            {new Date(event.occurredAt).toLocaleString()} · actor {event.actorUserId}
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
+                  {isAdmin && canWrite && guard.endedAt && (
+                    <div className="space-y-2 border-t pt-3">
+                      <Label htmlFor={`guard-end-${guard.id}`}>Corregir hora de cierre</Label>
+                      <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                        <input
+                          id={`guard-end-${guard.id}`}
+                          className="min-h-11 rounded-md border bg-background px-3 text-sm"
+                          type="datetime-local"
+                          value={corrections[guard.id] ?? toLocalDateTimeValue(guard.endedAt)}
+                          onChange={(event) =>
+                            setCorrections((current) => ({
+                              ...current,
+                              [guard.id]: event.target.value,
+                            }))
+                          }
+                        />
+                        <Button
+                          variant="outline"
+                          className="min-h-11"
+                          disabled={
+                            busy ||
+                            !canWrite ||
+                            !corrections[guard.id] ||
+                            new Date(corrections[guard.id]!).getTime() ===
+                              new Date(guard.endedAt).getTime()
+                          }
+                          onClick={() =>
+                            void runAction(
+                              () =>
+                                correctGuardEnd({
+                                  data: {
+                                    guardId: guard.id,
+                                    expectedVersion: guard.version,
+                                    endedAt: new Date(corrections[guard.id]!).toISOString(),
+                                  },
+                                }),
+                              "La hora de cierre se corrigió y quedó en el historial.",
+                            )
+                          }
+                        >
+                          Guardar corrección
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                  {canWrite && <PlannedCoverageReadOnly bases={guard.bases} />}
+                  <ObservedStaffingPanel
+                    guardId={guard.id}
+                    periods={staffingByGuard[guard.id] ?? []}
+                    canEdit={canWrite && (isAdmin || guard.ownerUserId === currentUserId)}
+                    canCreate={
+                      canWrite && (isAdmin || guard.ownerUserId === currentUserId) && !guard.endedAt
+                    }
+                    busy={busy}
+                    runAction={runAction}
                   />
-                </section>
-              )}
-              {guard.baseEvents.length > 0 && (
-                <details>
-                  <summary className="min-h-11 cursor-pointer py-2 text-sm font-medium">
-                    Historial de cambios de base
-                  </summary>
-                  <ul className="space-y-2 pl-5 text-sm">
-                    {guard.baseEvents.map((event, index) => (
-                      <li key={`${event.baseId}-${event.action}-${index}`}>
-                        {event.action === "added" ? "Agregó" : "Quitó"} {event.baseName} ·{" "}
-                        {new Date(event.occurredAt).toLocaleString()} · actor {event.actorUserId}
-                      </li>
-                    ))}
-                  </ul>
-                </details>
-              )}
-              {isAdmin && canWrite && guard.endedAt && (
-                <div className="space-y-2 border-t pt-3">
-                  <Label htmlFor={`guard-end-${guard.id}`}>Corregir hora de cierre</Label>
-                  <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-                    <input
-                      id={`guard-end-${guard.id}`}
-                      className="min-h-11 rounded-md border bg-background px-3 text-sm"
-                      type="datetime-local"
-                      value={corrections[guard.id] ?? toLocalDateTimeValue(guard.endedAt)}
-                      onChange={(event) =>
-                        setCorrections((current) => ({
-                          ...current,
-                          [guard.id]: event.target.value,
-                        }))
-                      }
-                    />
-                    <Button
-                      variant="outline"
-                      className="min-h-11"
-                      disabled={
-                        busy ||
-                        !canWrite ||
-                        !corrections[guard.id] ||
-                        new Date(corrections[guard.id]!).getTime() ===
-                          new Date(guard.endedAt).getTime()
-                      }
-                      onClick={() =>
-                        void runAction(
-                          () =>
-                            correctGuardEnd({
-                              data: {
-                                guardId: guard.id,
-                                expectedVersion: guard.version,
-                                endedAt: new Date(corrections[guard.id]!).toISOString(),
-                              },
-                            }),
-                          "La hora de cierre se corrigió y quedó en el historial.",
-                        )
-                      }
-                    >
-                      Guardar corrección
-                    </Button>
                   </div>
-                </div>
-              )}
-              {canWrite && <PlannedCoverageReadOnly bases={guard.bases} />}
-              <ObservedStaffingPanel
-                guardId={guard.id}
-                periods={staffingByGuard[guard.id] ?? []}
-                canEdit={canWrite && (isAdmin || guard.ownerUserId === currentUserId)}
-                canCreate={
-                  canWrite && (isAdmin || guard.ownerUserId === currentUserId) && !guard.endedAt
-                }
-                busy={busy}
-                runAction={runAction}
-              />
-            </article>
-          ))}
+                </details>
+              </article>
+            );
+          })}
           {guards.length === 0 && (
             <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
               Todavía no hay guardias registradas.
