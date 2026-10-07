@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { EfaCommunicationPanel } from "@/components/EfaCommunicationStepper";
 import { EfaDispatchStepper } from "@/components/EfaDispatchStepper";
+import { EfaPoliceCoordinationPanel } from "@/components/EfaPoliceCoordinationPanel";
 import {
   createEfaEpisode,
   getEfaEpisode,
@@ -142,6 +143,7 @@ export function EfaEpisodePanel({
     string | null
   >(null);
   const [selectedDispatchEpisodeId, setSelectedDispatchEpisodeId] = useState<string | null>(null);
+  const [selectedPoliceEpisodeId, setSelectedPoliceEpisodeId] = useState<string | null>(null);
   const [pending, setPending] = useState<PendingEpisodeCreate | PendingEpisodeUpdate | null>(null);
   const [conflict, setConflict] = useState<ActiveEpisodeConflict | null>(null);
   const [busy, setBusy] = useState(false);
@@ -1241,6 +1243,13 @@ export function EfaEpisodePanel({
                   <Button
                     variant="outline"
                     className="min-h-11"
+                    onClick={() => setSelectedPoliceEpisodeId(episode.id)}
+                  >
+                    Ver coordinación policial
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="min-h-11"
                     disabled={busy}
                     onClick={() => void showHistory(episode.id)}
                   >
@@ -1338,6 +1347,30 @@ export function EfaEpisodePanel({
                 currentUserId={currentUserId}
                 canWrite={canWrite}
                 episodeCanEdit={dispatchEpisode.canEdit}
+              />
+            </section>
+          ) : null;
+        })()}
+
+      {selectedPoliceEpisodeId &&
+        (() => {
+          const policeEpisode = episodes.find((episode) => episode.id === selectedPoliceEpisodeId);
+          return policeEpisode ? (
+            <section key={`${currentUserId}:${policeEpisode.id}`} className="space-y-3">
+              <Button
+                type="button"
+                variant="outline"
+                className="min-h-11"
+                onClick={() => setSelectedPoliceEpisodeId(null)}
+              >
+                Cerrar coordinación policial
+              </Button>
+              <EfaPoliceCoordinationPanel
+                episodeId={policeEpisode.id}
+                episodeLabel={displayName(policeEpisode)}
+                currentUserId={currentUserId}
+                canWrite={canWrite}
+                episodeCanEdit={policeEpisode.canEdit}
               />
             </section>
           ) : null;

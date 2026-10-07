@@ -43,6 +43,18 @@ vi.mock("@/lib/efa-dispatches.functions", () => ({
   updateEfaDispatch: vi.fn(),
   updateEfaSupportRequest: vi.fn(),
 }));
+vi.mock("@/lib/efa-police-coordination.functions", () => ({
+  addEfaPoliceCoordinationEvent: vi.fn(),
+  createEfaPoliceCoordination: vi.fn(),
+  getEfaPoliceCoordination: vi.fn(),
+  getEfaPoliceCoordinationHistory: vi.fn(),
+  listEfaPoliceCoordinationNotices: vi.fn(),
+  listEfaPoliceCoordinationsForEpisode: vi.fn(),
+  markEfaPoliceCoordinationNoticeRead: vi.fn(),
+  setEfaPoliceCoordinationDispatches: vi.fn(),
+  updateEfaPoliceCoordination: vi.fn(),
+  updateEfaPoliceCoordinationEvent: vi.fn(),
+}));
 
 const episode: EpisodeView = {
   id: "episode-1",
@@ -114,6 +126,7 @@ describe("EfaEpisodePanel", () => {
     expect(html).toContain("Solo lectura");
     expect(html).toContain("Ver llamadas");
     expect(html).toContain("Ver despachos");
+    expect(html).toContain("Ver coordinación policial");
     expect(html).not.toContain("Guardar borrador");
   });
 
