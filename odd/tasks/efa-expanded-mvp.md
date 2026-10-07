@@ -2,7 +2,7 @@
 
 Implement the next EFA operational workflows without changing public forms or external integrations. The first work unit records observed staffing-period facts, distinct from planned coverage, using anonymous roles rather than personal identities.
 
-**Status:** Tasks 10A, 10B, 11A, 11B, and 12 complete locally; task 13 and final integration remain.
+**Status:** Tasks 10A, 10B, 11A, 11B, 12, and 13A complete locally; tasks 13B, 13C, and final integration remain.
 **Engram mirror:** Pending; the runtime did not provide an authorized registered session identity, so no memory write is attempted.
 **Delivery strategy:** `ask-on-risk`; the user selected a feature-branch chain on 2026-10-07. Keep each work unit as a reviewable block; do not publish a PR or push without separate authorization.
 **Forecast:** More than 400 authored changed lines across the expanded feature; generated migration artifacts are excluded. Slicing is by behavior, not by code compression.
@@ -137,9 +137,39 @@ The admin account route uses a catalog-ID selector for all plan targets, with ef
 - Residual deferred issue: E3-A R3-001 remains. If IndexedDB itself fails while persisting a mismatched-receipt pause or confirmed-cleanup marker/deletion, the controller can only retain an in-memory fence; after reload, persisted `pending` state can still be resent. This task does not claim recovery if IndexedDB fails. Real-browser IndexedDB behavior remains unverified.
 - E2-A timestamp formatting and C1-A2 submillisecond preservation remain explicitly out of scope; no timestamp contract changes were made. No Neon/remote database access or migrations occurred, and no public Forms/Drive work occurred. Work-unit commit: `ab285ba` (`fix(efa): recheck episode queue state before retry`). Independent read-only verification and a focused parent spot check passed.
 
-### 13 — Cancellation and reactivation
+### 13 — Cancellation and reactivation (scoped work units)
 
-- [ ] Add explicit lifecycle transitions for cancellation/reactivation without destructive deletion or loss of history.
+**Scope decision (2026-10-07):** The first implementation is limited to episodes, communications, and dispatches. Work is split into 13A communications, 13B dispatches, and 13C episodes. Police coordination/events, support requests, observations, and staffing are explicitly excluded from task 13.
+
+#### 13A — Communication cancellation and reactivation (current work unit)
+
+**Route:** delegated direct. Trigger: coordinated schema/migration, server lifecycle, UI, and deterministic test changes across multiple non-trivial files.
+**Authorized surfaces:** `src/db/schema.ts`, `src/db/schema.test.ts`, `drizzle/0018_*.sql`, `drizzle/meta/0018_snapshot.json`, `drizzle/meta/_journal.json`, `src/lib/efa-communications.server.ts`, `src/lib/efa-communications.server.test.ts`, `src/lib/efa-communications.functions.ts`, `src/lib/efa-communications.functions.test.ts`, `src/lib/efa-communications.client.ts`, `src/lib/efa-communications.client.test.ts`, `src/lib/efa-communications.queue.ts`, `src/lib/efa-communications.queue.test.ts`, `src/components/EfaCommunicationStepper.tsx`, `src/components/EfaCommunicationStepper.test.tsx`, `src/components/EfaEpisodePanel.tsx`, `src/components/EfaEpisodePanel.test.tsx`, `src/routes/episodios-efa.tsx`, `src/routes/episodios-efa.test.tsx`.
+
+- [x] Add communication-only cancellation/reactivation distinct from finalization, preserving each communication's prior `draft` or `finalized` state.
+- [x] Preserve the communication row, its children, and linked dispatches; cancelled communications remain readable but cannot be edited/finalized until reactivated.
+- [x] Recheck owner/admin authorization server-side; enforce optimistic version/CAS and idempotent operation receipts.
+- [x] Audit before/after state, actor, and database time; administrative corrections notify the original owner, but never send a notice to the acting user.
+- [x] Add an accessible compact action/confirmation UI without removing or rewriting original history.
+- [x] Test authorization, state transitions, audit, replay, no-cascade preservation, administrative notice, and UI; generate but do not apply migration 0018.
+
+**13A implementation and verification evidence:** Communication records now carry `cancelled_at` and `cancelled_from_state`; database constraints permit only valid draft/finalized/cancelled combinations, and immutable audit/operation actions include cancellation and reactivation. Server transitions lock and version-check the communication, reauthorize active EFA/admin access, record before/after states and DB time, use operation IDs/request hashes for replay, and notify only the original owner when an administrator acts. Cancellation is online-only; if the response is uncertain, the UI retains and reuses the exact operation ID for the same action/record/version. Cancelled items remain listed/readable, are labeled `Anulada`, and their fields/finalize controls are disabled until explicit reactivation restores the original status. Existing dispatch rows/links are not changed and no child delete or cascade is introduced. No new reason field is required.
+
+- Test-first RED: the new service regression failed because the cancellation service action did not exist. GREEN: the new cancellation/reactivation tests then passed, covering draft and finalized restoration, audit actor/state/version, replay, admin notice recipient, self-notice avoidance, and denied revoked access.
+- `npm run db:generate`: exit 0; generated `drizzle/0018_clammy_mystique.sql`, snapshot 0018, and journal entry 18. Migration is forward-only, remains unapplied, and no remote DB was accessed.
+- `npm run test -- src/lib/efa-communications.server.test.ts src/lib/efa-communications.functions.test.ts src/lib/efa-communications.client.test.ts src/lib/efa-communications.queue.test.ts src/components/EfaCommunicationStepper.test.tsx src/db/schema.test.ts`: exit 0; 6 files, 58 tests.
+- `npm run typecheck`: exit 0. `npm run build`: exit 0, with existing Vite path plugin, test-route file, and unrelated deprecated `inputValidator()` warnings. `git diff --check`: exit 0. Prettier check/write on changed TS, JSON, and Markdown sources completed successfully.
+- No changes to dispatch/episode lifecycle, police coordination/events, support requests, observations, staffing, public Forms/Drive, or queue records. Lifecycle writes intentionally use online server operations; transient retries within the active screen are idempotent. No commit was created per the explicit task instruction; parent review and commit/delivery remain separate.
+
+#### 13B — Dispatch cancellation and reactivation (pending)
+
+- [ ] Implement dispatch lifecycle transitions while preserving linked communications and dispatch history; retain the same server authorization, audit, version/CAS, idempotency, and notice invariants.
+
+#### 13C — Episode cancellation and reactivation (pending)
+
+- [ ] Implement episode lifecycle transitions only after 13A/13B, preventing cancellation while non-cancelled child communications or dispatches remain and restoring the previous episode state without duplicating or changing children.
+
+**Excluded from task 13:** Police coordination/events, support requests, observations, and staffing lifecycle changes.
 
 ### Final integration
 
@@ -148,4 +178,4 @@ The admin account route uses a catalog-ID selector for all plan targets, with ef
 
 ## Next step
 
-Implement task 13: audited cancellation/reactivation with owner/admin permissions and explicit parent-child constraints, without deleting children or changing public forms.
+Parent review/commit of 13A is pending; next implement task 13B dispatch cancellation/reactivation, then 13C episode cancellation/reactivation, without expanding into police coordination/events, support requests, observations, or staffing.

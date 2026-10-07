@@ -782,6 +782,8 @@ export const efaCommunication = pgTable(
     state: text("state").notNull().default("draft"),
     version: integer("version").notNull().default(1),
     finalizedAt: timestamp("finalized_at"),
+    cancelledAt: timestamp("cancelled_at"),
+    cancelledFromState: text("cancelled_from_state"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
@@ -811,7 +813,7 @@ export const efaCommunication = pgTable(
     ),
     check(
       "efa_communication_state_allowed",
-      sql`(${table.state} = 'draft' and ${table.finalizedAt} is null) or (${table.state} = 'finalized' and ${table.finalizedAt} is not null and ${table.priority} is not null)`,
+      sql`(${table.state} = 'draft' and ${table.finalizedAt} is null and ${table.cancelledAt} is null and ${table.cancelledFromState} is null) or (${table.state} = 'finalized' and ${table.finalizedAt} is not null and ${table.priority} is not null and ${table.cancelledAt} is null and ${table.cancelledFromState} is null) or (${table.state} = 'cancelled' and ${table.cancelledAt} is not null and ${table.cancelledFromState} in ('draft', 'finalized') and ((${table.cancelledFromState} = 'draft' and ${table.finalizedAt} is null) or (${table.cancelledFromState} = 'finalized' and ${table.finalizedAt} is not null and ${table.priority} is not null)))`,
     ),
     check("efa_communication_version_positive", sql`${table.version} > 0`),
   ],
@@ -851,7 +853,7 @@ export const efaCommunicationAudit = pgTable(
     unique("efa_communication_audit_id_communication_unique").on(table.id, table.communicationId),
     check(
       "efa_communication_audit_action_allowed",
-      sql`${table.action} in ('created', 'updated', 'finalized')`,
+      sql`${table.action} in ('created', 'updated', 'finalized', 'cancelled', 'reactivated')`,
     ),
     check(
       "efa_communication_audit_version_transition_valid",
@@ -859,7 +861,7 @@ export const efaCommunicationAudit = pgTable(
     ),
     check(
       "efa_communication_audit_action_version_valid",
-      sql`(${table.action} = 'created' and ${table.versionBefore} is null and ${table.versionAfter} = 1) or (${table.action} in ('updated', 'finalized') and ${table.versionBefore} is not null and ${table.versionAfter} = ${table.versionBefore} + 1)`,
+      sql`(${table.action} = 'created' and ${table.versionBefore} is null and ${table.versionAfter} = 1) or (${table.action} in ('updated', 'finalized', 'cancelled', 'reactivated') and ${table.versionBefore} is not null and ${table.versionAfter} = ${table.versionBefore} + 1)`,
     ),
     check(
       "efa_communication_audit_state_is_object",
@@ -867,7 +869,7 @@ export const efaCommunicationAudit = pgTable(
     ),
     check(
       "efa_communication_audit_state_keys_allowlisted",
-      sql`(${table.afterState} - 'direction' - 'startedAt' - 'endedAt' - 'priority' - 'state' - 'finalizedAt') = '{}'::jsonb and (${table.beforeState} is null or (${table.beforeState} - 'direction' - 'startedAt' - 'endedAt' - 'priority' - 'state' - 'finalizedAt') = '{}'::jsonb)`,
+      sql`(${table.afterState} - 'direction' - 'startedAt' - 'endedAt' - 'priority' - 'state' - 'finalizedAt' - 'cancelledAt' - 'cancelledFromState') = '{}'::jsonb and (${table.beforeState} is null or (${table.beforeState} - 'direction' - 'startedAt' - 'endedAt' - 'priority' - 'state' - 'finalizedAt' - 'cancelledAt' - 'cancelledFromState') = '{}'::jsonb)`,
     ),
   ],
 );
@@ -900,7 +902,7 @@ export const efaCommunicationOperation = pgTable(
     ),
     check(
       "efa_communication_operation_action_allowed",
-      sql`${table.action} in ('created', 'updated', 'finalized')`,
+      sql`${table.action} in ('created', 'updated', 'finalized', 'cancelled', 'reactivated')`,
     ),
     check(
       "efa_communication_operation_create_result_valid",

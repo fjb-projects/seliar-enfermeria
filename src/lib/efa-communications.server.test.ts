@@ -37,7 +37,7 @@ function createStore() {
     ownerUserId: string;
     actorUserId: string;
     clientOperationId: string;
-    action: "created" | "updated" | "finalized";
+    action: "created" | "updated" | "finalized" | "cancelled" | "reactivated";
     requestHash: string;
     appliedVersion: number;
     changed: boolean;
@@ -63,6 +63,7 @@ function createStore() {
     createdAt: new Date(record.createdAt),
     updatedAt: new Date(record.updatedAt),
     finalizedAt: record.finalizedAt && new Date(record.finalizedAt),
+    cancelledAt: record.cancelledAt && new Date(record.cancelledAt),
   });
   const tx = {
     async findActor(userId: string) {
@@ -105,7 +106,10 @@ function createStore() {
       return new Date("2026-10-06T12:30:00.000Z");
     },
     async insertCommunication(
-      input: Omit<EfaCommunicationRecord, "version" | "createdAt" | "updatedAt" | "finalizedAt">,
+      input: Omit<
+        EfaCommunicationRecord,
+        "version" | "createdAt" | "updatedAt" | "finalizedAt" | "cancelledAt" | "cancelledFromState"
+      >,
     ) {
       const now = new Date("2026-10-06T12:00:00.000Z");
       communications.push({
@@ -114,6 +118,8 @@ function createStore() {
         createdAt: now,
         updatedAt: now,
         finalizedAt: null,
+        cancelledAt: null,
+        cancelledFromState: null,
       });
     },
     async updateCommunication(
@@ -121,7 +127,15 @@ function createStore() {
       expectedVersion: number,
       next: Pick<
         EfaCommunicationRecord,
-        "direction" | "startedAt" | "endedAt" | "priority" | "state" | "version" | "finalizedAt"
+        | "direction"
+        | "startedAt"
+        | "endedAt"
+        | "priority"
+        | "state"
+        | "version"
+        | "finalizedAt"
+        | "cancelledAt"
+        | "cancelledFromState"
       >,
     ) {
       if (failNextCas) {
@@ -207,6 +221,107 @@ const createInput = (overrides: Record<string, unknown> = {}) => ({
 });
 
 describe("EFA phone communication persistence", () => {
+  it("cancels and reactivates a communication with its exact prior state and idempotent audit receipts", async () => {
+    const db = createStore();
+    let id = 0;
+    const service = createEfaCommunicationsService(db.store, {
+      newId: () => `communication-${++id}`,
+    });
+    const created = await service.create(owner, createInput());
+    const input = {
+      communicationId: created.communication.id,
+      expectedVersion: 1,
+      operationId: "34343434-3434-4434-8434-343434343434",
+    };
+
+    const cancelled = await service.cancel(owner, input);
+    expect(cancelled.communication).toMatchObject({
+      state: "cancelled",
+      cancelledFromState: "draft",
+      version: 2,
+      canEdit: false,
+      canManageLifecycle: true,
+    });
+    expect(db.communications).toHaveLength(1);
+    expect(db.audits.at(-1)).toMatchObject({
+      action: "cancelled",
+      actorUserId: owner,
+      versionBefore: 1,
+      versionAfter: 2,
+      beforeState: { state: "draft" },
+      afterState: { state: "cancelled", cancelledFromState: "draft" },
+    });
+    await expect(
+      service.update(owner, {
+        communicationId: created.communication.id,
+        expectedVersion: 2,
+        operationId: "35353535-3535-4535-8535-353535353535",
+        direction: "outgoing",
+        startedAt: preciseStart,
+        endedAt: null,
+        priority: null,
+      }),
+    ).rejects.toThrow(/anulad/i);
+    await expect(
+      service.cancel(revoked, {
+        communicationId: created.communication.id,
+        expectedVersion: 2,
+        operationId: "40404040-4040-4040-8040-404040404040",
+      }),
+    ).rejects.toThrow(/EFA/i);
+
+    const replay = await service.cancel(owner, input);
+    expect(replay.operation.replayed).toBe(true);
+    expect(db.audits.filter((audit) => audit.action === "cancelled")).toHaveLength(1);
+    const reactivated = await service.reactivate(owner, {
+      ...input,
+      expectedVersion: 2,
+      operationId: "36363636-3636-4636-8636-363636363636",
+    });
+    expect(reactivated.communication).toMatchObject({
+      state: "draft",
+      cancelledFromState: null,
+      version: 3,
+    });
+  });
+
+  it("preserves finalized state on cancellation and sends admin corrections only to the original owner", async () => {
+    const db = createStore();
+    let id = 0;
+    const service = createEfaCommunicationsService(db.store, {
+      newId: () => `communication-${++id}`,
+    });
+    const created = await service.create(owner, createInput());
+    const finalized = await service.finalize(owner, {
+      communicationId: created.communication.id,
+      expectedVersion: 1,
+      operationId: "37373737-3737-4737-8737-373737373737",
+      priority: "red",
+    });
+    const cancelled = await service.cancel(admin, {
+      communicationId: finalized.communication.id,
+      expectedVersion: 2,
+      operationId: "38383838-3838-4838-8838-383838383838",
+    });
+    expect(cancelled.communication).toMatchObject({
+      state: "cancelled",
+      cancelledFromState: "finalized",
+      priority: "red",
+      finalizedAt: "2026-10-06T12:30:00.000Z",
+    });
+    expect(db.notices).toHaveLength(1);
+    expect(db.notices[0]?.recipientUserId).toBe(owner);
+    await expect(service.listNotices(admin)).resolves.toHaveLength(0);
+    await expect(
+      service.reactivate(admin, {
+        communicationId: created.communication.id,
+        expectedVersion: 3,
+        operationId: "39393939-3939-4939-8939-393939393939",
+      }),
+    ).resolves.toMatchObject({ communication: { state: "finalized", version: 4 } });
+    expect(db.communications).toHaveLength(1);
+  });
+
   it("keeps actual times optional and precise, permits multiple calls, and finalizes independently", async () => {
     const db = createStore();
     let id = 0;

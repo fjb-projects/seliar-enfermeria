@@ -231,6 +231,9 @@ describe("database schema foundation", () => {
     expect(getTableName(efaCommunicationOperation)).toBe("efa_communication_operation");
 
     const communication = getTableConfig(efaCommunication);
+    expect(communication.columns.map((column) => column.name)).toEqual(
+      expect.arrayContaining(["cancelled_at", "cancelled_from_state"]),
+    );
     expect(communication.uniqueConstraints.map((item) => item.name)).toEqual(
       expect.arrayContaining([
         "efa_communication_id_owner_unique",
@@ -278,6 +281,18 @@ describe("database schema foundation", () => {
     expect(auditOwnerForeignKey).toBeGreaterThan(communicationOwnerUnique);
     expect(migration).toContain("CREATE TRIGGER efa_communication_audit_append_only");
     expect(migration).toContain("CREATE TRIGGER efa_communication_operation_append_only");
+  });
+
+  it("adds constrained communication cancellation restoration metadata without cascade deletion", () => {
+    const migration = readFileSync(
+      resolve(process.cwd(), "drizzle/0018_clammy_mystique.sql"),
+      "utf8",
+    );
+    expect(migration).toContain('ADD COLUMN "cancelled_at" timestamp');
+    expect(migration).toContain('ADD COLUMN "cancelled_from_state" text');
+    expect(migration).toContain("'cancelled'");
+    expect(migration).toContain("'reactivated'");
+    expect(migration).not.toMatch(/ON DELETE cascade/i);
   });
 
   it("exposes the singular model keys used by Better Auth's Drizzle adapter", () => {

@@ -3,6 +3,7 @@ import {
   communicationEpisodeIdSchema,
   communicationCreateSchema,
   communicationFinalizeSchema,
+  communicationLifecycleSchema,
   communicationUpdateSchema,
 } from "./efa-communications.functions";
 
@@ -71,5 +72,16 @@ describe("EFA phone communication function inputs", () => {
         priority: "not-observed",
       }).success,
     ).toBe(false);
+  });
+
+  it("validates cancellation/reactivation as versioned, idempotent lifecycle operations", () => {
+    const input = { communicationId, expectedVersion: 2, operationId };
+    expect(communicationLifecycleSchema.safeParse(input).success).toBe(true);
+    expect(communicationLifecycleSchema.safeParse({ ...input, expectedVersion: 0 }).success).toBe(
+      false,
+    );
+    expect(communicationLifecycleSchema.safeParse({ ...input, reason: "duplicate" }).success).toBe(
+      false,
+    );
   });
 });

@@ -6,16 +6,19 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   createEfaCommunication,
+  cancelEfaCommunication,
   finalizeEfaCommunication,
   getEfaCommunicationHistory,
   listEfaCommunicationsForEpisode,
   listEfaCommunicationNotices,
   markEfaCommunicationNoticeRead,
+  reactivateEfaCommunication,
   updateEfaCommunication,
 } from "@/lib/efa-communications.functions";
 import type {
   EfaCommunicationAuditRecord,
   EfaCommunicationMutationResult,
+  EfaCommunicationStatus,
   EfaCommunicationView,
 } from "@/lib/efa-communications.server";
 import type {
@@ -50,6 +53,12 @@ export function createCommunicationSubmissionGate() {
       };
     },
   };
+}
+
+export function communicationLifecycleAction(
+  state: EfaCommunicationStatus,
+): "cancel" | "reactivate" {
+  return state === "cancelled" ? "reactivate" : "cancel";
 }
 
 export function EfaCommunicationStepper({
@@ -201,6 +210,8 @@ export function EfaCommunicationPanel({
   const createCall = useServerFn(createEfaCommunication);
   const updateCall = useServerFn(updateEfaCommunication);
   const finalizeCall = useServerFn(finalizeEfaCommunication);
+  const cancelCall = useServerFn(cancelEfaCommunication);
+  const reactivateCall = useServerFn(reactivateEfaCommunication);
   const getHistory = useServerFn(getEfaCommunicationHistory);
   const [calls, setCalls] = useState<EfaCommunicationView[]>([]);
   const [notices, setNotices] = useState<CommunicationNotice[]>([]);
@@ -222,6 +233,9 @@ export function EfaCommunicationPanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [confirmingLifecycle, setConfirmingLifecycle] = useState<"cancel" | "reactivate" | null>(
+    null,
+  );
   const [refreshWarning, setRefreshWarning] = useState("");
   const [dirty, setDirty] = useState(false);
   const activeRef = useRef(true);
@@ -234,6 +248,7 @@ export function EfaCommunicationPanel({
   const queueEntriesRef = useRef(queueEntries);
   const selectedOperationRef = useRef(selectedOperationId);
   const selectedCallRef = useRef(selected);
+  const lifecycleOperationRef = useRef<{ key: string; operationId: string } | null>(null);
   const historyRequestRef = useRef<string | null>(null);
   const pendingRef = useRef(pendingEntry);
   const originalTimesRef = useRef<{ startedAt: string | null; endedAt: string | null }>({
@@ -821,12 +836,86 @@ export function EfaCommunicationPanel({
     }
   }
 
+  async function confirmLifecycleTransition() {
+    if (
+      !confirmingLifecycle ||
+      !selected ||
+      !canWrite ||
+      !callsReady ||
+      !(selected.canManageLifecycle ?? selected.canEdit) ||
+      dirty ||
+      pendingRef.current ||
+      busyRef.current
+    )
+      return;
+    const action = confirmingLifecycle;
+    busyRef.current = true;
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const client = await loadCommunicationClient();
+      if (!currentContext()) return;
+      const operation = client.reuseCommunicationLifecycleOperation(
+        lifecycleOperationRef.current,
+        action,
+        selected.id,
+        selected.version,
+        () => crypto.randomUUID(),
+      );
+      lifecycleOperationRef.current = operation;
+      const result =
+        action === "cancel"
+          ? await cancelCall({
+              data: {
+                communicationId: selected.id,
+                expectedVersion: selected.version,
+                operationId: operation.operationId,
+              },
+            })
+          : await reactivateCall({
+              data: {
+                communicationId: selected.id,
+                expectedVersion: selected.version,
+                operationId: operation.operationId,
+              },
+            });
+      if (!currentContext()) return;
+      const updated = (result as EfaCommunicationMutationResult).communication;
+      callsRef.current = [updated, ...callsRef.current.filter((call) => call.id !== updated.id)];
+      setCalls(callsRef.current);
+      selectedCallRef.current = updated;
+      setSelected(updated);
+      setConfirmingLifecycle(null);
+      lifecycleOperationRef.current = null;
+      setMessage(
+        action === "cancel"
+          ? "La llamada quedó anulada; su historial se conserva."
+          : "La llamada se reactivó con su estado anterior.",
+      );
+      await reloadCalls();
+    } catch {
+      if (currentContext()) {
+        setError(
+          "No se pudo confirmar el cambio. Reintentá la misma acción para consultar el resultado sin duplicarlo.",
+        );
+        setMessage("");
+      }
+    } finally {
+      if (currentContext()) {
+        busyRef.current = false;
+        setBusy(false);
+      }
+    }
+  }
+
   async function selectCall(call: EfaCommunicationView) {
     if (pendingRef.current || busyRef.current) return;
     const client = await loadCommunicationClient();
     if (!currentContext()) return;
     setSelected(call);
     selectedCallRef.current = call;
+    setConfirmingLifecycle(null);
     setDirection(call.direction);
     setPriority(call.priority ?? "");
     const nextTimes = client.communicationToFormTimes(call);
@@ -1123,8 +1212,12 @@ export function EfaCommunicationPanel({
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <p className="font-medium">
                       {directionLabel(call.direction)} ·{" "}
-                      {call.state === "finalized" ? "Finalizada" : "Borrador"} ·{" "}
-                      {priorityLabel(call.priority)}
+                      {call.state === "finalized"
+                        ? "Finalizada"
+                        : call.state === "cancelled"
+                          ? "Anulada"
+                          : "Borrador"}{" "}
+                      · {priorityLabel(call.priority)}
                     </p>
                     <div className="flex flex-wrap gap-2">
                       <Button
@@ -1222,7 +1315,11 @@ export function EfaCommunicationPanel({
         <Card>
           <CardHeader>
             <CardTitle>
-              {selected ? `Editar llamada · versión ${selected.version}` : "Nueva llamada"}
+              {selected
+                ? selected.state === "cancelled"
+                  ? `Ver llamada anulada · versión ${selected.version}`
+                  : `Editar llamada · versión ${selected.version}`
+                : "Nueva llamada"}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -1439,6 +1536,54 @@ export function EfaCommunicationPanel({
                 <p className="self-center text-sm text-muted-foreground">
                   Selecciona una prioridad y guarda los cambios antes de finalizar.
                 </p>
+              )}
+              {selected &&
+                (selected.canManageLifecycle ?? selected.canEdit) &&
+                !confirmingLifecycle && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="min-h-11"
+                    disabled={!canWrite || !callsReady || busy || Boolean(pendingEntry) || dirty}
+                    onClick={() =>
+                      setConfirmingLifecycle(communicationLifecycleAction(selected.state))
+                    }
+                  >
+                    {selected.state === "cancelled"
+                      ? "Reactivar comunicación"
+                      : "Anular comunicación"}
+                  </Button>
+                )}
+              {selected && confirmingLifecycle && (
+                <div
+                  className="flex flex-col gap-2 rounded-md border border-amber-500/50 p-3 sm:flex-row sm:items-center"
+                  aria-live="polite"
+                >
+                  <p className="text-sm">
+                    {confirmingLifecycle === "cancel"
+                      ? "La comunicación quedará anulada, pero su historial y despachos vinculados se conservarán."
+                      : "Se restaurará el estado que tenía antes de la anulación."}
+                  </p>
+                  <Button
+                    type="button"
+                    className="min-h-11"
+                    disabled={busy}
+                    onClick={() => void confirmLifecycleTransition()}
+                  >
+                    {confirmingLifecycle === "cancel"
+                      ? "Confirmar anulación"
+                      : "Confirmar reactivación"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="min-h-11"
+                    disabled={busy}
+                    onClick={() => setConfirmingLifecycle(null)}
+                  >
+                    Cancelar acción
+                  </Button>
+                </div>
               )}
             </div>
           </CardContent>

@@ -11,6 +11,22 @@ export type CommunicationFormState = {
   times: CommunicationTimeForm;
 };
 
+export type CommunicationLifecycleOperation = {
+  key: string;
+  operationId: string;
+};
+
+export function reuseCommunicationLifecycleOperation(
+  current: CommunicationLifecycleOperation | null,
+  action: "cancel" | "reactivate",
+  communicationId: string,
+  expectedVersion: number,
+  createOperationId: () => string,
+): CommunicationLifecycleOperation {
+  const key = `${action}:${communicationId}:${expectedVersion}`;
+  return current?.key === key ? current : { key, operationId: createOperationId() };
+}
+
 export function restoreCommunicationOperationForm(
   entry: CommunicationQueueEntry,
   current:

@@ -5,6 +5,7 @@ import {
   captureCommunicationTime,
   loadCurrentConflictVersion,
   restoreCommunicationOperationForm,
+  reuseCommunicationLifecycleOperation,
 } from "./efa-communications.client";
 import type { CommunicationQueueEntry } from "./efa-communications.queue";
 
@@ -34,6 +35,16 @@ describe("EFA communication client timestamps", () => {
 });
 
 describe("EFA communication conflict refresh", () => {
+  it("reuses a cancellation operation ID after an uncertain response", () => {
+    const first = reuseCommunicationLifecycleOperation(null, "cancel", "call-a", 4, () => "op-a");
+    expect(reuseCommunicationLifecycleOperation(first, "cancel", "call-a", 4, () => "op-b")).toBe(
+      first,
+    );
+    expect(
+      reuseCommunicationLifecycleOperation(first, "reactivate", "call-a", 5, () => "op-c"),
+    ).toEqual({ key: "reactivate:call-a:5", operationId: "op-c" });
+  });
+
   it("does not return a stale server version after the selected operation changes", async () => {
     let resolveRows!: (rows: Array<{ id: string }>) => void;
     let selected = true;

@@ -45,6 +45,14 @@ export const communicationFinalizeSchema = z
   })
   .strict();
 
+export const communicationLifecycleSchema = z
+  .object({
+    communicationId: communicationIdSchema,
+    expectedVersion: positiveVersion,
+    operationId: z.string().uuid(),
+  })
+  .strict();
+
 const getService = createServerOnlyFn(async () => {
   const { efaCommunications } = await import("./efa-communications.server");
   return efaCommunications;
@@ -114,4 +122,18 @@ export const finalizeEfaCommunication = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const access = requireEfa(await currentAccessSession());
     return getService().then((service) => service.finalize(access.userId, data));
+  });
+
+export const cancelEfaCommunication = createServerFn({ method: "POST" })
+  .validator((data: unknown) => communicationLifecycleSchema.parse(data))
+  .handler(async ({ data }) => {
+    const access = requireEfa(await currentAccessSession());
+    return getService().then((service) => service.cancel(access.userId, data));
+  });
+
+export const reactivateEfaCommunication = createServerFn({ method: "POST" })
+  .validator((data: unknown) => communicationLifecycleSchema.parse(data))
+  .handler(async ({ data }) => {
+    const access = requireEfa(await currentAccessSession());
+    return getService().then((service) => service.reactivate(access.userId, data));
   });

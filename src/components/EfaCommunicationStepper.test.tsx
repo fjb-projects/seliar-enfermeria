@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   canCreateCommunication,
   canEditCommunication,
+  communicationLifecycleAction,
   communicationSteps,
   createCommunicationSubmissionGate,
   shouldShowCommunicationEditor,
@@ -38,6 +39,12 @@ describe("EfaCommunicationStepper", () => {
     expect(canEditCommunication(true, { canEdit: true })).toBe(true);
     expect(canCreateCommunication(true, false)).toBe(false);
     expect(canCreateCommunication(true, true)).toBe(true);
+  });
+
+  it("offers reactivation only for cancelled communications and cancellation otherwise", () => {
+    expect(communicationLifecycleAction("draft")).toBe("cancel");
+    expect(communicationLifecycleAction("finalized")).toBe("cancel");
+    expect(communicationLifecycleAction("cancelled")).toBe("reactivate");
   });
   it("renders five accessible step names and marks only the active step", () => {
     const html = renderToStaticMarkup(

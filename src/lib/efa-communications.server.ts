@@ -14,7 +14,7 @@ import { effectiveRoles, type AccountRole } from "./access";
 
 export type EfaCommunicationDirection = "incoming" | "outgoing";
 export type EfaCommunicationPriority = "red" | "yellow" | "green";
-export type EfaCommunicationStatus = "draft" | "finalized";
+export type EfaCommunicationStatus = "draft" | "finalized" | "cancelled";
 export type EfaCommunicationState = {
   direction: EfaCommunicationDirection;
   startedAt: string | null;
@@ -22,6 +22,8 @@ export type EfaCommunicationState = {
   priority: EfaCommunicationPriority | null;
   state: EfaCommunicationStatus;
   finalizedAt: string | null;
+  cancelledAt: string | null;
+  cancelledFromState: "draft" | "finalized" | null;
 };
 export type EfaCommunicationRecord = {
   id: string;
@@ -35,6 +37,8 @@ export type EfaCommunicationRecord = {
   state: EfaCommunicationStatus;
   version: number;
   finalizedAt: Date | null;
+  cancelledAt: Date | null;
+  cancelledFromState: "draft" | "finalized" | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -46,7 +50,7 @@ export type EfaCommunicationOperationRecord = {
   ownerUserId: string;
   actorUserId: string;
   clientOperationId: string;
-  action: "created" | "updated" | "finalized";
+  action: "created" | "updated" | "finalized" | "cancelled" | "reactivated";
   requestHash: string;
   appliedVersion: number;
   changed: boolean;
@@ -57,7 +61,7 @@ export type EfaCommunicationAuditRecord = {
   ownerUserId: string;
   actorUserId: string;
   operationId: string;
-  action: "created" | "updated" | "finalized";
+  action: "created" | "updated" | "finalized" | "cancelled" | "reactivated";
   versionBefore: number | null;
   versionAfter: number;
   beforeState: EfaCommunicationState | null;
@@ -92,14 +96,25 @@ export interface EfaCommunicationTransaction {
   ): Promise<EfaCommunicationOperationRecord | null>;
   currentTimestamp(): Promise<Date>;
   insertCommunication(
-    input: Omit<EfaCommunicationRecord, "version" | "createdAt" | "updatedAt" | "finalizedAt">,
+    input: Omit<
+      EfaCommunicationRecord,
+      "version" | "createdAt" | "updatedAt" | "finalizedAt" | "cancelledAt" | "cancelledFromState"
+    >,
   ): Promise<void>;
   updateCommunication(
     communicationId: string,
     expectedVersion: number,
     next: Pick<
       EfaCommunicationRecord,
-      "direction" | "startedAt" | "endedAt" | "priority" | "state" | "version" | "finalizedAt"
+      | "direction"
+      | "startedAt"
+      | "endedAt"
+      | "priority"
+      | "state"
+      | "version"
+      | "finalizedAt"
+      | "cancelledAt"
+      | "cancelledFromState"
     >,
   ): Promise<void>;
   appendAudit(input: {
@@ -107,7 +122,7 @@ export interface EfaCommunicationTransaction {
     ownerUserId: string;
     actorUserId: string;
     operationId: string;
-    action: "created" | "updated" | "finalized";
+    action: "created" | "updated" | "finalized" | "cancelled" | "reactivated";
     versionBefore: number | null;
     versionAfter: number;
     beforeState: EfaCommunicationState | null;
@@ -132,20 +147,22 @@ export interface EfaCommunicationStore {
 }
 export type EfaCommunicationView = Omit<
   EfaCommunicationRecord,
-  "startedAt" | "endedAt" | "finalizedAt" | "createdAt" | "updatedAt"
+  "startedAt" | "endedAt" | "finalizedAt" | "cancelledAt" | "createdAt" | "updatedAt"
 > & {
   startedAt: string | null;
   endedAt: string | null;
   finalizedAt: string | null;
+  cancelledAt: string | null;
   createdAt: string;
   updatedAt: string;
   canEdit: boolean;
+  canManageLifecycle?: boolean;
 };
 export type EfaCommunicationMutationResult = {
   communication: EfaCommunicationView;
   operation: {
     id: string;
-    action: "created" | "updated" | "finalized";
+    action: "created" | "updated" | "finalized" | "cancelled" | "reactivated";
     appliedVersion: number;
     changed: boolean;
     replayed: boolean;
@@ -171,7 +188,14 @@ const cleanPriority = (value: string | null | undefined) => value ?? null;
 const toState = (
   record: Pick<
     EfaCommunicationRecord,
-    "direction" | "startedAt" | "endedAt" | "priority" | "state" | "finalizedAt"
+    | "direction"
+    | "startedAt"
+    | "endedAt"
+    | "priority"
+    | "state"
+    | "finalizedAt"
+    | "cancelledAt"
+    | "cancelledFromState"
   >,
 ): EfaCommunicationState => ({
   direction: record.direction,
@@ -180,15 +204,19 @@ const toState = (
   priority: record.priority,
   state: record.state,
   finalizedAt: record.finalizedAt?.toISOString() ?? null,
+  cancelledAt: record.cancelledAt?.toISOString() ?? null,
+  cancelledFromState: record.cancelledFromState,
 });
 const asView = (record: EfaCommunicationRecord, canEdit: boolean): EfaCommunicationView => ({
   ...record,
   startedAt: record.startedAt?.toISOString() ?? null,
   endedAt: record.endedAt?.toISOString() ?? null,
   finalizedAt: record.finalizedAt?.toISOString() ?? null,
+  cancelledAt: record.cancelledAt?.toISOString() ?? null,
   createdAt: record.createdAt.toISOString(),
   updatedAt: record.updatedAt.toISOString(),
-  canEdit,
+  canEdit: canEdit && record.state !== "cancelled",
+  canManageLifecycle: canEdit,
 });
 
 export function createEfaCommunicationsService(
@@ -241,7 +269,136 @@ export function createEfaCommunicationsService(
     return record.ownerUserId === userId || roles.includes("admin");
   }
 
+  async function transitionCancellation(
+    userId: string,
+    input: { communicationId: string; expectedVersion: number; operationId: string },
+    kind: "cancel" | "reactivate",
+  ): Promise<EfaCommunicationMutationResult> {
+    const action = kind === "cancel" ? "cancelled" : "reactivated";
+    const hash = requestHash({ action, actorUserId: userId, ...input });
+    return store.transaction(async (tx) => {
+      const { roles } = await actor(tx, userId, true);
+      const current = await tx.findCommunication(input.communicationId, true);
+      if (!current || !visible(current, userId, roles)) {
+        throw new Error("No se encontró la comunicación.");
+      }
+      const existing = await tx.findOperation(current.id, input.operationId);
+      if (existing) {
+        assertOperation(existing, userId, action, hash);
+        return replay(current, existing);
+      }
+      if (current.version !== input.expectedVersion) {
+        throw new Error("La comunicación cambió; actualiza el historial antes de continuar.");
+      }
+
+      const alreadyInRequestedState =
+        (kind === "cancel" && current.state === "cancelled") ||
+        (kind === "reactivate" && current.state !== "cancelled");
+      if (alreadyInRequestedState) {
+        await tx.insertOperation({
+          communicationId: current.id,
+          ownerUserId: current.ownerUserId,
+          actorUserId: userId,
+          clientOperationId: input.operationId,
+          action,
+          requestHash: hash,
+          appliedVersion: current.version,
+          changed: false,
+        });
+        return {
+          communication: asView(current, true),
+          operation: {
+            id: input.operationId,
+            action,
+            appliedVersion: current.version,
+            changed: false,
+            replayed: false,
+          },
+        };
+      }
+
+      if (kind === "reactivate" && !current.cancelledFromState) {
+        throw new Error("No se puede restaurar el estado anterior de la comunicación.");
+      }
+      const beforeState = toState(current);
+      const next =
+        kind === "cancel"
+          ? {
+              ...current,
+              state: "cancelled" as const,
+              cancelledAt: await tx.currentTimestamp(),
+              cancelledFromState: current.state as "draft" | "finalized",
+            }
+          : {
+              ...current,
+              state: current.cancelledFromState as "draft" | "finalized",
+              cancelledAt: null,
+              cancelledFromState: null,
+            };
+      const versionAfter = current.version + 1;
+      await tx.updateCommunication(current.id, current.version, {
+        ...next,
+        version: versionAfter,
+      });
+      const auditId = await tx.appendAudit({
+        communicationId: current.id,
+        ownerUserId: current.ownerUserId,
+        actorUserId: userId,
+        operationId: input.operationId,
+        action,
+        versionBefore: current.version,
+        versionAfter,
+        beforeState,
+        afterState: toState(next),
+      });
+      if (current.ownerUserId !== userId) {
+        await tx.appendNotice({
+          communicationId: current.id,
+          ownerUserId: current.ownerUserId,
+          auditId,
+          recipientUserId: current.ownerUserId,
+        });
+      }
+      await tx.insertOperation({
+        communicationId: current.id,
+        ownerUserId: current.ownerUserId,
+        actorUserId: userId,
+        clientOperationId: input.operationId,
+        action,
+        requestHash: hash,
+        appliedVersion: versionAfter,
+        changed: true,
+      });
+      const updated = await tx.findCommunication(current.id);
+      if (!updated) throw new Error("No se pudo confirmar el cambio de estado.");
+      return {
+        communication: asView(updated, true),
+        operation: {
+          id: input.operationId,
+          action,
+          appliedVersion: versionAfter,
+          changed: true,
+          replayed: false,
+        },
+      };
+    });
+  }
+
   return {
+    cancel(
+      userId: string,
+      input: { communicationId: string; expectedVersion: number; operationId: string },
+    ) {
+      return transitionCancellation(userId, input, "cancel");
+    },
+
+    reactivate(
+      userId: string,
+      input: { communicationId: string; expectedVersion: number; operationId: string },
+    ) {
+      return transitionCancellation(userId, input, "reactivate");
+    },
+
     async list(userId: string) {
       return store.transaction(async (tx) => {
         const { roles, canEdit } = await actor(tx, userId, false);
@@ -370,6 +527,8 @@ export function createEfaCommunicationsService(
           state: "draft" as const,
           version: 1,
           finalizedAt: null,
+          cancelledAt: null,
+          cancelledFromState: null,
           createdAt: new Date(0),
           updatedAt: new Date(0),
         };
@@ -463,6 +622,9 @@ export function createEfaCommunicationsService(
         if (current.version !== input.expectedVersion) {
           throw new Error("La comunicación cambió; actualiza el historial antes de continuar.");
         }
+        if (current.state === "cancelled") {
+          throw new Error("La comunicación está anulada; reactivala antes de editarla.");
+        }
         if (current.state === "finalized" && priority === null) {
           throw new Error("Una llamada finalizada debe conservar una prioridad válida.");
         }
@@ -473,6 +635,8 @@ export function createEfaCommunicationsService(
           priority,
           state: current.state,
           finalizedAt: current.finalizedAt,
+          cancelledAt: current.cancelledAt,
+          cancelledFromState: current.cancelledFromState,
         };
         const beforeState = toState(current);
         const afterState = toState(next);
@@ -580,6 +744,9 @@ export function createEfaCommunicationsService(
         if (current.version !== input.expectedVersion) {
           throw new Error("La comunicación cambió; actualiza el historial antes de continuar.");
         }
+        if (current.state === "cancelled") {
+          throw new Error("La comunicación está anulada; reactivala antes de finalizarla.");
+        }
         if (current.state === "finalized") {
           if (current.priority !== input.priority) {
             throw new Error(
@@ -615,6 +782,8 @@ export function createEfaCommunicationsService(
           priority: input.priority,
           state: "finalized" as const,
           finalizedAt,
+          cancelledAt: null,
+          cancelledFromState: null,
         };
         const versionAfter = current.version + 1;
         await tx.updateCommunication(current.id, current.version, {
