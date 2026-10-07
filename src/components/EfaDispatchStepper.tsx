@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ComponentType } from "react";
 import { createClientOnlyFn, useServerFn } from "@tanstack/react-start";
 import { listEfaBases } from "@/lib/efa-bases.functions";
 import { listEfaCommunicationsForEpisode } from "@/lib/efa-communications.functions";
 import { getEfaEpisode } from "@/lib/efa-episodes.functions";
+import { listEfaInstitutions } from "@/lib/efa-institutions.functions";
+import type { EfaInstitutionChoice } from "@/lib/efa-institutions.client";
 import {
   addEfaDispatchContactAttempt,
   createEfaDispatch,
@@ -22,6 +24,10 @@ import type { DispatchQueueEntry, DispatchQueueStore } from "@/lib/efa-dispatche
 
 const loadQueue = createClientOnlyFn(() => import("@/lib/efa-dispatches.queue"));
 const loadClient = createClientOnlyFn(() => import("@/lib/efa-dispatches.client"));
+const loadInstitutionPicker = createClientOnlyFn(async () => {
+  const module = await import("@/lib/efa-institutions.client");
+  return module.EfaInstitutionPicker;
+});
 type DispatchView = DispatchForm & {
   id: string;
   episodeId: string;
@@ -32,6 +38,8 @@ type DispatchView = DispatchForm & {
   updatedAt: string;
   finalizedAt: string | null;
   canEdit: boolean;
+  institutionName?: string | null;
+  institutionIsActive?: boolean | null;
   contactAttempts: Array<{ id: string; occurredAt: string; note: string | null }>;
 };
 type DispatchMutationDto = Omit<DispatchView, "contactAttempts"> & {
@@ -59,6 +67,7 @@ function isDispatchMutationDto(value: unknown): value is DispatchMutationDto {
     return false;
   const nullableText = [
     "communicationId",
+    "institutionId",
     "priority",
     "firstResponseRole",
     "note",
@@ -130,6 +139,7 @@ const resultOptions = [
 ] as const;
 const emptyDispatchForm = (): DispatchForm => ({
   baseId: "",
+  institutionId: "",
   communicationId: "",
   priority: "",
   note: "",
@@ -168,6 +178,7 @@ function restoreDispatchForm(source: DispatchView): DispatchForm {
   return {
     ...emptyDispatchForm(),
     ...source,
+    institutionId: source.institutionId ?? "",
     t0At: dateToLocalInput(source.t0At),
     t1At: dateToLocalInput(source.t1At),
     t2At: dateToLocalInput(source.t2At),
@@ -259,6 +270,63 @@ export function canEditSupportAssociation(
   return canWrite && episodeCanEdit && dispatchCanEdit && requestCanEdit;
 }
 
+export function DispatchInstitutionField({
+  institutions,
+  institutionsLoaded,
+  value,
+  historicalInstitution,
+  onChange,
+  onInstitutionsChanged,
+}: {
+  institutions: EfaInstitutionChoice[];
+  institutionsLoaded: boolean;
+  value: string;
+  historicalInstitution: { id: string; name: string | null } | null;
+  onChange: (institutionId: string) => void;
+  onInstitutionsChanged: (institutions: EfaInstitutionChoice[]) => void;
+}) {
+  const retainingHistorical = historicalInstitution?.id === value;
+  const [picker, setPicker] = useState<ComponentType<{
+    initialInstitutions: EfaInstitutionChoice[];
+    value: string;
+    onChange: (institutionId: string) => void;
+    onInstitutionsChanged?: (institutions: EfaInstitutionChoice[]) => void;
+  }> | null>(null);
+  useEffect(() => {
+    let active = true;
+    void loadInstitutionPicker().then((component) => {
+      if (active && component) setPicker(() => component);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+  const Picker = picker;
+  return (
+    <div className="space-y-2">
+      {retainingHistorical && (
+        <p className="text-sm" role="status">
+          Destino histórico: {historicalInstitution.name ?? "Institución inactiva"}. Se conserva si
+          no se cambia la selección.
+        </p>
+      )}
+      {Picker ? (
+        <Picker
+          key={institutionsLoaded ? "institutions-loaded" : "institutions-loading"}
+          initialInstitutions={institutions}
+          value={retainingHistorical ? "" : value}
+          onChange={onChange}
+          onInstitutionsChanged={onInstitutionsChanged}
+        />
+      ) : (
+        <p className="text-sm" role="status">
+          Cargando el catálogo institucional…
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function EfaDispatchStepper({
   episodeId,
   episodeLabel,
@@ -284,10 +352,13 @@ export function EfaDispatchStepper({
   const listNotices = useServerFn(listEfaDispatchNotices);
   const markNoticeRead = useServerFn(markEfaDispatchNoticeRead);
   const listBases = useServerFn(listEfaBases);
+  const listInstitutions = useServerFn(listEfaInstitutions);
   const listCalls = useServerFn(listEfaCommunicationsForEpisode);
   const getEpisode = useServerFn(getEfaEpisode);
   const [rows, setRows] = useState<DispatchView[]>([]);
   const [bases, setBases] = useState<BaseChoice[]>([]);
+  const [institutions, setInstitutions] = useState<EfaInstitutionChoice[]>([]);
+  const [institutionsLoaded, setInstitutionsLoaded] = useState(false);
   const [calls, setCalls] = useState<
     Array<{ id: string; priority: "red" | "yellow" | "green" | null }>
   >([]);
@@ -450,24 +521,36 @@ export function EfaDispatchStepper({
     void Promise.all([
       listForEpisode({ data: episodeId }),
       canWrite ? listBases() : Promise.resolve([]),
+      canWrite ? listInstitutions() : Promise.resolve([]),
       listCalls({ data: episodeId }),
       listNotices(),
       loadQueue(),
     ])
-      .then(async ([dispatches, activeBases, callRows, noticeRows, queueModule]) => {
-        if (!active || owner.current !== ticket) return;
-        setRows(dispatches as unknown as DispatchView[]);
-        setBases(activeBases as BaseChoice[]);
-        setCalls(callRows as typeof calls);
-        setNotices(noticeRows as typeof notices);
-        const store = queueModule.createIndexedDbDispatchQueueStore();
-        queueStore.current = store;
-        const pending = await store.list(ticket, episodeId);
-        if (!active || owner.current !== ticket) return;
-        setQueueEntries(pending);
-        setQueueReady(true);
-        setReady(true);
-      })
+      .then(
+        async ([
+          dispatches,
+          activeBases,
+          activeInstitutions,
+          callRows,
+          noticeRows,
+          queueModule,
+        ]) => {
+          if (!active || owner.current !== ticket) return;
+          setRows(dispatches as unknown as DispatchView[]);
+          setBases(activeBases as BaseChoice[]);
+          setInstitutions(activeInstitutions as EfaInstitutionChoice[]);
+          setInstitutionsLoaded(true);
+          setCalls(callRows as typeof calls);
+          setNotices(noticeRows as typeof notices);
+          const store = queueModule.createIndexedDbDispatchQueueStore();
+          queueStore.current = store;
+          const pending = await store.list(ticket, episodeId);
+          if (!active || owner.current !== ticket) return;
+          setQueueEntries(pending);
+          setQueueReady(true);
+          setReady(true);
+        },
+      )
       .catch((reason: unknown) => {
         if (active && owner.current === ticket) {
           setError(
@@ -480,7 +563,16 @@ export function EfaDispatchStepper({
       active = false;
       mounted.current = false;
     };
-  }, [episodeId, currentUserId, canWrite, listBases, listCalls, listForEpisode, listNotices]);
+  }, [
+    episodeId,
+    currentUserId,
+    canWrite,
+    listBases,
+    listInstitutions,
+    listCalls,
+    listForEpisode,
+    listNotices,
+  ]);
 
   useEffect(() => {
     if (!selected) {
@@ -1184,6 +1276,7 @@ export function EfaDispatchStepper({
       form.firstResponseRole === selected.firstResponseRole;
     const fields = {
       baseId: form.baseId,
+      institutionId: form.institutionId || null,
       communicationId: form.communicationId || null,
       priority: form.priority || null,
       ...times,
@@ -1295,6 +1388,12 @@ export function EfaDispatchStepper({
               · {row.state === "finalized" ? "Finalizado" : "Borrador"} · versión {row.version}
               {row.t0At && (
                 <span className="block text-sm">Despacho: {formatDispatchDate(row.t0At)}</span>
+              )}
+              {row.institutionName && (
+                <span className="block text-sm">
+                  Destino: {row.institutionName}
+                  {row.institutionIsActive === false ? " · histórico/inactivo" : ""}
+                </span>
               )}
             </button>
           ))}
@@ -1517,6 +1616,23 @@ export function EfaDispatchStepper({
                           ))}
                         </select>
                       </label>
+                      {key === "t4At" && (
+                        <DispatchInstitutionField
+                          institutions={institutions}
+                          institutionsLoaded={institutionsLoaded}
+                          value={form.institutionId}
+                          historicalInstitution={
+                            selected?.institutionIsActive === false
+                              ? {
+                                  id: selected.institutionId,
+                                  name: selected.institutionName ?? null,
+                                }
+                              : null
+                          }
+                          onChange={(institutionId) => setForm({ ...form, institutionId })}
+                          onInstitutionsChanged={setInstitutions}
+                        />
+                      )}
                       <p className="text-sm">
                         Los horarios se registran por separado; no se deduce ni valida una secuencia
                         cronológica.

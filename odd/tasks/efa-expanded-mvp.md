@@ -2,7 +2,7 @@
 
 Implement the next EFA operational workflows without changing public forms or external integrations. The first work unit records observed staffing-period facts, distinct from planned coverage, using anonymous roles rather than personal identities.
 
-**Status:** Tasks 10A, 10B, and 11A complete locally; tasks 11B, 12, 13, and final integration remain.
+**Status:** Tasks 10A, 10B, 11A, and 11B complete locally; tasks 12, 13, and final integration remain.
 **Engram mirror:** Pending; the runtime did not provide an authorized registered session identity, so no memory write is attempted.
 **Delivery strategy:** `ask-on-risk`; the user selected a feature-branch chain on 2026-10-07. Keep each work unit as a reviewable block; do not publish a PR or push without separate authorization.
 **Forecast:** More than 400 authored changed lines across the expanded feature; generated migration artifacts are excluded. Slicing is by behavior, not by code compression.
@@ -106,8 +106,18 @@ The admin account route uses a catalog-ID selector for all plan targets, with ef
 
 ### 11B — Per-dispatch institutional association
 
-- [ ] Use the shared active destination catalog for dispatch association; preserve historical references when a destination is later inactive.
-- [ ] Add dispatch association UI and validation without exposing another user's episode data or permitting arbitrary mobile/fleet free text.
+- [x] Use the shared active destination catalog for dispatch association; preserve historical references when a destination is later inactive.
+- [x] Add dispatch association UI and validation without exposing another user's episode data or permitting arbitrary mobile/fleet free text.
+
+**11B implementation and verification evidence:** Added nullable `efa_dispatch.institution_id` with a restrictive FK to the shared institution catalog; the association belongs to an individual dispatch, not its episode. Create/update server schemas accept only UUID or null, service writes require active choices for new associations, and an existing inactive association remains on reads and survives unrelated edits. Dispatch audit snapshots, optimistic version changes, operation hashing/replay, and frozen offline queue payloads include the institution ID. The dispatch UI uses `EfaInstitutionPicker` beside T4 arrival-at-destination; it only loads shared active choices and inline creation, while historical inactive destinations remain visible and are preserved unless the selection changes. Existing episode owner/admin access checks remain the gate before dispatch read/write; catalog access does not expose episode records. No private addresses or free-text mobile/fleet catalog were added.
+
+- Test-first evidence: new dispatch service and server-function schema assertions failed before implementation because the institution association was not represented/accepted. After implementation, focused dispatch server/function/client/queue/component and schema coverage passed: 6 files, 58 tests. Queue and client tests confirm the selected catalog ID stays in frozen offline state.
+- `npm run db:generate`: exit 0; generated forward-only `drizzle/0017_efa_dispatch_institution.sql`, snapshot 0017, and journal entry 17. The generated SQL adds a nullable FK with `ON DELETE restrict`; migration remains unapplied.
+- `npm run test -- src/lib/efa-dispatches.server.test.ts src/lib/efa-dispatches.functions.test.ts src/lib/efa-dispatches.client.test.ts src/lib/efa-dispatches.queue.test.ts src/components/EfaDispatchStepper.test.tsx src/db/schema.test.ts`: exit 0; 6 files, 57 tests.
+- `npm run typecheck`: exit 0. `npm run build`: exit 0; existing route-test-file, vite-tsconfig-paths, and legacy `inputValidator()` warnings remain. `git diff --check`: exit 0.
+- An initial build found that directly importing the `.client` picker from the route's server graph violates TanStack Start's import-protection boundary; dispatch UI now lazy-loads it via `createClientOnlyFn`.
+- Independent verification follow-up: the first full-suite run failed in `EfaEpisodePanel.test.tsx` because its TanStack mock lacked `createServerOnlyFn`, newly reached through the institutions-functions module. Added a focused institutions-functions mock. Added service coverage proving two dispatches for the same episode can reference different active institutions and a non-transport dispatch can explicitly keep `institutionId: null`. Final `npm run test`: exit 0; 54 files, 316 tests. `npm run typecheck`, `npm run build`, `git diff --check`, and Prettier check on the five changed TS/TSX files all exited 0. Build retains the previously noted tooling warnings.
+- No remote database was accessed; migration was not applied. No commit was created; parent owns work-unit commit and delivery.
 
 ### 12 — Correction notices and offline conflict handling
 
@@ -128,4 +138,4 @@ The admin account route uses a catalog-ID selector for all plan targets, with ef
 
 ## Next step
 
-Implement task 11B: associate an optional catalog institution with each dispatch and expose selection/inline creation near the destination timeline. Preserve historical links when catalog entries are deactivated; keep episode private addresses separate.
+Implement task 12: verify correction notices, recipient read state, offline retry/idempotency, and manual conflict resolution; change only demonstrated gaps.

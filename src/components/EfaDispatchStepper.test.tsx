@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   canEditSupportAssociation,
   captureActionTimestamp,
+  DispatchInstitutionField,
   EfaDispatchStepper,
   FirstResponseRoleSelect,
 } from "./EfaDispatchStepper";
@@ -28,6 +29,10 @@ vi.mock("@/lib/efa-dispatches.functions", () => ({
 vi.mock("@/lib/efa-bases.functions", () => ({ listEfaBases: vi.fn() }));
 vi.mock("@/lib/efa-communications.functions", () => ({ listEfaCommunicationsForEpisode: vi.fn() }));
 vi.mock("@/lib/efa-episodes.functions", () => ({ getEfaEpisode: vi.fn() }));
+vi.mock("@/lib/efa-institutions.functions", () => ({
+  createEfaInstitutionInline: vi.fn(),
+  listEfaInstitutions: vi.fn(),
+}));
 
 describe("EfaDispatchStepper", () => {
   it("disables response association when the request itself is not editable", () => {
@@ -70,5 +75,20 @@ describe("EfaDispatchStepper", () => {
     expect(html).toContain("Despachos · Turno 1");
     expect(html).toContain("Solo lectura");
     expect(html).toContain("<section");
+  });
+
+  it("renders active destination choices and preserves a historical inactive destination", () => {
+    const html = renderToStaticMarkup(
+      <DispatchInstitutionField
+        institutions={[{ id: "active", name: "Hospital Central", isActive: true, version: 1 }]}
+        institutionsLoaded={true}
+        value="inactive"
+        historicalInstitution={{ id: "inactive", name: "Hospital Histórico" }}
+        onChange={() => undefined}
+        onInstitutionsChanged={() => undefined}
+      />,
+    );
+    expect(html).toContain("Destino histórico: Hospital Histórico");
+    expect(html).toContain("Cargando el catálogo institucional");
   });
 });

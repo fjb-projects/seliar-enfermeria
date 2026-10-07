@@ -16,6 +16,8 @@ import {
 import {
   efaBase,
   efaBaseAudit,
+  efaInstitution,
+  efaInstitutionAudit,
   efaGuard,
   efaGuardAudit,
   efaGuardBaseEvent,
@@ -61,6 +63,9 @@ describe("ambulance dispatch persistence", () => {
     expect(getTableName(efaSupportRequestOperation)).toBe("efa_support_request_operation");
     expect(getTableName(efaSupportRequestNotice)).toBe("efa_support_request_notice");
     const dispatch = getTableConfig(efaDispatch);
+    expect(dispatch.columns.find((column) => column.name === "institution_id")?.notNull).toBe(
+      false,
+    );
     expect(dispatch.checks.map((item) => item.name)).toEqual(
       expect.arrayContaining([
         "efa_dispatch_state_allowed",
@@ -100,6 +105,17 @@ describe("ambulance dispatch persistence", () => {
       "efa_support_request_operation_append_only",
     ])
       expect(migration).toContain(`CREATE TRIGGER ${trigger}`);
+  });
+
+  it("adds an optional restrictive institution reference without deleting catalog history", () => {
+    const migration = readFileSync(
+      resolve(process.cwd(), "drizzle/0017_efa_dispatch_institution.sql"),
+      "utf8",
+    );
+    expect(migration).toContain('ADD COLUMN "institution_id" uuid');
+    expect(migration).toContain(
+      'FOREIGN KEY ("institution_id") REFERENCES "public"."efa_institution"("id") ON DELETE restrict',
+    );
   });
 });
 
@@ -185,6 +201,29 @@ describe("EFA conduct observation persistence", () => {
 });
 
 describe("database schema foundation", () => {
+  it("models a stable, versioned institutional destination and append-only audit history", () => {
+    expect(getTableName(efaInstitution)).toBe("efa_institution");
+    expect(getTableName(efaInstitutionAudit)).toBe("efa_institution_audit");
+    expect(getTableConfig(efaInstitution).uniqueConstraints.map((item) => item.name)).toContain(
+      "efa_institution_normalized_name_unique",
+    );
+    expect(getTableConfig(efaInstitutionAudit).checks.map((item) => item.name)).toEqual(
+      expect.arrayContaining([
+        "efa_institution_audit_action_allowed",
+        "efa_institution_audit_version_transition_valid",
+        "efa_institution_audit_state_keys_allowlisted",
+      ]),
+    );
+    expect(getTableConfig(efaInstitutionAudit).foreignKeys).toHaveLength(2);
+    const migration = readFileSync(
+      resolve(process.cwd(), "drizzle/0016_efa_institutions.sql"),
+      "utf8",
+    );
+    expect(migration).toContain("efa_institution_audit_append_only");
+    expect(migration).toContain('BEFORE UPDATE OR DELETE ON "efa_institution_audit"');
+    expect(migration).toContain('BEFORE DELETE ON "efa_institution"');
+  });
+
   it("models owner-bound phone communications, append-only versions, receipts, and private notices", () => {
     expect(getTableName(efaCommunication)).toBe("efa_communication");
     expect(getTableName(efaCommunicationAudit)).toBe("efa_communication_audit");

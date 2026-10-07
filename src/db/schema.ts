@@ -955,6 +955,9 @@ export const efaDispatch = pgTable(
     baseId: uuid("base_id")
       .notNull()
       .references(() => efaBase.id, { onDelete: "restrict" }),
+    institutionId: uuid("institution_id").references(() => efaInstitution.id, {
+      onDelete: "restrict",
+    }),
     communicationId: uuid("communication_id"),
     clientCreationKey: uuid("client_creation_key").notNull(),
     priority: text("priority"),

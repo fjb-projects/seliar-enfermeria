@@ -55,6 +55,7 @@ function entry(
       clientCreationKey: operationId,
       episodeId,
       baseId: "base",
+      institutionId: "institution-active",
       communicationId: null,
       priority: null,
       t0At: null,
@@ -87,6 +88,9 @@ describe("EFA dispatch queue", () => {
     const { store } = makeStore();
     const first = entry("op-a");
     await persistDispatchOperation(store, first);
+    expect((await store.get("owner", "episode", "op-a"))?.payload).toMatchObject({
+      institutionId: "institution-active",
+    });
     const second = entry("op-b");
     await persistDispatchOperation(store, second);
     await persistDispatchOperation(store, entry("op-a", "other-owner"));

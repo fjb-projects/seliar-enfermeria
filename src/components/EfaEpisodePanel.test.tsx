@@ -32,6 +32,10 @@ vi.mock("@/lib/efa-communications.functions", () => ({
   updateEfaCommunication: vi.fn(),
 }));
 vi.mock("@/lib/efa-bases.functions", () => ({ listEfaBases: vi.fn() }));
+vi.mock("@/lib/efa-institutions.functions", () => ({
+  createEfaInstitutionInline: vi.fn(),
+  listEfaInstitutions: vi.fn(),
+}));
 vi.mock("@/lib/efa-dispatches.functions", () => ({
   addEfaDispatchContactAttempt: vi.fn(),
   createEfaDispatch: vi.fn(),

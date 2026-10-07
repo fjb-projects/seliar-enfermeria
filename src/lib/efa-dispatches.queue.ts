@@ -10,6 +10,7 @@ export type DispatchQueueStatus =
 
 type DispatchFieldsPayload = {
   baseId: string;
+  institutionId: string | null;
   communicationId: string | null;
   priority: DispatchPriority | null;
   t0At: string | null;

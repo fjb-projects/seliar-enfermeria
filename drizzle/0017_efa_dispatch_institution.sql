@@ -1,0 +1,2 @@
+ALTER TABLE "efa_dispatch" ADD COLUMN "institution_id" uuid;--> statement-breakpoint
+ALTER TABLE "efa_dispatch" ADD CONSTRAINT "efa_dispatch_institution_id_efa_institution_id_fk" FOREIGN KEY ("institution_id") REFERENCES "public"."efa_institution"("id") ON DELETE restrict ON UPDATE no action;

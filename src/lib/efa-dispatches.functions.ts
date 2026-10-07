@@ -46,6 +46,7 @@ const timingFields = {
 };
 const dispatchFields = {
   baseId: uuid,
+  institutionId: uuid.nullable().optional(),
   communicationId: uuid.nullable().optional(),
   priority: priority.nullable().optional(),
   ...timingFields,

@@ -8,6 +8,7 @@ import {
 
 const dispatchId = "11111111-1111-4111-8111-111111111111";
 const operationId = "22222222-2222-4222-8222-222222222222";
+const institutionId = "55555555-5555-4555-8555-555555555555";
 const validCreate = {
   clientCreationKey: dispatchId,
   episodeId: "33333333-3333-4333-8333-333333333333",
@@ -25,6 +26,25 @@ describe("EFA dispatch function inputs", () => {
       }).success,
     ).toBe(true);
     expect(dispatchCreateSchema.safeParse({ ...validCreate, t0At: "bad" }).success).toBe(false);
+  });
+
+  it("accepts only nullable UUID institution references on dispatch edits", () => {
+    expect(dispatchCreateSchema.safeParse({ ...validCreate, institutionId }).success).toBe(true);
+    expect(dispatchCreateSchema.safeParse({ ...validCreate, institutionId: null }).success).toBe(
+      true,
+    );
+    expect(
+      dispatchCreateSchema.safeParse({ ...validCreate, institutionId: "Hospital" }).success,
+    ).toBe(false);
+    expect(
+      dispatchUpdateSchema.safeParse({
+        dispatchId,
+        expectedVersion: 1,
+        operationId,
+        baseId: validCreate.baseId,
+        institutionId,
+      }).success,
+    ).toBe(true);
   });
 
   it("restricts the optional anonymous first-response role to its approved values", () => {

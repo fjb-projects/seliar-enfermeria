@@ -12,6 +12,7 @@ export type DispatchForm = DispatchTimeForm & {
   t5Status: DispatchObservation;
   t6Status: DispatchObservation;
   baseId: string;
+  institutionId: string;
   communicationId: string;
   priority: "red" | "yellow" | "green" | "";
   note: string;
@@ -31,6 +32,7 @@ export type DispatchForm = DispatchTimeForm & {
 
 export const emptyDispatchForm = (): DispatchForm => ({
   baseId: "",
+  institutionId: "",
   communicationId: "",
   priority: "",
   note: "",
@@ -227,6 +229,7 @@ export function restoreDispatchQueueForm(
   const payload = entry.payload as Record<string, unknown>;
   const form = emptyDispatchForm();
   form.baseId = String(payload["baseId"] ?? "");
+  form.institutionId = String(payload["institutionId"] ?? "");
   form.communicationId = String(payload["communicationId"] ?? "");
   form.priority = (payload["priority"] as DispatchForm["priority"]) ?? "";
   form.note = String(payload["note"] ?? "");

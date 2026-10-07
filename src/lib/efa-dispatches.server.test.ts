@@ -28,6 +28,13 @@ function makeStore() {
   ]);
   const episodes = new Map([[episodeId, { id: episodeId, ownerUserId: owner }]]);
   const bases = new Map([[baseId, { id: baseId, isActive: true }]]);
+  const institutions = new Map([
+    ["institution-active", { id: "institution-active", name: "Hospital Central", isActive: true }],
+    [
+      "institution-inactive",
+      { id: "institution-inactive", name: "Hospital Histórico", isActive: false },
+    ],
+  ]);
   const calls = new Map<
     string,
     {
@@ -81,6 +88,9 @@ function makeStore() {
     },
     async findBase(id) {
       return bases.get(id) ?? null;
+    },
+    async findInstitution(id) {
+      return institutions.get(id) ?? null;
     },
     async findCommunication(id) {
       return calls.get(id) ?? null;
@@ -251,6 +261,7 @@ function makeStore() {
     },
     actors,
     bases,
+    institutions,
     calls,
     dispatches,
     audits,
@@ -266,6 +277,83 @@ function makeStore() {
 }
 
 describe("EFA dispatch service", () => {
+  it("keeps institution selection per dispatch and permits no institution for non-transport outcomes", async () => {
+    const fixture = makeStore();
+    fixture.institutions.set("institution-second", {
+      id: "institution-second",
+      name: "Hospital Norte",
+      isActive: true,
+    });
+    const first = await fixture.service.create(owner, {
+      clientCreationKey: "create-per-dispatch-a",
+      episodeId,
+      baseId,
+      institutionId: "institution-active",
+      result: "transported",
+    });
+    const second = await fixture.service.create(owner, {
+      clientCreationKey: "create-per-dispatch-b",
+      episodeId,
+      baseId,
+      institutionId: "institution-second",
+      result: "transported",
+    });
+    const nonTransport = await fixture.service.create(owner, {
+      clientCreationKey: "create-per-dispatch-no-destination",
+      episodeId,
+      baseId,
+      institutionId: null,
+      result: "treated_at_home",
+    });
+
+    expect(first.dispatch.institutionId).toBe("institution-active");
+    expect(second.dispatch.institutionId).toBe("institution-second");
+    expect(nonTransport.dispatch).toMatchObject({
+      institutionId: null,
+      result: "treated_at_home",
+    });
+    expect(fixture.dispatches).toHaveLength(3);
+  });
+
+  it("associates an active institution per dispatch and retains an inactive historical choice", async () => {
+    const fixture = makeStore();
+    const first = await fixture.service.create(owner, {
+      clientCreationKey: "create-institution-1",
+      episodeId,
+      baseId,
+      institutionId: "institution-active",
+    });
+    expect(first.dispatch.institutionId).toBe("institution-active");
+    expect(fixture.audits[0]?.afterState).toMatchObject({ institutionId: "institution-active" });
+    fixture.institutions.set("institution-active", {
+      id: "institution-active",
+      name: "Hospital Central",
+      isActive: false,
+    });
+    await expect(
+      fixture.service.create(owner, {
+        clientCreationKey: "create-institution-inactive",
+        episodeId,
+        baseId,
+        institutionId: "institution-inactive",
+      }),
+    ).rejects.toThrow(/institución|destino/i);
+    await fixture.service.update(owner, {
+      dispatchId: first.dispatch.id,
+      expectedVersion: 1,
+      operationId: "update-preserve-inactive-institution",
+      baseId,
+      institutionId: "institution-active",
+    });
+    const active = await fixture.service.listForEpisode(owner, episodeId);
+    expect(active[0]).toMatchObject({
+      id: first.dispatch.id,
+      institutionId: "institution-active",
+      institutionName: "Hospital Central",
+      institutionIsActive: false,
+    });
+  });
+
   it("copies a linked call priority only at creation and replays after the base is deactivated", async () => {
     const fixture = makeStore();
     const input = {

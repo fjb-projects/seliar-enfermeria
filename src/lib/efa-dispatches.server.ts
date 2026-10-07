@@ -12,6 +12,7 @@ import {
   efaDispatchNotice,
   efaDispatchOperation,
   efaEpisode,
+  efaInstitution,
   efaSupportRequest,
   efaSupportRequestAudit,
   efaSupportRequestNotice,
@@ -33,6 +34,7 @@ const firstResponseRoleValues = ["driver", "nurse", "doctor", "other", "not_obse
 type TimingKey = "t0" | "t1" | "t2" | "t3" | "t4" | "t5" | "t6";
 export type DispatchFields = {
   baseId: string;
+  institutionId: string | null;
   communicationId: string | null;
   priority: DispatchPriority | null;
   t0At: Date | null;
@@ -120,6 +122,7 @@ export type SupportOperation = {
 type Actor = { isActive: boolean; roles: AccountRole[] };
 type Episode = { id: string; ownerUserId: string };
 type Base = { id: string; isActive: boolean };
+type Institution = { id: string; name: string; isActive: boolean };
 type Communication = {
   id: string;
   episodeId: string;
@@ -130,6 +133,7 @@ export interface DispatchTransaction {
   findActor(id: string): Promise<Actor | null>;
   findEpisode(id: string, lock?: boolean): Promise<Episode | null>;
   findBase(id: string): Promise<Base | null>;
+  findInstitution(id: string): Promise<Institution | null>;
   findCommunication(id: string): Promise<Communication | null>;
   listDispatches(episodeId: string): Promise<DispatchRecord[]>;
   findDispatch(id: string, lock?: boolean): Promise<DispatchRecord | null>;
@@ -271,6 +275,7 @@ const visible = (owner: string, user: string, roles: AccountRole[]) =>
   owner === user || roles.includes("admin");
 const fieldKeys = [
   "baseId",
+  "institutionId",
   "communicationId",
   "priority",
   ...Array.from({ length: 7 }, (_, i) => [`t${i}At`, `t${i}Status`]).flat(),
@@ -349,10 +354,16 @@ export function createEfaDispatchesService(
     episode: Episode,
     fields: DispatchFields,
     currentBaseId?: string,
+    currentInstitutionId?: string | null,
   ) {
     if (fields.baseId !== currentBaseId) {
       const base = await tx.findBase(fields.baseId);
       if (!base?.isActive) throw new Error("La base no está disponible para nuevos despachos.");
+    }
+    if (fields.institutionId && fields.institutionId !== currentInstitutionId) {
+      const institution = await tx.findInstitution(fields.institutionId);
+      if (!institution?.isActive)
+        throw new Error("La institución o destino no está disponible para nuevos despachos.");
     }
     if (fields.communicationId) {
       const call = await tx.findCommunication(fields.communicationId);
@@ -371,6 +382,12 @@ export function createEfaDispatchesService(
         return Promise.all(
           records.map(async (record) => ({
             ...view(record, access.canEdit),
+            ...(record.institutionId
+              ? await tx.findInstitution(record.institutionId).then((institution) => ({
+                  institutionName: institution?.name ?? null,
+                  institutionIsActive: institution?.isActive ?? false,
+                }))
+              : { institutionName: null, institutionIsActive: null }),
             contactAttempts: await tx.listContactAttempts(record.id),
           })),
         );
@@ -384,6 +401,12 @@ export function createEfaDispatchesService(
           throw new Error("No se encontró el despacho.");
         return {
           ...view(record, access.canEdit),
+          ...(record.institutionId
+            ? await tx.findInstitution(record.institutionId).then((institution) => ({
+                institutionName: institution?.name ?? null,
+                institutionIsActive: institution?.isActive ?? false,
+              }))
+            : { institutionName: null, institutionIsActive: null }),
           contactAttempts: await tx.listContactAttempts(record.id),
           supportRequests: (await tx.listSupportRequests(record.episodeId))
             .filter((r) => r.sourceDispatchId === record.id)
@@ -592,7 +615,7 @@ export function createEfaDispatchesService(
         );
         const episode = await tx.findEpisode(current.episodeId, true);
         if (!episode) throw new Error("No se encontró el episodio.");
-        await baseAndLink(tx, episode, requested, current.baseId);
+        await baseAndLink(tx, episode, requested, current.baseId, current.institutionId);
         const next = { ...current, ...requested };
         if (current.state === "finalized" && (!next.priority || !next.result))
           throw new Error("Un despacho finalizado debe conservar prioridad y resultado.");
@@ -1018,6 +1041,7 @@ function normalizeFields(input: object, preserveLegacyRole = false): DispatchFie
     fields[`${key}Status`] = status;
   }
   fields["baseId"] = source["baseId"];
+  fields["institutionId"] = source["institutionId"] ?? null;
   fields["communicationId"] = source["communicationId"] ?? null;
   fields["priority"] = source["priority"] ?? null;
   const firstResponseRole = source["firstResponseRole"];
@@ -1147,6 +1171,21 @@ const drizzleStore: DispatchStore = {
                 .where(eq(efaBase.id, baseId))
                 .limit(1)
             )[0] ?? null
+          );
+        },
+        async findInstitution(institutionId) {
+          return (
+            ((
+              await db
+                .select({
+                  id: efaInstitution.id,
+                  name: efaInstitution.name,
+                  isActive: efaInstitution.isActive,
+                })
+                .from(efaInstitution)
+                .where(eq(efaInstitution.id, institutionId))
+                .limit(1)
+            )[0] as Institution | undefined) ?? null
           );
         },
         async findCommunication(communicationId) {

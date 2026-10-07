@@ -117,6 +117,9 @@ describe("dispatch client form helpers", () => {
     expect(dispatchFormChanged(form, emptyDispatchForm())).toBe(false);
     form.note = "Actualización";
     expect(dispatchFormChanged(form, emptyDispatchForm())).toBe(true);
+    form.note = "";
+    form.institutionId = "institution-a";
+    expect(dispatchFormChanged(form, emptyDispatchForm())).toBe(true);
   });
 
   it("restores frozen create values and preserves current times for finalize-only entries", () => {
@@ -132,6 +135,7 @@ describe("dispatch client form helpers", () => {
         expectedVersion: 2,
         operationId: "op",
         baseId: "base",
+        institutionId: "institution-a",
         communicationId: null,
         priority: null,
         t0At: "2026-10-06T09:30:45.678Z",
@@ -157,6 +161,7 @@ describe("dispatch client form helpers", () => {
     } as DispatchQueueEntry;
     const restored = restoreDispatchQueueForm(entry, emptyDispatchForm())!;
     expect(restored.note).toBe("captured");
+    expect(restored.institutionId).toBe("institution-a");
     expect(restored.t0At).toContain(":30:45.678");
     const finalize = {
       ...entry,
