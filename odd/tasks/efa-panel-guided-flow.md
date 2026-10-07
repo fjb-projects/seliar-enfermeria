@@ -66,6 +66,7 @@ The current `/panel` presents the same episode link to every account and hides t
 **Observed P3b checks:** `npm run test -- src/components/EfaEpisodePanel.test.tsx` passed (1 file, 7 tests); `npm run typecheck` passed; `npm run build` passed with existing route-test discovery, TanStack `inputValidator()`, and `vite-tsconfig-paths` warnings; `git diff --check -- odd/tasks/efa-panel-guided-flow.md src/components/EfaEpisodePanel.tsx src/components/EfaEpisodePanel.test.tsx` passed. No live database, staging, commit, or remote action was performed.
 
 #### V1 correction — read-only navigation accuracy
+**Work-unit commit:** `8786a10` (`fix(efa): keep read-only navigation truthful`).
 **Reopened V1 defects:** integration review found that the private-panel copy implied complete episode history even though `/episodios-efa` is limited to episodes for the caller's open guard, and the open-guard handoff still said “Registrar atenciones” when EFA write access had been revoked. Cross-guard episode history remains explicitly deferred; no route or server permission changes are in scope.
 
 - [x] Make guard history the only read-only destination from the home panel, with copy that promises only guard history. Episode consultation remains linked from the guard page when its existing read-only open-guard state can identify the caller's open guard.
@@ -77,7 +78,8 @@ The current `/panel` presents the same episode link to every account and hides t
 **Observed correction checks:** `npm run test -- src/components/EfaPanelHome.test.tsx src/components/EfaGuardPanel.test.tsx` passed (2 files, 15 tests); `npm run typecheck` passed; `npm run build` passed with existing `vite-tsconfig-paths` and route-test discovery warnings plus deprecated `inputValidator()` warnings; `git diff --check -- odd/tasks/efa-panel-guided-flow.md src/components/EfaPanelHome.tsx src/components/EfaPanelHome.test.tsx src/components/EfaGuardPanel.tsx src/components/EfaGuardPanel.test.tsx` passed. No live database, staging, commit, or remote action was performed.
 
 ### V1 — Integration and mobile validation
-- [ ] Validate end-to-end navigation, state transitions, and narrow-screen layout with available local checks.
+- [x] Run the full local suite and independent read-only review across panel, guard, and episode states. `npm test` passed (57 files, 348 tests); `npm run typecheck` and `npm run build` passed. The reviewer identified two read-only navigation contradictions; commit `8786a10` corrected both, and the reviewer rechecked 15 focused tests with no remaining blocker in that scope. `git diff --check 9d63fb9 HEAD` passed before the correction and `git diff --check 05ccb5a 8786a10` passed afterward.
+- [ ] Validate authenticated navigation, disclosure interaction, and touch/overflow layout on a narrow-screen browser. This requires an authorized logged-in session and was not simulated with a live Neon connection.
 
 ## Checks
 - `npm run test -- src/lib/efa-panel.server.test.ts src/lib/efa-panel.functions.test.ts src/components/EfaPanelHome.test.tsx`
@@ -89,4 +91,4 @@ The current `/panel` presents the same episode link to every account and hides t
 Engram mirror is pending because this delegated worker has no authoritative registered session identity. The parent session should mirror the full current document after completing the feature.
 
 ## Next step
-P1, P2, P3a, and P3b are complete, including the read-only navigation corrections. V1 end-to-end navigation, state-transition, and narrow-screen validation remains pending; the focused component checks above do not complete full V1 verification.
+The guided flow and read-only corrections are implemented and pass local checks. Complete the authenticated narrow-screen walkthrough before treating V1 as fully verified. Cross-guard episode history remains deferred.
