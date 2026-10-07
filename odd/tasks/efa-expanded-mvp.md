@@ -113,11 +113,11 @@ The admin account route uses a catalog-ID selector for all plan targets, with ef
 
 - Test-first evidence: new dispatch service and server-function schema assertions failed before implementation because the institution association was not represented/accepted. After implementation, focused dispatch server/function/client/queue/component and schema coverage passed: 6 files, 58 tests. Queue and client tests confirm the selected catalog ID stays in frozen offline state.
 - `npm run db:generate`: exit 0; generated forward-only `drizzle/0017_efa_dispatch_institution.sql`, snapshot 0017, and journal entry 17. The generated SQL adds a nullable FK with `ON DELETE restrict`; migration remains unapplied.
-- `npm run test -- src/lib/efa-dispatches.server.test.ts src/lib/efa-dispatches.functions.test.ts src/lib/efa-dispatches.client.test.ts src/lib/efa-dispatches.queue.test.ts src/components/EfaDispatchStepper.test.tsx src/db/schema.test.ts`: exit 0; 6 files, 57 tests.
+- `npm run test -- src/lib/efa-dispatches.server.test.ts src/lib/efa-dispatches.functions.test.ts src/lib/efa-dispatches.client.test.ts src/lib/efa-dispatches.queue.test.ts src/components/EfaDispatchStepper.test.tsx src/db/schema.test.ts`: exit 0; 6 files, 58 tests after the final regression additions.
 - `npm run typecheck`: exit 0. `npm run build`: exit 0; existing route-test-file, vite-tsconfig-paths, and legacy `inputValidator()` warnings remain. `git diff --check`: exit 0.
 - An initial build found that directly importing the `.client` picker from the route's server graph violates TanStack Start's import-protection boundary; dispatch UI now lazy-loads it via `createClientOnlyFn`.
 - Independent verification follow-up: the first full-suite run failed in `EfaEpisodePanel.test.tsx` because its TanStack mock lacked `createServerOnlyFn`, newly reached through the institutions-functions module. Added a focused institutions-functions mock. Added service coverage proving two dispatches for the same episode can reference different active institutions and a non-transport dispatch can explicitly keep `institutionId: null`. Final `npm run test`: exit 0; 54 files, 316 tests. `npm run typecheck`, `npm run build`, `git diff --check`, and Prettier check on the five changed TS/TSX files all exited 0. Build retains the previously noted tooling warnings.
-- No remote database was accessed; migration was not applied. No commit was created; parent owns work-unit commit and delivery.
+- No remote database was accessed; migration was not applied. Work-unit commit: `8618a63` (`feat(efa): link institutional destinations to dispatches`). No push or pull request was authorized.
 
 ### 12 — Correction notices and offline conflict handling
 
