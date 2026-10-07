@@ -27,7 +27,70 @@ import {
   efaCommunicationAudit,
   efaCommunicationNotice,
   efaCommunicationOperation,
+  efaDispatch,
+  efaDispatchAudit,
+  efaDispatchContactAttempt,
+  efaDispatchNotice,
+  efaDispatchOperation,
+  efaSupportRequest,
+  efaSupportRequestAudit,
+  efaSupportRequestOperation,
+  efaSupportRequestNotice,
 } from "./schema";
+
+describe("ambulance dispatch persistence", () => {
+  it("defines versioned owner-bound dispatches, observed time states, event attempts and support", () => {
+    expect(getTableName(efaDispatch)).toBe("efa_dispatch");
+    expect(getTableName(efaDispatchAudit)).toBe("efa_dispatch_audit");
+    expect(getTableName(efaDispatchContactAttempt)).toBe("efa_dispatch_contact_attempt");
+    expect(getTableName(efaDispatchNotice)).toBe("efa_dispatch_notice");
+    expect(getTableName(efaDispatchOperation)).toBe("efa_dispatch_operation");
+    expect(getTableName(efaSupportRequest)).toBe("efa_support_request");
+    expect(getTableName(efaSupportRequestAudit)).toBe("efa_support_request_audit");
+    expect(getTableName(efaSupportRequestOperation)).toBe("efa_support_request_operation");
+    expect(getTableName(efaSupportRequestNotice)).toBe("efa_support_request_notice");
+    const dispatch = getTableConfig(efaDispatch);
+    expect(dispatch.checks.map((item) => item.name)).toEqual(
+      expect.arrayContaining([
+        "efa_dispatch_state_allowed",
+        "efa_dispatch_priority_allowed",
+        "efa_dispatch_time_observation_statuses_valid",
+      ]),
+    );
+    expect(getTableConfig(efaDispatchNotice).checks.map((item) => item.name)).toContain(
+      "efa_dispatch_notice_recipient_is_owner",
+    );
+    expect(getTableConfig(efaSupportRequestNotice).checks.map((item) => item.name)).toContain(
+      "efa_support_request_notice_recipient_is_owner",
+    );
+    expect(getTableConfig(efaDispatchOperation).checks.map((item) => item.name)).toContain(
+      "efa_dispatch_operation_create_result_valid",
+    );
+    expect(getTableConfig(efaSupportRequestOperation).checks.map((item) => item.name)).toContain(
+      "efa_support_request_operation_create_result_valid",
+    );
+  });
+
+  it("keeps the migration referentially ordered and protects dispatch events and receipts", () => {
+    const migration = readFileSync(
+      resolve(process.cwd(), "drizzle/0008_efa_dispatches.sql"),
+      "utf8",
+    );
+    expect(
+      migration.indexOf('ADD CONSTRAINT "efa_communication_id_episode_owner_unique"'),
+    ).toBeLessThan(
+      migration.indexOf('ADD CONSTRAINT "efa_dispatch_communication_episode_owner_fk"'),
+    );
+    for (const trigger of [
+      "efa_dispatch_audit_append_only",
+      "efa_dispatch_operation_append_only",
+      "efa_dispatch_contact_attempt_append_only",
+      "efa_support_request_audit_append_only",
+      "efa_support_request_operation_append_only",
+    ])
+      expect(migration).toContain(`CREATE TRIGGER ${trigger}`);
+  });
+});
 
 describe("database schema foundation", () => {
   it("models owner-bound phone communications, append-only versions, receipts, and private notices", () => {

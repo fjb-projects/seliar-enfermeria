@@ -57,6 +57,13 @@
       "when": 1791332251110,
       "tag": "0007_efa_communications",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791340554390,
+      "tag": "0008_efa_dispatches",
+      "breakpoints": true
     }
   ]
 }

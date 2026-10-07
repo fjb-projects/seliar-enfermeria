@@ -449,6 +449,11 @@ export const efaCommunication = pgTable(
       foreignColumns: [efaEpisode.id, efaEpisode.ownerUserId],
     }).onDelete("restrict"),
     unique("efa_communication_id_owner_unique").on(table.id, table.ownerUserId),
+    unique("efa_communication_id_episode_owner_unique").on(
+      table.id,
+      table.episodeId,
+      table.ownerUserId,
+    ),
     unique("efa_communication_owner_creation_key_unique").on(
       table.ownerUserId,
       table.clientCreationKey,
@@ -594,6 +599,386 @@ export const efaCommunicationNotice = pgTable(
     unique("efa_communication_notice_audit_recipient_unique").on(
       table.auditId,
       table.recipientUserId,
+    ),
+  ],
+);
+
+export const efaDispatch = pgTable(
+  "efa_dispatch",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    episodeId: uuid("episode_id").notNull(),
+    ownerUserId: text("owner_user_id").notNull(),
+    baseId: uuid("base_id")
+      .notNull()
+      .references(() => efaBase.id, { onDelete: "restrict" }),
+    communicationId: uuid("communication_id"),
+    clientCreationKey: uuid("client_creation_key").notNull(),
+    priority: text("priority"),
+    t0At: timestamp("t0_at"),
+    t0Status: text("t0_status").notNull().default("not_observed"),
+    t1At: timestamp("t1_at"),
+    t1Status: text("t1_status").notNull().default("not_observed"),
+    t2At: timestamp("t2_at"),
+    t2Status: text("t2_status").notNull().default("not_observed"),
+    t3At: timestamp("t3_at"),
+    t3Status: text("t3_status").notNull().default("not_observed"),
+    t4At: timestamp("t4_at"),
+    t4Status: text("t4_status").notNull().default("not_observed"),
+    t5At: timestamp("t5_at"),
+    t5Status: text("t5_status").notNull().default("not_observed"),
+    t6At: timestamp("t6_at"),
+    t6Status: text("t6_status").notNull().default("not_observed"),
+    firstResponseRole: text("first_response_role"),
+    firstResponseAt: timestamp("first_response_at"),
+    note: text("note"),
+    result: text("result"),
+    resultClarification: text("result_clarification"),
+    state: text("state").notNull().default("draft"),
+    version: integer("version").notNull().default(1),
+    finalizedAt: timestamp("finalized_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: "efa_dispatch_episode_owner_fk",
+      columns: [table.episodeId, table.ownerUserId],
+      foreignColumns: [efaEpisode.id, efaEpisode.ownerUserId],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "efa_dispatch_communication_episode_owner_fk",
+      columns: [table.communicationId, table.episodeId, table.ownerUserId],
+      foreignColumns: [
+        efaCommunication.id,
+        efaCommunication.episodeId,
+        efaCommunication.ownerUserId,
+      ],
+    }).onDelete("restrict"),
+    unique("efa_dispatch_id_owner_unique").on(table.id, table.ownerUserId),
+    unique("efa_dispatch_id_episode_owner_unique").on(table.id, table.episodeId, table.ownerUserId),
+    unique("efa_dispatch_owner_creation_key_unique").on(table.ownerUserId, table.clientCreationKey),
+    check(
+      "efa_dispatch_priority_allowed",
+      sql`${table.priority} is null or ${table.priority} in ('red','yellow','green')`,
+    ),
+    check(
+      "efa_dispatch_result_allowed",
+      sql`${table.result} is null or ${table.result} in ('transported','treated_at_home','refused','not_located','cancelled','death','not_informed')`,
+    ),
+    check(
+      "efa_dispatch_state_allowed",
+      sql`(${table.state} = 'draft' and ${table.finalizedAt} is null) or (${table.state} = 'finalized' and ${table.finalizedAt} is not null and ${table.priority} is not null and ${table.result} is not null)`,
+    ),
+    check("efa_dispatch_version_positive", sql`${table.version} > 0`),
+    check(
+      "efa_dispatch_time_observation_statuses_valid",
+      sql`(${table.t0Status} in ('observed','not_observed','not_informed','not_applicable') and ((${table.t0Status} = 'observed') = (${table.t0At} is not null))) and (${table.t1Status} in ('observed','not_observed','not_informed','not_applicable') and ((${table.t1Status} = 'observed') = (${table.t1At} is not null))) and (${table.t2Status} in ('observed','not_observed','not_informed','not_applicable') and ((${table.t2Status} = 'observed') = (${table.t2At} is not null))) and (${table.t3Status} in ('observed','not_observed','not_informed','not_applicable') and ((${table.t3Status} = 'observed') = (${table.t3At} is not null))) and (${table.t4Status} in ('observed','not_observed','not_informed','not_applicable') and ((${table.t4Status} = 'observed') = (${table.t4At} is not null))) and (${table.t5Status} in ('observed','not_observed','not_informed','not_applicable') and ((${table.t5Status} = 'observed') = (${table.t5At} is not null))) and (${table.t6Status} in ('observed','not_observed','not_informed','not_applicable') and ((${table.t6Status} = 'observed') = (${table.t6At} is not null)))`,
+    ),
+  ],
+);
+
+export const efaDispatchAudit = pgTable(
+  "efa_dispatch_audit",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    dispatchId: uuid("dispatch_id").notNull(),
+    ownerUserId: text("owner_user_id").notNull(),
+    actorUserId: text("actor_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    operationId: uuid("operation_id").notNull(),
+    action: text("action").notNull(),
+    versionBefore: integer("version_before"),
+    versionAfter: integer("version_after").notNull(),
+    beforeState: jsonb("before_state").$type<Record<string, unknown> | null>(),
+    afterState: jsonb("after_state").$type<Record<string, unknown>>().notNull(),
+    occurredAt: timestamp("occurred_at").notNull().defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: "efa_dispatch_audit_dispatch_fk",
+      columns: [table.dispatchId, table.ownerUserId],
+      foreignColumns: [efaDispatch.id, efaDispatch.ownerUserId],
+    }).onDelete("restrict"),
+    unique("efa_dispatch_audit_dispatch_version_unique").on(table.dispatchId, table.versionAfter),
+    unique("efa_dispatch_audit_dispatch_operation_unique").on(table.dispatchId, table.operationId),
+    unique("efa_dispatch_audit_id_dispatch_unique").on(table.id, table.dispatchId),
+    check(
+      "efa_dispatch_audit_action_allowed",
+      sql`${table.action} in ('created','updated','finalized')`,
+    ),
+    check(
+      "efa_dispatch_audit_version_transition_valid",
+      sql`(${table.versionBefore} is null and ${table.versionAfter} = 1) or (${table.versionBefore} > 0 and ${table.versionAfter} = ${table.versionBefore} + 1)`,
+    ),
+    check(
+      "efa_dispatch_audit_state_object",
+      sql`jsonb_typeof(${table.afterState}) = 'object' and (${table.beforeState} is null or jsonb_typeof(${table.beforeState}) = 'object')`,
+    ),
+  ],
+);
+
+export const efaDispatchOperation = pgTable(
+  "efa_dispatch_operation",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    dispatchId: uuid("dispatch_id").notNull(),
+    ownerUserId: text("owner_user_id").notNull(),
+    actorUserId: text("actor_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    clientOperationId: uuid("client_operation_id").notNull(),
+    action: text("action").notNull(),
+    requestHash: text("request_hash").notNull(),
+    appliedVersion: integer("applied_version").notNull(),
+    changed: boolean("changed").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: "efa_dispatch_operation_dispatch_fk",
+      columns: [table.dispatchId, table.ownerUserId],
+      foreignColumns: [efaDispatch.id, efaDispatch.ownerUserId],
+    }).onDelete("restrict"),
+    unique("efa_dispatch_operation_client_unique").on(table.dispatchId, table.clientOperationId),
+    check(
+      "efa_dispatch_operation_action_allowed",
+      sql`${table.action} in ('created','updated','finalized')`,
+    ),
+    check(
+      "efa_dispatch_operation_create_result_valid",
+      sql`${table.action} <> 'created' or (${table.appliedVersion} = 1 and ${table.changed})`,
+    ),
+    check("efa_dispatch_operation_hash_sha256", sql`${table.requestHash} ~ '^[0-9a-f]{64}$'`),
+    check("efa_dispatch_operation_version_positive", sql`${table.appliedVersion} > 0`),
+  ],
+);
+
+export const efaDispatchNotice = pgTable(
+  "efa_dispatch_notice",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    dispatchId: uuid("dispatch_id").notNull(),
+    ownerUserId: text("owner_user_id").notNull(),
+    auditId: uuid("audit_id").notNull(),
+    recipientUserId: text("recipient_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    readAt: timestamp("read_at"),
+  },
+  (table) => [
+    foreignKey({
+      name: "efa_dispatch_notice_owner_fk",
+      columns: [table.dispatchId, table.ownerUserId],
+      foreignColumns: [efaDispatch.id, efaDispatch.ownerUserId],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "efa_dispatch_notice_audit_fk",
+      columns: [table.auditId, table.dispatchId],
+      foreignColumns: [efaDispatchAudit.id, efaDispatchAudit.dispatchId],
+    }).onDelete("restrict"),
+    unique("efa_dispatch_notice_audit_recipient_unique").on(table.auditId, table.recipientUserId),
+    check(
+      "efa_dispatch_notice_recipient_is_owner",
+      sql`${table.recipientUserId} = ${table.ownerUserId}`,
+    ),
+  ],
+);
+
+export const efaDispatchContactAttempt = pgTable(
+  "efa_dispatch_contact_attempt",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    dispatchId: uuid("dispatch_id").notNull(),
+    ownerUserId: text("owner_user_id").notNull(),
+    actorUserId: text("actor_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    clientEventId: uuid("client_event_id").notNull(),
+    occurredAt: timestamp("occurred_at").notNull(),
+    note: text("note"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: "efa_dispatch_contact_attempt_dispatch_fk",
+      columns: [table.dispatchId, table.ownerUserId],
+      foreignColumns: [efaDispatch.id, efaDispatch.ownerUserId],
+    }).onDelete("restrict"),
+    unique("efa_dispatch_contact_attempt_event_unique").on(table.dispatchId, table.clientEventId),
+    check(
+      "efa_dispatch_contact_attempt_note_length",
+      sql`${table.note} is null or char_length(${table.note}) <= 1000`,
+    ),
+  ],
+);
+
+export const efaSupportRequest = pgTable(
+  "efa_support_request",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    ownerUserId: text("owner_user_id").notNull(),
+    episodeId: uuid("episode_id").notNull(),
+    sourceDispatchId: uuid("source_dispatch_id").notNull(),
+    responseDispatchId: uuid("response_dispatch_id"),
+    clientCreationKey: uuid("client_creation_key").notNull(),
+    requestedAt: timestamp("requested_at").notNull(),
+    reason: text("reason").notNull(),
+    version: integer("version").notNull().default(1),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: "efa_support_request_episode_owner_fk",
+      columns: [table.episodeId, table.ownerUserId],
+      foreignColumns: [efaEpisode.id, efaEpisode.ownerUserId],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "efa_support_request_source_dispatch_fk",
+      columns: [table.sourceDispatchId, table.episodeId, table.ownerUserId],
+      foreignColumns: [efaDispatch.id, efaDispatch.episodeId, efaDispatch.ownerUserId],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "efa_support_request_response_dispatch_fk",
+      columns: [table.responseDispatchId, table.episodeId, table.ownerUserId],
+      foreignColumns: [efaDispatch.id, efaDispatch.episodeId, efaDispatch.ownerUserId],
+    }).onDelete("restrict"),
+    unique("efa_support_request_id_owner_unique").on(table.id, table.ownerUserId),
+    unique("efa_support_request_owner_creation_key_unique").on(
+      table.ownerUserId,
+      table.clientCreationKey,
+    ),
+    check(
+      "efa_support_request_reason_length",
+      sql`char_length(btrim(${table.reason})) between 1 and 1000`,
+    ),
+    check("efa_support_request_version_positive", sql`${table.version} > 0`),
+  ],
+);
+
+export const efaSupportRequestAudit = pgTable(
+  "efa_support_request_audit",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    supportRequestId: uuid("support_request_id").notNull(),
+    ownerUserId: text("owner_user_id").notNull(),
+    actorUserId: text("actor_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    operationId: uuid("operation_id").notNull(),
+    action: text("action").notNull(),
+    versionBefore: integer("version_before"),
+    versionAfter: integer("version_after").notNull(),
+    beforeState: jsonb("before_state").$type<Record<string, unknown> | null>(),
+    afterState: jsonb("after_state").$type<Record<string, unknown>>().notNull(),
+    occurredAt: timestamp("occurred_at").notNull().defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: "efa_support_request_audit_request_fk",
+      columns: [table.supportRequestId, table.ownerUserId],
+      foreignColumns: [efaSupportRequest.id, efaSupportRequest.ownerUserId],
+    }).onDelete("restrict"),
+    unique("efa_support_request_audit_version_unique").on(
+      table.supportRequestId,
+      table.versionAfter,
+    ),
+    unique("efa_support_request_audit_operation_unique").on(
+      table.supportRequestId,
+      table.operationId,
+    ),
+    unique("efa_support_request_audit_id_request_unique").on(table.id, table.supportRequestId),
+    check(
+      "efa_support_request_audit_action_allowed",
+      sql`${table.action} in ('created','updated')`,
+    ),
+    check(
+      "efa_support_request_audit_transition_valid",
+      sql`(${table.versionBefore} is null and ${table.versionAfter} = 1) or (${table.versionBefore} > 0 and ${table.versionAfter} = ${table.versionBefore} + 1)`,
+    ),
+    check(
+      "efa_support_request_audit_state_object",
+      sql`jsonb_typeof(${table.afterState}) = 'object' and (${table.beforeState} is null or jsonb_typeof(${table.beforeState}) = 'object')`,
+    ),
+  ],
+);
+
+export const efaSupportRequestOperation = pgTable(
+  "efa_support_request_operation",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    supportRequestId: uuid("support_request_id").notNull(),
+    ownerUserId: text("owner_user_id").notNull(),
+    actorUserId: text("actor_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    clientOperationId: uuid("client_operation_id").notNull(),
+    action: text("action").notNull(),
+    requestHash: text("request_hash").notNull(),
+    appliedVersion: integer("applied_version").notNull(),
+    changed: boolean("changed").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: "efa_support_request_operation_request_fk",
+      columns: [table.supportRequestId, table.ownerUserId],
+      foreignColumns: [efaSupportRequest.id, efaSupportRequest.ownerUserId],
+    }).onDelete("restrict"),
+    unique("efa_support_request_operation_client_unique").on(
+      table.supportRequestId,
+      table.clientOperationId,
+    ),
+    check(
+      "efa_support_request_operation_action_allowed",
+      sql`${table.action} in ('created','updated')`,
+    ),
+    check(
+      "efa_support_request_operation_create_result_valid",
+      sql`${table.action} <> 'created' or (${table.appliedVersion} = 1 and ${table.changed})`,
+    ),
+    check(
+      "efa_support_request_operation_hash_sha256",
+      sql`${table.requestHash} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check("efa_support_request_operation_version_positive", sql`${table.appliedVersion} > 0`),
+  ],
+);
+
+export const efaSupportRequestNotice = pgTable(
+  "efa_support_request_notice",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    supportRequestId: uuid("support_request_id").notNull(),
+    ownerUserId: text("owner_user_id").notNull(),
+    auditId: uuid("audit_id").notNull(),
+    recipientUserId: text("recipient_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    readAt: timestamp("read_at"),
+  },
+  (table) => [
+    foreignKey({
+      name: "efa_support_request_notice_owner_fk",
+      columns: [table.supportRequestId, table.ownerUserId],
+      foreignColumns: [efaSupportRequest.id, efaSupportRequest.ownerUserId],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "efa_support_request_notice_audit_fk",
+      columns: [table.auditId, table.supportRequestId],
+      foreignColumns: [efaSupportRequestAudit.id, efaSupportRequestAudit.supportRequestId],
+    }).onDelete("restrict"),
+    unique("efa_support_request_notice_audit_recipient_unique").on(
+      table.auditId,
+      table.recipientUserId,
+    ),
+    check(
+      "efa_support_request_notice_recipient_is_owner",
+      sql`${table.recipientUserId} = ${table.ownerUserId}`,
     ),
   ],
 );
