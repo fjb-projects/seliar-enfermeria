@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { EfaGuardPanel, type GuardView } from "./EfaGuardPanel";
 
 vi.mock("@tanstack/react-start", () => ({
+  createClientOnlyFn: (fn: () => unknown) => fn,
   useServerFn: () => vi.fn(async () => []),
 }));
 vi.mock("@tanstack/react-router", () => ({
@@ -20,6 +21,24 @@ vi.mock("@/lib/efa-guards.functions", () => ({
   listEfaGuards: vi.fn(),
   setEfaGuardBases: vi.fn(),
   startEfaGuard: vi.fn(),
+}));
+vi.mock("@/lib/efa-observations.functions", () => ({
+  createEfaObservation: vi.fn(),
+  getEfaObservation: vi.fn(),
+  getEfaObservationCatalog: vi.fn(),
+  getEfaObservationHistory: vi.fn(),
+  listEfaObservationNotices: vi.fn(),
+  listEfaObservationsForEpisode: vi.fn(),
+  listEfaObservationsForGuard: vi.fn(),
+  markEfaObservationNoticeRead: vi.fn(),
+  updateEfaObservation: vi.fn(),
+}));
+vi.mock("@/lib/efa-episodes.functions", () => ({ listEfaEpisodes: vi.fn() }));
+vi.mock("@/lib/efa-communications.functions", () => ({ listEfaCommunicationsForEpisode: vi.fn() }));
+vi.mock("@/lib/efa-dispatches.functions", () => ({ listEfaDispatchesForEpisode: vi.fn() }));
+vi.mock("@/lib/efa-police-coordination.functions", () => ({
+  getEfaPoliceCoordination: vi.fn(),
+  listEfaPoliceCoordinationsForEpisode: vi.fn(),
 }));
 
 describe("EfaGuardPanel", () => {
@@ -59,6 +78,7 @@ describe("EfaGuardPanel", () => {
         ]}
         currentUserId="current-user"
         isAdmin
+        canWrite
       />,
     );
     const selectedBases = [
@@ -68,5 +88,22 @@ describe("EfaGuardPanel", () => {
     expect(selectedBases).toEqual(["Central", "Norte"]);
     expect(html).toContain("Oeste");
     expect(html).toContain("/episodios-efa");
+    expect(html).toContain("Ver conductas observadas");
+  });
+
+  it("keeps guard history visible without exposing write controls to revoked EFA", () => {
+    const html = renderToStaticMarkup(
+      <EfaGuardPanel
+        initialGuards={[]}
+        activeBases={[]}
+        currentUserId="current-user"
+        isAdmin={false}
+        canWrite={false}
+      />,
+    );
+
+    expect(html).toContain("Mis guardias");
+    expect(html).toContain("Solo se muestran guardias propias.");
+    expect(html).not.toContain("Iniciar guardia");
   });
 });

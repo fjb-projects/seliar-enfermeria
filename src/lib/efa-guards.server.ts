@@ -100,6 +100,12 @@ export function createEfaGuardsService(
     return roles;
   }
 
+  async function readActor(tx: EfaGuardTransaction, userId: string) {
+    const current = await tx.findActor(userId);
+    if (!current?.isActive) throw new Error("La cuenta está inactiva.");
+    return effectiveRoles(current.roles);
+  }
+
   async function ownedOrAdmin(tx: EfaGuardTransaction, userId: string, guardId: string) {
     const roles = await actor(tx, userId, "efa");
     const current = await tx.findGuard(guardId);
@@ -146,7 +152,7 @@ export function createEfaGuardsService(
 
     async list(userId: string) {
       return store.transaction(async (tx) => {
-        const roles = await actor(tx, userId, "efa");
+        const roles = await readActor(tx, userId);
         const guards = await tx.listGuards(roles.includes("admin") ? null : userId);
         return Promise.all(guards.map((guard) => withEvents(tx, guard)));
       });

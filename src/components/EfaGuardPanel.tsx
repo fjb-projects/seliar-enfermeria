@@ -4,6 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
+import { EfaObservationPanel } from "@/components/EfaObservationPanel";
 import {
   correctEfaGuardEnd,
   endEfaGuard,
@@ -42,11 +43,13 @@ export function EfaGuardPanel({
   activeBases,
   currentUserId,
   isAdmin,
+  canWrite,
 }: {
   initialGuards: GuardView[];
   activeBases: GuardBase[];
   currentUserId: string;
   isAdmin: boolean;
+  canWrite: boolean;
 }) {
   const listGuards = useServerFn(listEfaGuards);
   const listBases = useServerFn(listActiveEfaGuardBases);
@@ -67,9 +70,13 @@ export function EfaGuardPanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [observationGuardId, setObservationGuardId] = useState<string | null>(null);
 
   async function refresh() {
-    const [nextGuards, nextBases] = await Promise.all([listGuards(), listBases()]);
+    const [nextGuards, nextBases] = await Promise.all([
+      listGuards(),
+      canWrite ? listBases() : Promise.resolve([]),
+    ]);
     const currentGuards = nextGuards as GuardView[];
     setGuards(currentGuards);
     setBases(nextBases as GuardBase[]);
@@ -80,6 +87,7 @@ export function EfaGuardPanel({
   }
 
   async function runAction(action: () => Promise<unknown>, success: string) {
+    if (!canWrite || busy) return;
     setBusy(true);
     setError("");
     setMessage("");
@@ -122,7 +130,7 @@ export function EfaGuardPanel({
               {message}
             </p>
           )}
-          {!openOwnGuard && (
+          {!openOwnGuard && canWrite && (
             <div className="space-y-4 rounded-lg border p-4">
               <p className="font-medium">Iniciar una guardia</p>
               <label className="flex min-h-11 items-start gap-3 text-sm">
@@ -136,7 +144,7 @@ export function EfaGuardPanel({
               </label>
               <Button
                 className="min-h-11 w-full sm:w-auto"
-                disabled={busy || !centralConfirmed}
+                disabled={busy || !canWrite || !centralConfirmed}
                 onClick={() =>
                   void runAction(async () => {
                     await startGuard({ data: { declaredAtCentral: true } });
@@ -157,9 +165,9 @@ export function EfaGuardPanel({
                   en Central
                 </p>
               </div>
-              <fieldset className="space-y-3" disabled={busy}>
+              <fieldset className="space-y-3" disabled={busy || !canWrite}>
                 <legend className="text-sm font-medium">Bases seguidas</legend>
-                {bases.map((base) => (
+                {(canWrite ? bases : openOwnGuard.bases).map((base) => (
                   <label
                     key={base.id}
                     className="flex min-h-11 items-center gap-3 rounded-md border p-3 text-sm"
@@ -179,46 +187,51 @@ export function EfaGuardPanel({
                     <span>{base.name}</span>
                   </label>
                 ))}
-                {bases.length === 0 && (
+                {canWrite && bases.length === 0 && (
                   <p className="text-sm text-muted-foreground">
                     No hay bases activas en el catálogo.
                   </p>
                 )}
               </fieldset>
-              <p className="text-xs text-muted-foreground">
-                Selecciona al menos una base. Cada alta o baja queda registrada con su autor y hora.
-              </p>
-              <Button
-                variant="outline"
-                className="min-h-11 w-full sm:w-auto"
-                disabled={
-                  busy ||
-                  selectedBaseIds.length === 0 ||
-                  (selectedBaseIds.length === openOwnGuard.bases.length &&
-                    selectedBaseIds.every((id) =>
-                      openOwnGuard.bases.some((base) => base.id === id),
-                    ))
-                }
-                onClick={() =>
-                  void runAction(
-                    () =>
-                      updateBases({
-                        data: {
-                          guardId: openOwnGuard.id,
-                          expectedVersion: openOwnGuard.version,
-                          baseIds: selectedBaseIds,
-                        },
-                      }),
-                    "Las bases seguidas se actualizaron.",
-                  )
-                }
-              >
-                Guardar bases
-              </Button>
+              {canWrite && (
+                <>
+                  <p className="text-xs text-muted-foreground">
+                    Selecciona al menos una base. Cada alta o baja queda registrada con su autor y
+                    hora.
+                  </p>
+                  <Button
+                    variant="outline"
+                    className="min-h-11 w-full sm:w-auto"
+                    disabled={
+                      busy ||
+                      selectedBaseIds.length === 0 ||
+                      (selectedBaseIds.length === openOwnGuard.bases.length &&
+                        selectedBaseIds.every((id) =>
+                          openOwnGuard.bases.some((base) => base.id === id),
+                        ))
+                    }
+                    onClick={() =>
+                      void runAction(
+                        () =>
+                          updateBases({
+                            data: {
+                              guardId: openOwnGuard.id,
+                              expectedVersion: openOwnGuard.version,
+                              baseIds: selectedBaseIds,
+                            },
+                          }),
+                        "Las bases seguidas se actualizaron.",
+                      )
+                    }
+                  >
+                    Guardar bases
+                  </Button>
+                </>
+              )}
               <Button
                 variant="destructive"
                 className="min-h-11 w-full sm:w-auto"
-                disabled={busy}
+                disabled={busy || !canWrite}
                 onClick={() =>
                   void runAction(
                     () =>
@@ -266,6 +279,37 @@ export function EfaGuardPanel({
                     : "Sin base activa"}
                 </p>
               </div>
+              <Button
+                type="button"
+                variant="outline"
+                className="min-h-11"
+                onClick={() => setObservationGuardId(guard.id)}
+              >
+                Ver conductas observadas
+              </Button>
+              {observationGuardId === guard.id && (
+                <section key={`${currentUserId}:${guard.id}`} className="space-y-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="min-h-11"
+                    onClick={() => setObservationGuardId(null)}
+                  >
+                    Cerrar conductas observadas
+                  </Button>
+                  <EfaObservationPanel
+                    root={{
+                      guardId: guard.id,
+                      ownerUserId: guard.ownerUserId,
+                      guardEndedAt: guard.endedAt,
+                    }}
+                    title="Conductas observadas de la guardia"
+                    currentUserId={currentUserId}
+                    canWrite={canWrite && (isAdmin || guard.ownerUserId === currentUserId)}
+                    isAdmin={isAdmin}
+                  />
+                </section>
+              )}
               {guard.baseEvents.length > 0 && (
                 <details>
                   <summary className="min-h-11 cursor-pointer py-2 text-sm font-medium">
@@ -281,7 +325,7 @@ export function EfaGuardPanel({
                   </ul>
                 </details>
               )}
-              {isAdmin && guard.endedAt && (
+              {isAdmin && canWrite && guard.endedAt && (
                 <div className="space-y-2 border-t pt-3">
                   <Label htmlFor={`guard-end-${guard.id}`}>Corregir hora de cierre</Label>
                   <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
@@ -302,6 +346,7 @@ export function EfaGuardPanel({
                       className="min-h-11"
                       disabled={
                         busy ||
+                        !canWrite ||
                         !corrections[guard.id] ||
                         new Date(corrections[guard.id]!).getTime() ===
                           new Date(guard.endedAt).getTime()

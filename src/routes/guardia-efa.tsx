@@ -1,7 +1,11 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { EfaGuardPanel, type GuardBase, type GuardView } from "@/components/EfaGuardPanel";
 import { PrivateAccountShell, type PrivateSession } from "@/components/PrivateAccountShell";
-import { listActiveEfaGuardBases, listEfaGuards } from "@/lib/efa-guards.functions";
+import {
+  getEfaGuardRouteAccess,
+  listActiveEfaGuardBases,
+  listEfaGuards,
+} from "@/lib/efa-guards.functions";
 import { readSession } from "@/lib/auth.functions";
 
 export const Route = createFileRoute("/guardia-efa")({
@@ -13,25 +17,32 @@ export const Route = createFileRoute("/guardia-efa")({
       throw redirect({ href: "/login?returnTo=%2Fguardia-efa" });
     }
     if (!session) throw redirect({ href: "/login?returnTo=%2Fguardia-efa" });
-    if (!session.roles.includes("efa") && !session.roles.includes("admin")) {
-      throw redirect({ to: "/panel" });
-    }
     return { session: session as PrivateSession };
   },
-  loader: async () => ({ guards: await listEfaGuards(), bases: await listActiveEfaGuardBases() }),
+  loader: async () => {
+    const session = await readSession();
+    if (!session) throw redirect({ href: "/login?returnTo=%2Fguardia-efa" });
+    const { canWrite, isAdmin } = getEfaGuardRouteAccess(session.roles);
+    const [guards, bases] = await Promise.all([
+      listEfaGuards(),
+      canWrite ? listActiveEfaGuardBases() : Promise.resolve([]),
+    ]);
+    return { guards, bases, canWrite, isAdmin };
+  },
   component: EfaGuardPage,
 });
 
 function EfaGuardPage() {
   const { session } = Route.useRouteContext();
-  const { guards, bases } = Route.useLoaderData();
+  const { guards, bases, canWrite, isAdmin } = Route.useLoaderData();
   return (
     <PrivateAccountShell session={session}>
       <EfaGuardPanel
         initialGuards={guards as GuardView[]}
         activeBases={bases as GuardBase[]}
         currentUserId={session.user.id}
-        isAdmin={session.roles.includes("admin")}
+        isAdmin={isAdmin}
+        canWrite={canWrite}
       />
     </PrivateAccountShell>
   );

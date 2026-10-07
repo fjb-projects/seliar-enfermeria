@@ -247,6 +247,31 @@ describe("EFA guard lifecycle service", () => {
     await expect(service.list("admin-1")).resolves.toHaveLength(1);
   });
 
+  it("allows active revoked-EFA accounts to read only their guards without granting mutations", async () => {
+    const db = createStore();
+    const service = createEfaGuardsService(db.store, { newId: () => "guard-1" });
+    await service.start("user-1", { declaredAtCentral: true });
+    const auditsBefore = [...db.guardAudit];
+    db.setActor({ isActive: true, roles: [] });
+
+    await expect(service.list("user-1")).resolves.toHaveLength(1);
+    await expect(service.list("other-user")).resolves.toEqual([]);
+    await expect(service.listActiveBases("user-1")).rejects.toThrow(/EFA/i);
+    await expect(service.start("user-1", { declaredAtCentral: true })).rejects.toThrow(/EFA/i);
+    await expect(
+      service.setBases("user-1", { guardId: "guard-1", expectedVersion: 1, baseIds: ["base-a"] }),
+    ).rejects.toThrow(/EFA/i);
+    await expect(service.end("user-1", { guardId: "guard-1", expectedVersion: 1 })).rejects.toThrow(
+      /EFA/i,
+    );
+    expect(db.guards[0]!.endedAt).toBeNull();
+    expect(db.guards[0]!.version).toBe(1);
+    expect(db.guardAudit).toEqual(auditsBefore);
+
+    db.setActor({ isActive: false, roles: [] });
+    await expect(service.list("user-1")).rejects.toThrow(/inactiva/i);
+  });
+
   it("ends only when explicitly requested and retains the ended guard", async () => {
     const db = createStore();
     const service = createEfaGuardsService(db.store, { newId: () => "guard-1" });

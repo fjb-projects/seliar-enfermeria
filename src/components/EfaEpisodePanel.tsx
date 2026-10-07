@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { EfaCommunicationPanel } from "@/components/EfaCommunicationStepper";
 import { EfaDispatchStepper } from "@/components/EfaDispatchStepper";
 import { EfaPoliceCoordinationPanel } from "@/components/EfaPoliceCoordinationPanel";
+import { EfaObservationPanel } from "@/components/EfaObservationPanel";
 import {
   createEfaEpisode,
   getEfaEpisode,
@@ -144,6 +145,9 @@ export function EfaEpisodePanel({
   >(null);
   const [selectedDispatchEpisodeId, setSelectedDispatchEpisodeId] = useState<string | null>(null);
   const [selectedPoliceEpisodeId, setSelectedPoliceEpisodeId] = useState<string | null>(null);
+  const [selectedObservationEpisodeId, setSelectedObservationEpisodeId] = useState<string | null>(
+    null,
+  );
   const [pending, setPending] = useState<PendingEpisodeCreate | PendingEpisodeUpdate | null>(null);
   const [conflict, setConflict] = useState<ActiveEpisodeConflict | null>(null);
   const [busy, setBusy] = useState(false);
@@ -1250,6 +1254,13 @@ export function EfaEpisodePanel({
                   <Button
                     variant="outline"
                     className="min-h-11"
+                    onClick={() => setSelectedObservationEpisodeId(episode.id)}
+                  >
+                    Ver conductas observadas
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="min-h-11"
                     disabled={busy}
                     onClick={() => void showHistory(episode.id)}
                   >
@@ -1371,6 +1382,38 @@ export function EfaEpisodePanel({
                 currentUserId={currentUserId}
                 canWrite={canWrite}
                 episodeCanEdit={policeEpisode.canEdit}
+              />
+            </section>
+          ) : null;
+        })()}
+
+      {selectedObservationEpisodeId &&
+        (() => {
+          const observationEpisode = episodes.find(
+            (episode) => episode.id === selectedObservationEpisodeId,
+          );
+          return observationEpisode ? (
+            <section key={`${currentUserId}:${observationEpisode.id}`} className="space-y-3">
+              <Button
+                type="button"
+                variant="outline"
+                className="min-h-11"
+                onClick={() => setSelectedObservationEpisodeId(null)}
+              >
+                Cerrar conductas observadas
+              </Button>
+              <EfaObservationPanel
+                root={{
+                  guardId: observationEpisode.originGuardId,
+                  episodeId: observationEpisode.id,
+                  ownerUserId: observationEpisode.ownerUserId,
+                  guardEndedAt:
+                    openOwnGuard?.id === observationEpisode.originGuardId ? null : "closed",
+                }}
+                title="Conductas observadas del episodio"
+                currentUserId={currentUserId}
+                canWrite={canWrite}
+                isAdmin={isAdmin}
               />
             </section>
           ) : null;

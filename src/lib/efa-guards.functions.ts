@@ -1,7 +1,12 @@
 import { createServerFn, createServerOnlyFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { currentAccessSession } from "./auth.functions";
-import { requireAdministrator, requireEfa } from "./access";
+import {
+  requireActiveSession,
+  requireAdministrator,
+  requireEfa,
+  type AccessSession,
+} from "./access";
 
 export const guardIdSchema = z.string().uuid();
 const expectedVersion = z.number().int().positive();
@@ -23,13 +28,24 @@ const getService = createServerOnlyFn(async () => {
   return efaGuards;
 });
 
+export function requireGuardReadAccess(session: AccessSession | null) {
+  return requireActiveSession(session);
+}
+
+export function getEfaGuardRouteAccess(roles: readonly string[]) {
+  return {
+    canWrite: roles.includes("efa") || roles.includes("admin"),
+    isAdmin: roles.includes("admin"),
+  };
+}
+
 export const listActiveEfaGuardBases = createServerFn({ method: "GET" }).handler(async () => {
   const access = requireEfa(await currentAccessSession());
   return getService().then((service) => service.listActiveBases(access.userId));
 });
 
 export const listEfaGuards = createServerFn({ method: "GET" }).handler(async () => {
-  const access = requireEfa(await currentAccessSession());
+  const access = requireGuardReadAccess(await currentAccessSession());
   return getService().then((service) => service.list(access.userId));
 });
 
