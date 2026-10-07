@@ -55,7 +55,14 @@ The current `/panel` presents the same episode link to every account and hides t
 **Observed P3a checks:** `npm run test -- src/components/EfaGuardPanel.test.tsx` passed (1 file, 9 tests); `npm run typecheck` passed; `npm run build` passed with existing TanStack route-test and deprecated `inputValidator()` warnings; `git diff --check -- odd/tasks/efa-panel-guided-flow.md src/components/EfaGuardPanel.tsx src/components/EfaGuardPanel.test.tsx` passed. No live database, commit, staging, or remote action was performed.
 
 #### P3b — Episode history
-- [ ] Improve episode history presentation, keeping existing history access and permission behavior intact.
+- **Predecessor:** P3a commit `9282b27` (`feat(efa): condense guard history cards`).
+- [x] Compact the episode-card summary to status, event time, and the existing concise motive/address identifier; keep workspace access and closing an active editable service directly visible. Long identifiers wrap within two lines, and existing status ordering and data scope remain unchanged.
+- [x] Move captured/updated timestamps, version, edit, cancel/reactivate, and the history entry point under a native `Ver detalles` disclosure. Keep audit history available through its existing action and preserve all existing write, ownership, state, and notice gates; no route, database, or server behavior changed.
+- [x] Add rendering assertions for summary fields and visible core actions, plus detail-only metadata and secondary actions, including the cancelled/reactivation case.
+
+**Test-first evidence:** the updated rendering assertions failed before the compact-card/disclosure implementation (2 failures), then passed after the UI change.
+
+**Observed P3b checks:** `npm run test -- src/components/EfaEpisodePanel.test.tsx` passed (1 file, 7 tests); `npm run typecheck` passed; `npm run build` passed with existing route-test discovery, TanStack `inputValidator()`, and `vite-tsconfig-paths` warnings; `git diff --check -- odd/tasks/efa-panel-guided-flow.md src/components/EfaEpisodePanel.tsx src/components/EfaEpisodePanel.test.tsx` passed. No live database, staging, commit, or remote action was performed.
 
 ### V1 — Integration and mobile validation
 - [ ] Validate end-to-end navigation, state transitions, and narrow-screen layout with available local checks.
@@ -70,4 +77,4 @@ The current `/panel` presents the same episode link to every account and hides t
 Engram mirror is pending because this delegated worker has no authoritative registered session identity. The parent session should mirror the full current document after completing the feature.
 
 ## Next step
-P1, P2, and P3a are complete. Route P3b episode history and V1 integration/mobile validation separately; do not broaden P3a into those follow-up tasks.
+P1, P2, P3a, and P3b are complete. V1 integration/mobile validation remains open; do not broaden P3b into that follow-up task.

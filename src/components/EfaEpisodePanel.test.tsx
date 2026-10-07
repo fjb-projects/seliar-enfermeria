@@ -232,15 +232,22 @@ describe("EfaEpisodePanel", () => {
     expect(html).not.toContain("Historial de episodios");
     expect(html).not.toContain("Área de trabajo abierta");
     expect(html).toMatch(/<button(?=[^>]*bg-sky-50)[^>]*>[\s\S]*?Abrir área[\s\S]*?<\/button>/);
-    expect(html).toMatch(
-      /<button(?=[^>]*bg-indigo-50)[^>]*>[\s\S]*?Ver historial[\s\S]*?<\/button>/,
-    );
-    expect(html).toMatch(/<button(?=[^>]*bg-amber-50)[^>]*>[\s\S]*?Editar[\s\S]*?<\/button>/);
-    expect(html).toMatch(
-      /<button(?=[^>]*bg-slate-100)[^>]*>[\s\S]*?Cerrar servicio[\s\S]*?<\/button>/,
-    );
+    expect(html).toMatch(/<button(?=[^>]*bg-slate-100)[^>]*>[\s\S]*?Cerrar servicio[\s\S]*?<\/button>/);
+    const compactSummary = html.match(/<article[\s\S]*?<details/)?.[0] ?? "";
+    expect(compactSummary).toContain("Activo");
+    expect(compactSummary).toContain("Hecho 6/10/2026, 06:30:00");
+    expect(compactSummary).not.toContain("Capturado");
+    expect(compactSummary).not.toContain("Ver historial");
+    expect(compactSummary).not.toContain("Editar");
+    const details = html.match(/<details[^>]*>[\s\S]*?<summary[^>]*>[\s\S]*?Ver detalles[\s\S]*?<\/summary>([\s\S]*?)<\/details>/)?.[1];
+    expect(details).toBeDefined();
+    expect(details).toContain("Ver historial");
+    expect(details).toContain("Editar");
+    expect(details).toContain("versión 1");
     expect(html).not.toContain("foreign");
     expect(html.indexOf("Activo")).toBeLessThan(html.indexOf("Cerrado"));
+    expect(html).toContain("Hecho 6/10/2026, 06:30:00");
+    expect(html).toContain("Episodio del");
     expect(html).toContain("Guardar borrador");
     expect(html).not.toContain("Dejar de editar");
   });
@@ -265,7 +272,11 @@ describe("EfaEpisodePanel", () => {
       />,
     );
     expect(html).toContain("Anulado · Cerrado");
-    expect(html).toContain("Reactivar episodio");
+    const compactSummary = html.match(/<article[\s\S]*?<details/)?.[0] ?? "";
+    expect(compactSummary).not.toContain("Reactivar episodio");
+    const details = html.match(/<details[^>]*>[\s\S]*?<summary[^>]*>[\s\S]*?Ver detalles[\s\S]*?<\/summary>([\s\S]*?)<\/details>/)?.[1];
+    expect(details).toContain("Reactivar episodio");
+    expect(details).toContain("Capturado");
     expect(html).not.toContain("Editar episodio");
   });
 });

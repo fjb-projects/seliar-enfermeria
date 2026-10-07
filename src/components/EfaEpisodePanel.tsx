@@ -1565,9 +1565,11 @@ export function EfaEpisodePanel({
                     : "border-sky-200 bg-sky-50/60 dark:border-sky-900 dark:bg-sky-950/20"
               }`}
             >
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div className="space-y-2">
                 <div className="min-w-0">
-                  <h3 className="font-semibold leading-5">{displayName(episode)}</h3>
+                  <h3 className="line-clamp-2 break-words font-semibold leading-5">
+                    {displayName(episode)}
+                  </h3>
                   <p
                     className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${
                       episode.cancelledAt
@@ -1586,10 +1588,6 @@ export function EfaEpisodePanel({
                   <p className="text-sm text-muted-foreground">
                     Hecho {formatEpisodeDate(episode.eventAt)}
                   </p>
-                  <p className="text-xs text-muted-foreground">
-                    Capturado {formatEpisodeDate(episode.createdAt)} · actualizado{" "}
-                    {formatEpisodeDate(episode.updatedAt)} · versión {episode.version}
-                  </p>
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {workspaceEpisodeId !== episode.id && (
@@ -1601,49 +1599,6 @@ export function EfaEpisodePanel({
                     >
                       <PanelsTopLeft aria-hidden="true" className="size-4" />
                       Abrir área
-                    </Button>
-                  )}
-                  <Button
-                    variant="outline"
-                    className="min-h-11 border-indigo-200 bg-indigo-50 px-3 text-indigo-950 hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-100 dark:hover:bg-indigo-950/60"
-                    disabled={busy}
-                    onClick={() => void showHistory(episode.id)}
-                  >
-                    <History aria-hidden="true" className="size-4" />
-                    Ver historial
-                  </Button>
-                  {canWrite &&
-                    episode.canManage &&
-                    (episode.cancelledAt ? (
-                      <Button
-                        variant="outline"
-                        className="min-h-11 border-emerald-200 bg-emerald-50 px-3 text-emerald-950 hover:bg-emerald-100"
-                        disabled={busy || Boolean(pending) || Boolean(conflict)}
-                        aria-label={`Reactivar episodio ${displayName(episode)}`}
-                        onClick={() => void changeEpisodeCancellation(episode, "reactivate")}
-                      >
-                        Reactivar
-                      </Button>
-                    ) : (
-                      <Button
-                        variant="outline"
-                        className="min-h-11 border-rose-200 bg-rose-50 px-3 text-rose-950 hover:bg-rose-100"
-                        disabled={busy || Boolean(pending) || Boolean(conflict)}
-                        aria-label={`Anular episodio ${displayName(episode)}`}
-                        onClick={() => void changeEpisodeCancellation(episode, "cancel")}
-                      >
-                        Anular
-                      </Button>
-                    ))}
-                  {canWrite && episode.canEdit && (
-                    <Button
-                      variant="outline"
-                      className="min-h-11 border-amber-200 bg-amber-50 px-3 text-amber-950 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100 dark:hover:bg-amber-950/60"
-                      disabled={!queueReady || busy || Boolean(pending) || Boolean(conflict)}
-                      onClick={() => editEpisode(episode)}
-                    >
-                      <Pencil aria-hidden="true" className="size-4" />
-                      Editar
                     </Button>
                   )}
                   {canWrite && episode.canEdit && episode.state === "draft" && (
@@ -1666,6 +1621,62 @@ export function EfaEpisodePanel({
                     </Button>
                   )}
                 </div>
+                <details className="border-t pt-2">
+                  <summary className="min-h-11 cursor-pointer py-3 font-medium">
+                    Ver detalles
+                  </summary>
+                  <div className="space-y-3 pt-1">
+                    <p className="text-xs text-muted-foreground">
+                      Capturado {formatEpisodeDate(episode.createdAt)} · actualizado{" "}
+                      {formatEpisodeDate(episode.updatedAt)} · versión {episode.version}
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      <Button
+                        variant="outline"
+                        className="min-h-11 border-indigo-200 bg-indigo-50 px-3 text-indigo-950 hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-100 dark:hover:bg-indigo-950/60"
+                        disabled={busy}
+                        onClick={() => void showHistory(episode.id)}
+                      >
+                        <History aria-hidden="true" className="size-4" />
+                        Ver historial
+                      </Button>
+                      {canWrite &&
+                        episode.canManage &&
+                        (episode.cancelledAt ? (
+                          <Button
+                            variant="outline"
+                            className="min-h-11 border-emerald-200 bg-emerald-50 px-3 text-emerald-950 hover:bg-emerald-100"
+                            disabled={busy || Boolean(pending) || Boolean(conflict)}
+                            aria-label={`Reactivar episodio ${displayName(episode)}`}
+                            onClick={() => void changeEpisodeCancellation(episode, "reactivate")}
+                          >
+                            Reactivar
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="outline"
+                            className="min-h-11 border-rose-200 bg-rose-50 px-3 text-rose-950 hover:bg-rose-100"
+                            disabled={busy || Boolean(pending) || Boolean(conflict)}
+                            aria-label={`Anular episodio ${displayName(episode)}`}
+                            onClick={() => void changeEpisodeCancellation(episode, "cancel")}
+                          >
+                            Anular
+                          </Button>
+                        ))}
+                      {canWrite && episode.canEdit && (
+                        <Button
+                          variant="outline"
+                          className="min-h-11 border-amber-200 bg-amber-50 px-3 text-amber-950 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
+                          disabled={!queueReady || busy || Boolean(pending) || Boolean(conflict)}
+                          onClick={() => editEpisode(episode)}
+                        >
+                          <Pencil aria-hidden="true" className="size-4" />
+                          Editar
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </details>
               </div>
               {workspaceEpisodeId === episode.id && (
                 <EfaEpisodeWorkspace
