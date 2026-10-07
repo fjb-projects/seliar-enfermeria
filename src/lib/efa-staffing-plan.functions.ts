@@ -3,16 +3,13 @@ import { z } from "zod";
 import { currentAccessSession } from "./auth.functions";
 import { requireAdministrator, requireEfa } from "./access";
 
-const target = z.discriminatedUnion("kind", [
-  z
-    .object({
-      kind: z.literal("base"),
-      baseId: z.string().uuid(),
-      name: z.string().trim().min(1).max(120),
-    })
-    .strict(),
-  z.object({ kind: z.literal("mobile"), name: z.string().trim().min(1).max(120) }).strict(),
-]);
+const target = z
+  .object({
+    kind: z.literal("base"),
+    baseId: z.string().uuid(),
+    name: z.string().trim().min(1).max(120),
+  })
+  .strict();
 const role = z.enum(["nurse", "driver", "doctor"]);
 const time = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/u);
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/u);

@@ -415,7 +415,9 @@ export const efaStaffingPlan = pgTable(
   {
     id: uuid("id").primaryKey(),
     targetKind: text("target_kind").notNull(),
-    baseId: uuid("base_id").references(() => efaBase.id, { onDelete: "restrict" }),
+    baseId: uuid("base_id")
+      .notNull()
+      .references(() => efaBase.id, { onDelete: "restrict" }),
     targetName: text("target_name").notNull(),
     targetKey: text("target_key").notNull(),
     effectiveFrom: text("effective_from").notNull(),
@@ -446,10 +448,10 @@ export const efaStaffingPlan = pgTable(
       table.targetKey,
       table.clientOperationId,
     ),
-    check("efa_staffing_plan_target_kind_allowed", sql`${table.targetKind} in ('base', 'mobile')`),
+    check("efa_staffing_plan_target_kind_allowed", sql`${table.targetKind} = 'base'`),
     check(
       "efa_staffing_plan_target_identity_valid",
-      sql`(${table.targetKind} = 'base' and ${table.baseId} is not null) or (${table.targetKind} = 'mobile' and ${table.baseId} is null)`,
+      sql`${table.targetKind} = 'base' and ${table.baseId} is not null`,
     ),
     check(
       "efa_staffing_plan_dates_valid",
@@ -466,7 +468,9 @@ export const efaStaffingPlanException = pgTable(
   {
     id: uuid("id").primaryKey(),
     targetKind: text("target_kind").notNull(),
-    baseId: uuid("base_id").references(() => efaBase.id, { onDelete: "restrict" }),
+    baseId: uuid("base_id")
+      .notNull()
+      .references(() => efaBase.id, { onDelete: "restrict" }),
     targetName: text("target_name").notNull(),
     targetKey: text("target_key").notNull(),
     date: text("date").notNull(),
@@ -498,13 +502,10 @@ export const efaStaffingPlanException = pgTable(
       table.targetKey,
       table.clientOperationId,
     ),
-    check(
-      "efa_staffing_plan_exception_target_kind_allowed",
-      sql`${table.targetKind} in ('base', 'mobile')`,
-    ),
+    check("efa_staffing_plan_exception_target_kind_allowed", sql`${table.targetKind} = 'base'`),
     check(
       "efa_staffing_plan_exception_target_identity_valid",
-      sql`(${table.targetKind} = 'base' and ${table.baseId} is not null) or (${table.targetKind} = 'mobile' and ${table.baseId} is null)`,
+      sql`${table.targetKind} = 'base' and ${table.baseId} is not null`,
     ),
     check("efa_staffing_plan_exception_date_valid", sql`${table.date} ~ '^\\d{4}-\\d{2}-\\d{2}$'`),
     check("efa_staffing_plan_exception_version_positive", sql`${table.version} > 0`),

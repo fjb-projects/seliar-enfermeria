@@ -7,13 +7,25 @@ import {
   type StaffingPlanTransaction,
 } from "./efa-staffing-plan.server";
 
-function memoryStore(): StaffingPlanStore {
+const mobileBaseId = "00000000-0000-4000-8000-000000000050";
+const centralBaseId = "00000000-0000-4000-8000-000000000051";
+
+function memoryStore(
+  bases = new Map([
+    [mobileBaseId, "Móvil 15"],
+    [centralBaseId, "Central"],
+  ]),
+): StaffingPlanStore {
   const plans: any[] = [];
   const exceptions: any[] = [];
   const audits: any[] = [];
   const tx: StaffingPlanTransaction = {
     async findActor(id) {
       return { isActive: id !== "inactive", roles: id === "admin" ? ["efa", "admin"] : ["efa"] };
+    },
+    async findBaseById(baseId) {
+      const name = bases.get(baseId);
+      return name ? { name } : null;
     },
     async listPlans(target) {
       return plans.filter((row) => row.targetKey === target);
@@ -37,7 +49,7 @@ function memoryStore(): StaffingPlanStore {
 }
 
 const cycle = {
-  target: { kind: "mobile" as const, name: "Móvil 15" },
+  target: { kind: "base" as const, baseId: mobileBaseId, name: "Móvil 15" },
   effectiveFrom: "2026-10-07",
   cycleAnchor: "2026-10-01",
   cycleLengthDays: 4,
@@ -176,13 +188,52 @@ describe("planned EFA coverage", () => {
     expect(preview.actualStaffing).toBe(false);
   });
 
+  it("rejects independent free-text mobile targets", async () => {
+    const service = createEfaStaffingPlanService(
+      memoryStore(),
+      () => crypto.randomUUID(),
+      fixedNow,
+    );
+    await expect(
+      service.savePlan("admin", {
+        ...cycle,
+        target: { kind: "mobile", name: "Móvil 99" } as never,
+        clientOperationId: "00000000-0000-4000-8000-000000000067",
+      }),
+    ).rejects.toThrow("base del catálogo");
+  });
+
+  it("rejects a base ID that is not present in the catalog", async () => {
+    const service = createEfaStaffingPlanService(
+      memoryStore(),
+      () => crypto.randomUUID(),
+      fixedNow,
+    );
+    await expect(
+      service.savePlan("admin", {
+        ...cycle,
+        target: {
+          kind: "base",
+          baseId: "00000000-0000-4000-8000-000000000099",
+          name: "Móvil 99",
+        },
+        clientOperationId: "00000000-0000-4000-8000-000000000068",
+      }),
+    ).rejects.toThrow("base del catálogo existente");
+  });
+
   it("keys base plans by immutable base ID across renames and never reattaches a reused name", async () => {
-    const store = memoryStore();
+    const bases = new Map([
+      [mobileBaseId, "Móvil 15"],
+      [centralBaseId, "Central"],
+      ["00000000-0000-4000-8000-000000000052", "Central"],
+    ]);
+    const store = memoryStore(bases);
     let nextId = 0;
     const service = createEfaStaffingPlanService(store, () => `base-plan-${++nextId}`, fixedNow);
     const original = {
       kind: "base" as const,
-      baseId: "00000000-0000-4000-8000-000000000050",
+      baseId: centralBaseId,
       name: "Central",
     };
     await service.savePlan("admin", { ...cycle, target: original });
@@ -192,11 +243,23 @@ describe("planned EFA coverage", () => {
       slots: [],
       clientOperationId: "00000000-0000-4000-8000-000000000052",
     });
+    bases.set(centralBaseId, "Central Sur");
     const renamed = { ...original, name: "Central Sur" };
-    expect(await service.list("efa", renamed)).toHaveLength(1);
+    expect(await service.list("efa", renamed)).toMatchObject([{ target: renamed }]);
+    await expect(service.savePlan("admin", { ...cycle, target: original })).resolves.toMatchObject({
+      target: renamed,
+    });
+    await expect(
+      service.saveException("admin", {
+        target: original,
+        date: "2026-11-02",
+        slots: [],
+        clientOperationId: "00000000-0000-4000-8000-000000000052",
+      }),
+    ).resolves.toMatchObject({ target: renamed, version: 1 });
     const reusedName = {
       kind: "base" as const,
-      baseId: "00000000-0000-4000-8000-000000000051",
+      baseId: "00000000-0000-4000-8000-000000000052",
       name: "Central",
     };
     await service.savePlan("admin", {

@@ -55,6 +55,8 @@ describe("AdminStaffingPlan", () => {
     expect(html).toContain("no se planifica cobertura para esa fecha");
     expect(html).toContain("Consultar historial de versiones");
     expect(html).toContain("Base del catálogo");
+    expect(html).not.toContain('option value="mobile"');
+    expect(html).not.toContain("Nombre del móvil");
     expect(html).toContain("00000000-0000-4000-8000-000000000050");
     expect(html).toContain("Al día siguiente (hasta 24 h)");
     expect(html).not.toContain("Nombre de persona");

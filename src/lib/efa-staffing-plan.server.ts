@@ -3,8 +3,7 @@ export { getOperationalDate } from "./efa-staffing-plan.date";
 
 export const plannedRoles = ["nurse", "driver", "doctor"] as const;
 export type PlannedRole = (typeof plannedRoles)[number];
-export type CoverageTarget =
-  { kind: "base"; baseId: string; name: string } | { kind: "mobile"; name: string };
+export type CoverageTarget = { kind: "base"; baseId: string; name: string };
 export type CycleSlot = {
   dayOffset: number;
   role: PlannedRole;
@@ -46,6 +45,7 @@ export type StaffingPlanException = {
 type Actor = { isActive: boolean; roles: string[] };
 export interface StaffingPlanTransaction {
   findActor(userId: string): Promise<Actor | null>;
+  findBaseById(baseId: string): Promise<{ name: string } | null>;
   listPlans(targetKey: string): Promise<StaffingPlan[]>;
   insertPlan(plan: StaffingPlan & { createdByUserId: string }): Promise<void>;
   listExceptions(targetKey: string, from: string, to: string): Promise<StaffingPlanException[]>;
@@ -75,32 +75,23 @@ function validTime(value: string) {
   return /^([01]\d|2[0-3]):[0-5]\d$/u.test(value);
 }
 function assertTarget(target: CoverageTarget) {
-  if (!target || !["base", "mobile"].includes(target.kind))
-    throw new Error("El tipo de cobertura no es válido.");
+  if (!target || target.kind !== "base")
+    throw new Error("La planificación debe usar una base del catálogo.");
   const name = target.name.normalize("NFKC").trim().replace(/\s+/gu, " ");
   if (!name || name.length > 120)
     throw new Error("El nombre de la base o móvil debe tener entre 1 y 120 caracteres.");
-  if (target.kind === "base") {
-    if (
-      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
-        target.baseId,
-      )
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
+      target.baseId,
     )
-      throw new Error("La base seleccionada no es válida.");
-    return {
-      kind: "base" as const,
-      name,
-      baseId: target.baseId.toLowerCase(),
-      key: `base:${target.baseId.toLowerCase()}`,
-      target: { kind: "base" as const, baseId: target.baseId.toLowerCase(), name },
-    };
-  }
+  )
+    throw new Error("La base seleccionada no es válida.");
   return {
-    kind: "mobile" as const,
+    kind: "base" as const,
     name,
-    baseId: null,
-    key: `mobile:${name.toLocaleLowerCase("es")}`,
-    target: { kind: "mobile" as const, name },
+    baseId: target.baseId.toLowerCase(),
+    key: `base:${target.baseId.toLowerCase()}`,
+    target: { kind: "base" as const, baseId: target.baseId.toLowerCase(), name },
   };
 }
 function assertSlots(
@@ -173,15 +164,19 @@ export function expandStaffingPlan(
   }).flat();
 }
 
+const targetIdentity = (target: CoverageTarget) => ({
+  kind: target.kind,
+  baseId: target.baseId,
+});
 const planState = (plan: StaffingPlan) => ({
-  target: plan.target,
+  target: targetIdentity(plan.target),
   effectiveFrom: plan.effectiveFrom,
   cycleAnchor: plan.cycleAnchor,
   cycleLengthDays: plan.cycleLengthDays,
   slots: plan.slots,
 });
 const exceptionState = (exception: StaffingPlanException) => ({
-  target: exception.target,
+  target: targetIdentity(exception.target),
   date: exception.date,
   slots: exception.slots,
 });
@@ -206,12 +201,24 @@ export function createEfaStaffingPlanService(
       );
     }
   }
+  async function resolveTarget(
+    tx: StaffingPlanTransaction,
+    target: ReturnType<typeof assertTarget>,
+  ) {
+    const base = await tx.findBaseById(target.baseId);
+    if (!base) throw new Error("La planificación debe usar una base del catálogo existente.");
+    return { ...target.target, name: base.name };
+  }
   return {
     async list(userId: string, target: CoverageTarget) {
       const normalized = assertTarget(target);
       return store.transaction(async (tx) => {
         await authorize(tx, userId, false);
-        return tx.listPlans(normalized.key);
+        const resolvedTarget = await resolveTarget(tx, normalized);
+        return (await tx.listPlans(normalized.key)).map((plan) => ({
+          ...plan,
+          target: resolvedTarget,
+        }));
       });
     },
     async savePlan(
@@ -244,11 +251,12 @@ export function createEfaStaffingPlanService(
         throw new Error("Un tramo está fuera del ciclo configurado.");
       return store.transaction(async (tx) => {
         await authorize(tx, userId, true);
+        const resolvedTarget = await resolveTarget(tx, normalized);
         const versions = await tx.listPlans(normalized.key);
         const replay = versions.find((item) => item.clientOperationId === input.clientOperationId);
         if (replay) {
           const requested = {
-            target: normalized.target,
+            target: targetIdentity(resolvedTarget),
             effectiveFrom: input.effectiveFrom,
             cycleAnchor: input.cycleAnchor,
             cycleLengthDays: input.cycleLengthDays,
@@ -256,7 +264,7 @@ export function createEfaStaffingPlanService(
           };
           if (!sameState(planState(replay), requested))
             throw new Error("El identificador de operación ya se usó con otros datos.");
-          return replay;
+          return { ...replay, target: resolvedTarget };
         }
         if (input.effectiveFrom <= getOperationalDate(now()))
           throw new Error("La nueva vigencia debe comenzar después de hoy operativo.");
@@ -266,7 +274,7 @@ export function createEfaStaffingPlanService(
           throw new Error("La nueva vigencia no puede preceder una versión ya registrada.");
         const plan: StaffingPlan = {
           id: newId(),
-          target: normalized.target,
+          target: resolvedTarget,
           targetKey: normalized.key,
           effectiveFrom: input.effectiveFrom,
           cycleAnchor: input.cycleAnchor,
@@ -302,17 +310,18 @@ export function createEfaStaffingPlanService(
       const slots = assertSlots(input.slots) as StaffingPlanException["slots"];
       return store.transaction(async (tx) => {
         await authorize(tx, userId, true);
+        const resolvedTarget = await resolveTarget(tx, normalized);
         const versions = await tx.listExceptions(normalized.key, input.date, input.date);
         const replay = versions.find((item) => item.clientOperationId === input.clientOperationId);
         if (replay) {
           const requested = {
-            target: normalized.target,
+            target: targetIdentity(resolvedTarget),
             date: input.date,
             slots,
           };
           if (!sameState(exceptionState(replay), requested))
             throw new Error("El identificador de operación ya se usó con otros datos.");
-          return replay;
+          return { ...replay, target: resolvedTarget };
         }
         if (input.date <= getOperationalDate(now()))
           throw new Error(
@@ -320,7 +329,7 @@ export function createEfaStaffingPlanService(
           );
         const exception: StaffingPlanException = {
           id: newId(),
-          target: normalized.target,
+          target: resolvedTarget,
           targetKey: normalized.key,
           date: input.date,
           slots,
@@ -349,6 +358,7 @@ export function createEfaStaffingPlanService(
         throw new Error("El período de vista previa no es válido.");
       return store.transaction(async (tx) => {
         await authorize(tx, userId, false);
+        const resolvedTarget = await resolveTarget(tx, normalized);
         const plans = (await tx.listPlans(normalized.key)).sort((a, b) =>
           a.effectiveFrom.localeCompare(b.effectiveFrom),
         );
@@ -393,7 +403,7 @@ export function createEfaStaffingPlanService(
           );
         }
         return {
-          target: normalized.target,
+          target: resolvedTarget,
           from: input.from,
           to: input.to,
           slots,

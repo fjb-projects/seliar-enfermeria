@@ -3,6 +3,7 @@ import { getDatabase } from "../db/index.server";
 import {
   accountAccess,
   accountRoleGrant,
+  efaBase,
   efaStaffingPlan,
   efaStaffingPlanAudit,
   efaStaffingPlanException,
@@ -32,6 +33,14 @@ const store: StaffingPlanStore = {
             roles: rows.flatMap((row) => (row.role ? [row.role] : [])),
           };
         },
+        async findBaseById(baseId) {
+          const [row] = await db
+            .select({ name: efaBase.name })
+            .from(efaBase)
+            .where(eq(efaBase.id, baseId))
+            .limit(1);
+          return row ?? null;
+        },
         async listPlans(targetKey) {
           const rows = await db
             .select()
@@ -40,10 +49,7 @@ const store: StaffingPlanStore = {
             .orderBy(asc(efaStaffingPlan.effectiveFrom));
           return rows.map((row) => ({
             id: row.id,
-            target:
-              row.targetKind === "base"
-                ? { kind: "base", baseId: row.baseId!, name: row.targetName }
-                : { kind: "mobile", name: row.targetName },
+            target: { kind: "base", baseId: row.baseId!, name: row.targetName },
             targetKey: row.targetKey,
             effectiveFrom: row.effectiveFrom,
             cycleAnchor: row.cycleAnchor,
@@ -57,7 +63,7 @@ const store: StaffingPlanStore = {
           await db.insert(efaStaffingPlan).values({
             id: plan.id,
             targetKind: plan.target.kind,
-            baseId: plan.target.kind === "base" ? plan.target.baseId : null,
+            baseId: plan.target.baseId,
             targetName: plan.target.name,
             targetKey: plan.targetKey,
             effectiveFrom: plan.effectiveFrom,
@@ -83,10 +89,7 @@ const store: StaffingPlanStore = {
             .orderBy(asc(efaStaffingPlanException.date), asc(efaStaffingPlanException.version));
           return rows.map((row) => ({
             id: row.id,
-            target:
-              row.targetKind === "base"
-                ? { kind: "base", baseId: row.baseId!, name: row.targetName }
-                : { kind: "mobile", name: row.targetName },
+            target: { kind: "base", baseId: row.baseId!, name: row.targetName },
             targetKey: row.targetKey,
             date: row.date,
             slots: row.slots as StaffingPlanException["slots"],
@@ -98,7 +101,7 @@ const store: StaffingPlanStore = {
           await db.insert(efaStaffingPlanException).values({
             id: exception.id,
             targetKind: exception.target.kind,
-            baseId: exception.target.kind === "base" ? exception.target.baseId : null,
+            baseId: exception.target.baseId,
             targetName: exception.target.name,
             targetKey: exception.targetKey,
             date: exception.date,

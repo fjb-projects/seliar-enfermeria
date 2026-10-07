@@ -63,9 +63,7 @@ export function AdminStaffingPlan({
   const savePlan = useServerFn(saveEfaStaffingPlan);
   const saveException = useServerFn(saveEfaStaffingPlanException);
   const previewPlan = useServerFn(previewEfaStaffingPlan);
-  const [kind, setKind] = useState<CoverageTarget["kind"]>("base");
   const [baseId, setBaseId] = useState(bases.find((base) => base.isActive)?.id ?? "");
-  const [mobileName, setMobileName] = useState("");
   const [effectiveFrom, setEffectiveFrom] = useState("");
   const minimumEffectiveDate = addOperationalDays(getOperationalDate(new Date()), 1);
   const [cycleAnchor, setCycleAnchor] = useState("");
@@ -85,12 +83,10 @@ export function AdminStaffingPlan({
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const pendingOperations = useRef(new Map<string, PendingPlanOperation>());
-  const name =
-    kind === "base" ? (bases.find((base) => base.id === baseId)?.name ?? "") : mobileName;
-  const activeBase = kind === "base" && bases.find((base) => base.id === baseId)?.isActive === true;
-  const target = (): CoverageTarget => (kind === "base" ? { kind, baseId, name } : { kind, name });
-  const targetScope = () =>
-    kind === "base" ? `base:${baseId}` : `mobile:${name.trim().toLocaleLowerCase("es")}`;
+  const name = bases.find((base) => base.id === baseId)?.name ?? "";
+  const activeBase = bases.find((base) => base.id === baseId)?.isActive === true;
+  const target = (): CoverageTarget => ({ kind: "base", baseId, name });
+  const targetScope = () => `base:${baseId}`;
   function addCycleSlot() {
     setCycleSlots((current) => [
       ...current,
@@ -128,20 +124,14 @@ export function AdminStaffingPlan({
       clearConfirmedPlanOperation(pendingOperations.current, scope, operationId);
     }
   }
-  const cycleValid = Boolean(
-    name.trim() &&
-    (kind === "mobile" || activeBase) &&
-    effectiveFrom &&
-    cycleAnchor &&
-    cycleSlots.length,
-  );
+  const cycleValid = Boolean(activeBase && effectiveFrom && cycleAnchor && cycleSlots.length);
   return (
     <Card>
       <CardHeader>
         <CardTitle>Planificación futura de cobertura</CardTitle>
         <p className="text-sm text-muted-foreground">
-          Configura ciclos independientes por base o móvil, rol y fecha. Es una planificación, no
-          una dotación real ni una nómina de personas.
+          Configura ciclos independientes por opción del catálogo, rol y fecha. Es una
+          planificación, no una dotación real ni una nómina de personas.
         </p>
       </CardHeader>
       <CardContent className="space-y-5">
@@ -157,55 +147,26 @@ export function AdminStaffingPlan({
         )}
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="grid gap-1 text-sm">
-            <Label htmlFor="plan-target-kind">Tipo de cobertura</Label>
+            <Label htmlFor="plan-target-base">Base del catálogo</Label>
             <select
-              id="plan-target-kind"
+              id="plan-target-base"
               className="min-h-11 rounded-md border bg-background px-3"
-              value={kind}
+              value={baseId}
               onChange={(event) => {
-                setKind(event.target.value as CoverageTarget["kind"]);
+                setBaseId(event.target.value);
                 setHistory(null);
                 setPreview(null);
               }}
             >
-              <option value="base">Base</option>
-              <option value="mobile">Móvil</option>
+              <option value="">Selecciona una base</option>
+              {bases.map((base) => (
+                <option key={base.id} value={base.id}>
+                  {base.name}
+                  {base.isActive ? "" : " (inactiva)"}
+                </option>
+              ))}
             </select>
           </div>
-          {kind === "base" ? (
-            <div className="grid gap-1 text-sm">
-              <Label htmlFor="plan-target-base">Base del catálogo</Label>
-              <select
-                id="plan-target-base"
-                className="min-h-11 rounded-md border bg-background px-3"
-                value={baseId}
-                onChange={(event) => {
-                  setBaseId(event.target.value);
-                  setHistory(null);
-                  setPreview(null);
-                }}
-              >
-                <option value="">Selecciona una base</option>
-                {bases.map((base) => (
-                  <option key={base.id} value={base.id}>
-                    {base.name}
-                    {base.isActive ? "" : " (inactiva)"}
-                  </option>
-                ))}
-              </select>
-            </div>
-          ) : (
-            <div className="grid gap-1 text-sm">
-              <Label htmlFor="plan-target-name">Nombre del móvil</Label>
-              <Input
-                id="plan-target-name"
-                value={mobileName}
-                maxLength={120}
-                onChange={(event) => setMobileName(event.target.value)}
-                placeholder="Ej.: Móvil 15"
-              />
-            </div>
-          )}
           <div className="grid gap-1 text-sm">
             <Label htmlFor="plan-effective-from">Vigente desde</Label>
             <Input
@@ -395,7 +356,7 @@ export function AdminStaffingPlan({
             type="button"
             variant="outline"
             className="min-h-11"
-            disabled={busy || !exceptionDate || !name.trim() || (kind === "base" && !activeBase)}
+            disabled={busy || !exceptionDate || !activeBase}
             onClick={addExceptionSlot}
           >
             Agregar tramo a la excepción
@@ -425,7 +386,7 @@ export function AdminStaffingPlan({
           <div className="flex flex-wrap gap-2">
             <Button
               className="min-h-11"
-              disabled={busy || !exceptionDate || !name.trim() || (kind === "base" && !activeBase)}
+              disabled={busy || !exceptionDate || !activeBase}
               onClick={() => {
                 const payload = { target: target(), date: exceptionDate, slots: exceptionSlots };
                 void runIdempotent(
