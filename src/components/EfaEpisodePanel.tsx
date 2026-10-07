@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { History, LockKeyhole, PanelsTopLeft, Pencil } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 import { createClientOnlyFn, useServerFn } from "@tanstack/react-start";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -1266,10 +1267,21 @@ export function EfaEpisodePanel({
         <CardContent className="space-y-4">
           {!canWrite && (
             <p className="rounded-md bg-muted p-3 text-sm">
-              Solo lectura: conservas el acceso a tu historial, pero se requiere acceso EFA vigente
-              para editar.
+              Solo lectura: se requiere acceso EFA vigente para editar.
             </p>
           )}
+          <div className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm">
+              {openOwnGuard
+                ? `Guardia propia abierta desde ${formatEpisodeDate(openOwnGuard.startedAt)}.`
+                : "Sin guardia propia abierta."}
+              {" "}Esta vista muestra solo episodios de la guardia abierta; no es el historial
+              completo.
+            </p>
+            <Button asChild variant="outline" className="min-h-11 w-full sm:w-auto">
+              <Link to="/guardia-efa">Volver a mi guardia EFA</Link>
+            </Button>
+          </div>
           {!queueReady && (
             <p role="status" className="rounded-md border p-3 text-sm">
               Preparando el almacenamiento local antes de habilitar guardados…

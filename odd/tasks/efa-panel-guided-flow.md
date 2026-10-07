@@ -28,6 +28,8 @@ The current `/panel` presents the same episode link to every account and hides t
 **Allowed surfaces:** `odd/tasks/efa-panel-guided-flow.md`, `src/routes/panel.tsx`, `src/components/EfaPanelHome.tsx`, `src/components/EfaPanelHome.test.tsx`, `src/lib/efa-panel.server.ts`, `src/lib/efa-panel.server.test.ts`, `src/lib/efa-panel.functions.ts`, `src/lib/efa-panel.functions.test.ts`.
 **Forecast:** P1 approximately 250–400 authored lines; full feature approximately 700–1,000 lines across P1–P3 and V1. `ask-on-risk` delivery strategy; `feature-branch-chain` retained from the prior EFA access-foundation plan, which records the user's acceptance. Do not open a PR or publish.
 
+**Work-unit commit:** `d626228` (`P1` delivered; no P2 commit was created by this worker).
+
 - [x] Implement server-rechecked own-open-guard summary with aggregate-only data and explicit read-only fallback. `getEfaPanelSummary` rechecks an active session and the service reloads current account roles; queries are scoped to the caller-owned open guard and return counts only.
 - [x] Render the three access/guard states, admin navigation, and accessible mobile-first CTAs. CTAs use `min-h-11`; the existing app has no dedicated catalog-management route, so the admin shortcut points to existing guard/base/staffing tools rather than inventing a route.
 - [x] Verify behavior and private-payload exclusion with focused tests and required checks. Tests cover no guard, open own guard, an admin with only another user's guard, revoked EFA, inactive account, and omission of private episode fields.
@@ -35,7 +37,10 @@ The current `/panel` presents the same episode link to every account and hides t
 **Observed checks:** focused Vitest command passed (3 files, 10 tests); `npm run typecheck` passed; `npm run build` passed with existing TanStack route-test and deprecated `inputValidator()` warnings; `git diff --check` passed. No live database, commit, or remote action was performed.
 
 ### P2 — Guard-to-episode handoff and context
-- [ ] Align the guard and episode routes around the state-aware panel flow without weakening route permissions.
+- [x] Align the guard and episode panels around the guided flow without changing route permissions. The guard panel explains that episodes are the next step after starting a guard, makes base selection explicitly optional, and links to episode recording only when a guard is already open. The episode panel identifies the caller's open guard, clearly returns to the guard panel, and states once that its list is not the complete cross-guard history.
+- [x] Add focused rendering assertions for both handoffs, the no-open-guard state without a premature episode CTA, and the single read-only scope notice. Tests observed RED before the UI update and GREEN afterward.
+
+**Observed P2 checks:** `npm run test -- src/components/EfaGuardPanel.test.tsx src/components/EfaEpisodePanel.test.tsx` passed (2 files, 14 tests); `npm run typecheck` passed; `npm run build` passed with existing TanStack route-test and deprecated `inputValidator()` warnings; `git diff --check -- odd/tasks/efa-panel-guided-flow.md src/components/EfaGuardPanel.tsx src/components/EfaGuardPanel.test.tsx src/components/EfaEpisodePanel.tsx src/components/EfaEpisodePanel.test.tsx` passed. No route permission, server, schema, or deep-link behavior changed.
 
 ### P3 — Concise history cards and detail
 - [ ] Improve panel/history presentation without adding sensitive records to the panel summary.
@@ -53,4 +58,4 @@ The current `/panel` presents the same episode link to every account and hides t
 Engram mirror is pending because this delegated worker has no authoritative registered session identity. The parent session should mirror the full current document after completing the feature.
 
 ## Next step
-Complete P1 only, record observed checks, and leave P2, P3, and V1 open for the parent to route.
+P1 and P2 are complete. Keep P3 and V1 open for the parent to route; do not broaden this task into history-card redesign or end-to-end/mobile validation.

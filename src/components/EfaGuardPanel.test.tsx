@@ -116,6 +116,8 @@ describe("EfaGuardPanel", () => {
     expect(html).toContain("Ver conductas observadas");
     expect(html).toContain("Planificación futura (solo lectura)");
     expect(html).toContain("La planificación no confirma la dotación observada");
+    expect(html).toContain("Después de iniciar la guardia, registra las atenciones en episodios");
+    expect(html).toContain("Elegir bases es opcional");
   });
 
   it("keeps guard history visible without exposing write controls to revoked EFA", () => {
@@ -133,6 +135,23 @@ describe("EfaGuardPanel", () => {
     expect(html).toContain("Mis guardias");
     expect(html).toContain("Solo se muestran guardias propias.");
     expect(html).not.toContain("Iniciar guardia");
+  });
+
+  it("explains that starting a guard leads to episode recording and bases are optional", () => {
+    const html = renderToStaticMarkup(
+      <EfaGuardPanel
+        initialGuards={[]}
+        activeBases={[]}
+        initialStaffing={{}}
+        currentUserId="current-user"
+        isAdmin={false}
+        canWrite
+      />,
+    );
+
+    expect(html).toContain("Después de iniciar la guardia, registra las atenciones en episodios");
+    expect(html).toContain("Elegir bases es opcional");
+    expect(html).not.toContain("Ir a episodios de atención");
   });
 
   it("presents staffing as anonymous observed facts and keeps transfer times distinct", () => {

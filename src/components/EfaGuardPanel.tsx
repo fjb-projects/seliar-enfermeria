@@ -689,6 +689,10 @@ export function EfaGuardPanel({
               >
                 Iniciar guardia
               </Button>
+              <p className="text-sm text-muted-foreground">
+                Después de iniciar la guardia, registra las atenciones en episodios. Elegir bases
+                es opcional.
+              </p>
             </div>
           )}
           {openOwnGuard && (
@@ -699,6 +703,15 @@ export function EfaGuardPanel({
                   Inicio: {new Date(openOwnGuard.startedAt).toLocaleString()} · Presencia declarada
                   en Central
                 </p>
+              </div>
+              <div className="space-y-2 rounded-md bg-muted/50 p-3">
+                <p className="text-sm text-muted-foreground">
+                  Después de iniciar la guardia, registra las atenciones en episodios. Elegir bases
+                  es opcional.
+                </p>
+                <Button asChild variant="outline" className="min-h-11 w-full sm:w-auto">
+                  <Link to="/episodios-efa">Registrar atenciones</Link>
+                </Button>
               </div>
               <fieldset className="space-y-3" disabled={busy || !canWrite}>
                 <legend className="text-sm font-medium">Bases seguidas</legend>

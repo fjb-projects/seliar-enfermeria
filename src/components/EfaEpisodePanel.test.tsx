@@ -1,4 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server";
+import type { ComponentProps } from "react";
 import { describe, expect, it, vi } from "vitest";
 import {
   createEpisodeSubmissionGate,
@@ -10,6 +11,13 @@ import {
 vi.mock("@tanstack/react-start", () => ({
   createClientOnlyFn: (fn: () => unknown) => fn,
   useServerFn: () => vi.fn(async () => []),
+}));
+vi.mock("@tanstack/react-router", () => ({
+  Link: ({ children, to, ...props }: ComponentProps<"a"> & { to: string }) => (
+    <a href={to} {...props}>
+      {children}
+    </a>
+  ),
 }));
 vi.mock("@/lib/auth.functions", () => ({ readSession: vi.fn() }));
 vi.mock("@/lib/efa-episodes.functions", () => ({
@@ -145,6 +153,13 @@ describe("EfaEpisodePanel", () => {
     expect(html).toContain("Activo");
     expect(html).toContain("Solo lectura");
     expect(html).toContain("Servicios de esta guardia");
+    expect(html).toContain("Guardia propia abierta desde");
+    expect(
+      html.match(
+        /Esta vista muestra solo episodios de la guardia abierta; no es el historial completo/g,
+      ),
+    ).toHaveLength(1);
+    expect(html).toContain("/guardia-efa");
     expect(html).not.toContain("Historial de episodios");
     expect(html).toContain("Abrir área");
     expect(html).not.toContain("Guardar borrador");
@@ -213,6 +228,7 @@ describe("EfaEpisodePanel", () => {
     expect(html).toContain("Cerrar servicio");
     expect(html).toContain("Cerrado");
     expect(html).toContain("Servicios de esta guardia");
+    expect(html).toContain("Volver a mi guardia EFA");
     expect(html).not.toContain("Historial de episodios");
     expect(html).not.toContain("Área de trabajo abierta");
     expect(html).toMatch(/<button(?=[^>]*bg-sky-50)[^>]*>[\s\S]*?Abrir área[\s\S]*?<\/button>/);
