@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { History, LockKeyhole, PanelsTopLeft, Pencil } from "lucide-react";
 import { createClientOnlyFn, useServerFn } from "@tanstack/react-start";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,8 +10,10 @@ import { EfaCommunicationPanel } from "@/components/EfaCommunicationStepper";
 import { EfaDispatchStepper } from "@/components/EfaDispatchStepper";
 import { EfaPoliceCoordinationPanel } from "@/components/EfaPoliceCoordinationPanel";
 import { EfaObservationPanel } from "@/components/EfaObservationPanel";
+import { readSession } from "@/lib/auth.functions";
 import {
   createEfaEpisode,
+  closeEfaEpisode,
   getEfaEpisode,
   getEfaEpisodeHistory,
   listEfaEpisodes,
@@ -21,7 +24,9 @@ import {
 import type {
   EpisodeFormValues,
   EpisodeFormSource,
+  PendingEpisodeClose,
   PendingEpisodeCreate,
+  PendingEpisodeOperation,
   PendingEpisodeUpdate,
 } from "@/lib/efa-episodes.client";
 import type {
@@ -30,6 +35,12 @@ import type {
   EpisodeQueueOutcome,
   EpisodeQueueStore,
 } from "@/lib/efa-episodes.queue";
+import {
+  EfaEpisodeWorkspace,
+  planEpisodeWorkspaceSelection,
+  selectGuardWorkspaceEpisodes,
+  type EfaEpisodeWorkspaceSection,
+} from "@/components/EfaEpisodeWorkspace";
 
 const loadEpisodeClientHelpers = createClientOnlyFn(() => import("@/lib/efa-episodes.client"));
 const loadEpisodeQueue = createClientOnlyFn(() => import("@/lib/efa-episodes.queue"));
@@ -75,7 +86,7 @@ export type EpisodeAuditView = {
   id: string;
   episodeId: string;
   actorUserId: string;
-  action: "created" | "updated";
+  action: "created" | "updated" | "closed";
   versionBefore: number | null;
   versionAfter: number;
   beforeState: Record<string, unknown> | null;
@@ -90,7 +101,13 @@ export type EpisodeNoticeView = {
 };
 type EpisodeMutationResult = {
   episode: EpisodeView;
-  operation: { id: string; appliedVersion: number; changed: boolean; replayed: boolean };
+  operation: {
+    id: string;
+    action: "created" | "updated" | "closed";
+    appliedVersion: number;
+    changed: boolean;
+    replayed: boolean;
+  };
 };
 type EpisodeQueueController = {
   enqueue(entry: EpisodeQueueEntry): Promise<EpisodeQueueOutcome<EpisodeMutationResult>>;
@@ -129,6 +146,8 @@ export function EfaEpisodePanel({
   isAdmin: boolean;
 }) {
   const createEpisode = useServerFn(createEfaEpisode);
+  const closeEpisodeFn = useServerFn(closeEfaEpisode);
+  const readSessionFn = useServerFn(readSession);
   const updateEpisode = useServerFn(updateEfaEpisode);
   const listEpisodes = useServerFn(listEfaEpisodes);
   const listNotices = useServerFn(listEfaEpisodeNotices);
@@ -141,15 +160,13 @@ export function EfaEpisodePanel({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [history, setHistory] = useState<EpisodeAuditView[]>([]);
   const [historyFor, setHistoryFor] = useState<string | null>(null);
-  const [selectedCommunicationEpisodeId, setSelectedCommunicationEpisodeId] = useState<
-    string | null
-  >(null);
-  const [selectedDispatchEpisodeId, setSelectedDispatchEpisodeId] = useState<string | null>(null);
-  const [selectedPoliceEpisodeId, setSelectedPoliceEpisodeId] = useState<string | null>(null);
-  const [selectedObservationEpisodeId, setSelectedObservationEpisodeId] = useState<string | null>(
-    null,
-  );
-  const [pending, setPending] = useState<PendingEpisodeCreate | PendingEpisodeUpdate | null>(null);
+  const [workspaceEpisodeId, setWorkspaceEpisodeId] = useState<string | null>(null);
+  const [activeWorkspaceSection, setActiveWorkspaceSection] =
+    useState<EfaEpisodeWorkspaceSection>("communications");
+  const [visitedWorkspaceSections, setVisitedWorkspaceSections] = useState<
+    Set<EfaEpisodeWorkspaceSection>
+  >(() => new Set());
+  const [pending, setPending] = useState<PendingEpisodeOperation | null>(null);
   const [conflict, setConflict] = useState<ActiveEpisodeConflict | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -206,6 +223,7 @@ export function EfaEpisodePanel({
   }
 
   const selected = episodes.find((episode) => episode.id === selectedId) ?? null;
+  const activeGuardEpisodes = selectGuardWorkspaceEpisodes(episodes, openOwnGuard?.id ?? null);
   const pendingQueueEntry = pending
     ? (queueEntries.find(
         (entry) => entry.ownerUserId === currentUserId && entry.operationId === pending.operationId,
@@ -213,15 +231,39 @@ export function EfaEpisodePanel({
     : null;
   const displayName = (episode: EpisodeView) =>
     episode.motive || episode.address || `Episodio del ${formatEpisodeDate(episode.eventAt)}`;
+  const formDirty = selected
+    ? form.eventAt !==
+        (() => {
+          const date = new Date(selected.eventAt);
+          return new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
+            .toISOString()
+            .slice(0, 16);
+        })() ||
+      form.motive !== (selected.motive ?? "") ||
+      form.address !== (selected.address ?? "") ||
+      form.interventionNumber !== (selected.interventionNumber ?? "")
+    : Boolean(form.eventAt || form.motive || form.address || form.interventionNumber);
   const queueStatusLabel = (status: EpisodeQueueEntry["status"]) =>
     status === "pending"
       ? "pendiente"
       : status === "paused-conflict"
         ? "pausada por conflicto"
-        : "pausada por permisos";
+        : status === "paused-permission"
+          ? "pausada por permisos"
+          : status === "paused-mismatch"
+            ? "pausada por respuesta no válida"
+            : "confirmada, en limpieza local";
+  const queueOperationLabel = (entry: EpisodeQueueEntry) =>
+    entry.kind === "create"
+      ? "Creación de servicio"
+      : entry.kind === "update"
+        ? "Corrección de servicio"
+        : "Cierre de servicio";
 
   function beginCreate() {
-    if (!queueReady || !queueAvailable || pendingRef.current) return;
+    if (!queueReady || !queueAvailable || pendingRef.current || !selectedId) return;
+    if (formDirty && !window.confirm("¿Cancelar la edición y descartar esos cambios sin guardar?"))
+      return;
     setSelectedId(null);
     setActiveConflict(null);
     setForm(emptyForm());
@@ -231,6 +273,9 @@ export function EfaEpisodePanel({
 
   function editEpisode(episode: EpisodeView) {
     if (!canWrite || !queueReady || !episode.canEdit) return;
+    if (selectedId !== episode.id && formDirty) {
+      if (!window.confirm("¿Descartar el formulario actual para editar otro servicio?")) return;
+    }
     setSelectedId(episode.id);
     setActiveConflict(null);
     const ticket = ownerTicketRef.current;
@@ -247,25 +292,66 @@ export function EfaEpisodePanel({
     setMessage("");
   }
 
+  function openWorkspace(episodeId: string, section: EfaEpisodeWorkspaceSection) {
+    const selection = planEpisodeWorkspaceSelection(
+      {
+        episodeId: workspaceEpisodeId,
+        section: activeWorkspaceSection,
+        visited: visitedWorkspaceSections,
+        requiresDiscardConfirmation: false,
+      },
+      episodeId,
+      section,
+    );
+    if (selection.requiresDiscardConfirmation) {
+      if (
+        !window.confirm(
+          "Al cambiar de servicio se cerrarán los editores relacionados que no enviaste. ¿Continuar?",
+        )
+      )
+        return;
+    }
+    setVisitedWorkspaceSections(selection.visited);
+    setWorkspaceEpisodeId(selection.episodeId);
+    setActiveWorkspaceSection(selection.section);
+  }
+
   async function refreshAfterWrite(
     saved: EpisodeView,
     operationVersion: number,
+    operationKind: PendingEpisodeOperation["kind"],
+    operationChanged: boolean,
     helpers: EpisodeClientHelpers,
     ticket: EpisodeQueueOwnerTicket,
     operationId: string,
   ) {
+    const immediatelyAdopted = helpers.adoptConfirmedEpisodeToState(
+      episodesRef.current,
+      saved,
+      (next) => {
+        episodesRef.current = next;
+        setEpisodes(next);
+      },
+    );
     try {
       const [nextEpisodes, nextNotices] = await Promise.all([listEpisodes(), listNotices()]);
       if (!ownerFenceRef.current?.isCurrent(ticket)) return;
       const baseline = helpers.confirmedEpisodeBaseline(saved, nextEpisodes as EpisodeFormSource[]);
-      const syncEditor = Boolean(
+      const operationSelected = Boolean(
         queueModuleRef.current?.shouldSyncEpisodeOperationToEditor(
           operationId,
           pendingRef.current?.operationId ?? null,
           selectedQueueOperationId.current,
         ),
       );
-      setEpisodes(nextEpisodes as EpisodeView[]);
+      const syncEditor = operationSelected && operationKind !== "close";
+      const mergedEpisodes = helpers.mergeConfirmedEpisodeSnapshot(
+        episodesRef.current,
+        nextEpisodes as EpisodeView[],
+        saved,
+      );
+      episodesRef.current = mergedEpisodes;
+      setEpisodes(mergedEpisodes);
       setNotices(nextNotices as EpisodeNoticeView[]);
       if (syncEditor) {
         setError("");
@@ -275,21 +361,30 @@ export function EfaEpisodePanel({
     } catch {
       if (!ownerFenceRef.current?.isCurrent(ticket)) return;
       const baseline = helpers.confirmedEpisodeBaseline(saved, []);
-      const syncEditor = Boolean(
+      const operationSelected = Boolean(
         queueModuleRef.current?.shouldSyncEpisodeOperationToEditor(
           operationId,
           pendingRef.current?.operationId ?? null,
           selectedQueueOperationId.current,
         ),
       );
+      const syncEditor = operationSelected && operationKind !== "close";
       setEpisodes((current) => [saved, ...current.filter((item) => item.id !== saved.id)]);
-      if (syncEditor) {
+      if (operationSelected) {
         setError("");
+        setRefreshWarning(
+          `${operationKind === "close" ? "El cierre" : "El guardado"} quedó confirmado, pero no se pudo actualizar el historial.`,
+        );
+      }
+      if (syncEditor) {
         setForm(baseline.form);
-        setRefreshWarning("El guardado quedó confirmado, pero no se pudo actualizar el historial.");
       }
     }
-    setMessage(`Guardado confirmado (versión ${operationVersion}).`);
+    setMessage(
+      operationKind === "close" && !operationChanged
+        ? `El servicio ya estaba cerrado (versión ${operationVersion}).`
+        : `${operationKind === "close" ? "Cierre" : "Guardado"} confirmado (versión ${operationVersion}).`,
+    );
     if (
       queueModuleRef.current?.shouldSyncEpisodeOperationToEditor(
         operationId,
@@ -297,7 +392,7 @@ export function EfaEpisodePanel({
         selectedQueueOperationId.current,
       )
     ) {
-      setSelectedId(saved.id);
+      if (operationKind !== "close") setSelectedId(saved.id);
       setActiveConflict(null);
       setPending(null);
       pendingRef.current = null;
@@ -330,13 +425,16 @@ export function EfaEpisodePanel({
     selectedQueueOperationId.current = entry.operationId;
     setPending(restored.operation);
     pendingRef.current = restored.operation;
-    setForm(restored.form);
+    if (restored.form) setForm(restored.form);
     setError("");
     setMessage("");
-    setServerConfirmedOperationId(null);
+    setServerConfirmedOperationId(entry.status === "confirmed-cleanup" ? entry.operationId : null);
     const episodeId =
-      entry.kind === "update" ? (entry.payload as PendingEpisodeUpdate["payload"]).episodeId : null;
-    setSelectedId(episodeId);
+      entry.kind === "create"
+        ? null
+        : (entry.payload as PendingEpisodeUpdate["payload"] | PendingEpisodeClose["payload"])
+            .episodeId;
+    if (entry.kind === "update") setSelectedId(episodeId);
     setActiveConflict(
       entry.status === "paused-conflict" && episodeId
         ? { ownerUserId: entry.ownerUserId, operationId: entry.operationId, episodeId }
@@ -348,17 +446,36 @@ export function EfaEpisodePanel({
       );
     } else if (entry.status === "paused-permission") {
       setError("La operación está pausada por permisos. No se enviará hasta una acción explícita.");
+    } else if (entry.status === "paused-mismatch") {
+      setError(
+        "La respuesta no coincide con la operación esperada. Se conserva y no se reenviará automáticamente.",
+      );
     }
   }
 
   async function applyQueueOutcome(
     outcome: EpisodeQueueOutcome<EpisodeMutationResult>,
     ticket: EpisodeQueueOwnerTicket,
-    operation: PendingEpisodeCreate | PendingEpisodeUpdate,
+    operation: PendingEpisodeOperation,
   ) {
     if (!ownerFenceRef.current?.isCurrent(ticket)) return;
     const queue = queueModuleRef.current;
     if (!queue) return;
+    const helpers = episodeHelpersRef.current ?? (await loadEpisodeClientHelpers());
+    episodeHelpersRef.current = helpers;
+    if (
+      (outcome.status === "confirmed" || outcome.status === "confirmed-cleanup-failed") &&
+      operation.kind === "close"
+    ) {
+      helpers.adoptConfirmedEpisodeToState(
+        episodesRef.current,
+        outcome.result.episode,
+        (adopted) => {
+          episodesRef.current = adopted;
+          setEpisodes(adopted);
+        },
+      );
+    }
     try {
       await reloadQueueEntries(ticket);
     } catch {
@@ -369,6 +486,64 @@ export function EfaEpisodePanel({
       }
     }
     if (!ownerFenceRef.current?.isCurrent(ticket)) return;
+    if (outcome.status === "cleaned" || outcome.status === "cleanup-failed") {
+      const operationSelected = queue.shouldSyncEpisodeOperationToEditor(
+        operation.operationId,
+        pendingRef.current?.operationId ?? null,
+        selectedQueueOperationId.current,
+      );
+      if (!operationSelected) {
+        if (outcome.status === "cleaned" && operation.kind === "close") {
+          try {
+            const refreshed = (await listEpisodes()) as EpisodeView[];
+            if (!ownerFenceRef.current?.isCurrent(ticket)) return;
+            const merged = refreshed.reduce(
+              (current, episode) => helpers.mergeConfirmedEpisodeSnapshot(current, [], episode),
+              episodesRef.current,
+            );
+            episodesRef.current = merged;
+            setEpisodes(merged);
+          } catch {
+            // An unselected background close must not overwrite another editor with refresh errors.
+          }
+        }
+        return;
+      }
+      if (operation.kind === "close") {
+        try {
+          const refreshed = (await listEpisodes()) as EpisodeView[];
+          if (!ownerFenceRef.current?.isCurrent(ticket)) return;
+          const merged = refreshed.reduce(
+            (current, episode) => helpers.mergeConfirmedEpisodeSnapshot(current, [], episode),
+            episodesRef.current,
+          );
+          episodesRef.current = merged;
+          setEpisodes(merged);
+        } catch {
+          setRefreshWarning(
+            "El estado confirmado no se pudo volver a consultar; revisa el servicio al recuperar conexión.",
+          );
+        }
+      }
+      if (outcome.status === "cleanup-failed") {
+        setPending(operation);
+        pendingRef.current = operation;
+        setServerConfirmedOperationId(operation.operationId);
+        setMessage(
+          "La operación ya estaba confirmada y no se reenviará; falta limpiar la cola local.",
+        );
+        return;
+      }
+      selectedQueueOperationId.current = null;
+      if (pendingRef.current?.operationId === operation.operationId) {
+        setPending(null);
+        pendingRef.current = null;
+      }
+      setServerConfirmedOperationId(null);
+      setActiveConflict(null);
+      setMessage("La confirmación anterior quedó limpia de la cola local.");
+      return;
+    }
     if (outcome.status === "confirmed" || outcome.status === "confirmed-cleanup-failed") {
       const result = outcome.result;
       const helpers = episodeHelpersRef.current ?? (await loadEpisodeClientHelpers());
@@ -377,6 +552,8 @@ export function EfaEpisodePanel({
       await refreshAfterWrite(
         result.episode,
         result.operation.appliedVersion,
+        operation.kind,
+        result.operation.changed,
         helpers,
         ticket,
         operation.operationId,
@@ -393,7 +570,7 @@ export function EfaEpisodePanel({
           pendingRef.current = operation;
           setServerConfirmedOperationId(operation.operationId);
           setMessage(
-            "Guardado confirmado en el servidor; no se pudo limpiar la cola local. No vuelvas a enviarlo.",
+            `${operation.kind === "close" ? "Cierre" : "Guardado"} confirmado en el servidor; no se pudo limpiar la cola local. No vuelvas a enviarlo.`,
           );
         }
       } else if (syncEditor) {
@@ -409,13 +586,13 @@ export function EfaEpisodePanel({
       {
         ownerUserId: ticket.ownerUserId,
         operationId: operation.operationId,
-        episodeId: operation.kind === "update" ? operation.payload.episodeId : "",
+        episodeId: operation.kind === "create" ? "" : operation.payload.episodeId,
       },
       activeUserRef.current,
       pendingRef.current?.operationId ?? null,
       selectedQueueOperationId.current,
     );
-    if (outcome.status === "paused-conflict" && operation.kind === "update") {
+    if (outcome.status === "paused-conflict" && operation.kind !== "create") {
       if (!operationIsSelected) return;
       setActiveConflict({
         ownerUserId: ticket.ownerUserId,
@@ -423,7 +600,9 @@ export function EfaEpisodePanel({
         episodeId: operation.payload.episodeId,
       });
       setError(
-        "El borrador cambió en otra sesión. Tus datos locales siguen pendientes; carga la versión actual para resolver el conflicto.",
+        operation.kind === "close"
+          ? "El servicio cambió en otra sesión. El cierre sigue pendiente; carga la versión actual antes de confirmar otra vez."
+          : "El servicio cambió en otra sesión. Tus datos locales siguen pendientes; carga la versión actual para resolver el conflicto.",
       );
     } else if (outcome.status === "paused-permission") {
       if (operationIsSelected) {
@@ -454,13 +633,43 @@ export function EfaEpisodePanel({
     if (activeUserRef.current !== entry.ownerUserId || !canWriteRef.current) {
       throw new Error("Se requiere acceso EFA vigente para enviar esta operación.");
     }
-    return entry.kind === "create"
-      ? ((await createEpisode({
-          data: entry.payload as PendingEpisodeCreate["payload"],
-        })) as EpisodeMutationResult)
-      : ((await updateEpisode({
-          data: entry.payload as PendingEpisodeUpdate["payload"],
-        })) as EpisodeMutationResult);
+    if (entry.kind === "create") {
+      return (await createEpisode({
+        data: entry.payload as PendingEpisodeCreate["payload"],
+      })) as EpisodeMutationResult;
+    }
+    if (entry.kind === "update") {
+      return (await updateEpisode({
+        data: entry.payload as PendingEpisodeUpdate["payload"],
+      })) as EpisodeMutationResult;
+    }
+    const ticket = ownerTicketRef.current;
+    if (!ticket || ticket.ownerUserId !== entry.ownerUserId) {
+      throw new Error("La identidad de la cola cambió antes de enviar el cierre.");
+    }
+    const helpers = episodeHelpersRef.current ?? (await loadEpisodeClientHelpers());
+    episodeHelpersRef.current = helpers;
+    return helpers.dispatchEpisodeCloseWithFreshWriter(
+      entry.payload as PendingEpisodeClose["payload"],
+      entry.ownerUserId,
+      async () => {
+        const session = await readSessionFn();
+        if (
+          !ownerFenceRef.current?.isCurrent(ticket) ||
+          activeUserRef.current !== entry.ownerUserId
+        ) {
+          throw new Error("La identidad de la cola cambió durante la comprobación de permisos.");
+        }
+        return session;
+      },
+      async (payload) => {
+        const result = (await closeEpisodeFn({ data: payload })) as EpisodeMutationResult;
+        if (!ownerFenceRef.current?.isCurrent(ticket)) {
+          throw new Error("La identidad de la cola cambió durante el cierre.");
+        }
+        return result;
+      },
+    );
   }
 
   async function runQueueEntry(entry: EpisodeQueueEntry, mode: "retry" | "enqueue") {
@@ -505,7 +714,7 @@ export function EfaEpisodePanel({
             kind: entry.kind,
             operationId: entry.operationId,
             payload: entry.payload,
-          } as PendingEpisodeCreate | PendingEpisodeUpdate);
+          } as PendingEpisodeOperation);
         } catch {
           if (!ownerFenceRef.current?.isCurrent(ticket)) return;
           if (outcome.status === "confirmed" || outcome.status === "confirmed-cleanup-failed") {
@@ -513,12 +722,12 @@ export function EfaEpisodePanel({
               kind: entry.kind,
               operationId: entry.operationId,
               payload: entry.payload,
-            } as PendingEpisodeCreate | PendingEpisodeUpdate;
+            } as PendingEpisodeOperation;
             setPending(restored);
             pendingRef.current = restored;
             setServerConfirmedOperationId(entry.operationId);
             setMessage(
-              "Guardado confirmado en el servidor; falló una actualización visual. No se reenviará.",
+              `${entry.kind === "close" ? "Cierre" : "Guardado"} confirmado en el servidor; falló una actualización visual. No se reenviará.`,
             );
           } else {
             setQueueError(
@@ -541,6 +750,8 @@ export function EfaEpisodePanel({
     setPending(null);
     pendingRef.current = null;
     setSelectedId(null);
+    setWorkspaceEpisodeId(null);
+    setVisitedWorkspaceSections(new Set());
     setActiveConflict(null);
     setHistory([]);
     setHistoryFor(null);
@@ -701,6 +912,66 @@ export function EfaEpisodePanel({
       });
   }
 
+  function closeService(episode: EpisodeView) {
+    if (
+      !canWrite ||
+      !episode.canEdit ||
+      episode.state !== "draft" ||
+      !queueReady ||
+      !queueAvailable ||
+      busy ||
+      pendingRef.current ||
+      conflictRef.current ||
+      formDirty
+    )
+      return;
+    if (
+      !window.confirm(
+        "¿Cerrar este servicio? El cierre no afecta la guardia ni sus llamadas, despachos u otros registros. No hay una opción para reabrirlo.",
+      )
+    )
+      return;
+    const ticket = ownerTicketRef.current;
+    if (!ticket || ticket.ownerUserId !== currentUserId) return;
+    void submissionGate.current
+      .run(async () => {
+        if (!ownerFenceRef.current?.isCurrent(ticket)) return;
+        setBusy(true);
+        setError("");
+        setMessage("");
+        setRefreshWarning("");
+        try {
+          const helpers = episodeHelpersRef.current ?? (await loadEpisodeClientHelpers());
+          episodeHelpersRef.current = helpers;
+          if (!ownerFenceRef.current?.isCurrent(ticket)) return;
+          const operation = helpers.createPendingClose(episode.id, episode.version);
+          const entry: EpisodeQueueEntry = {
+            ownerUserId: currentUserId,
+            operationId: operation.operationId,
+            kind: operation.kind,
+            payload: structuredClone(operation.payload),
+            status: "pending",
+            createdAt: new Date().toISOString(),
+          };
+          setPending(operation);
+          pendingRef.current = operation;
+          selectedQueueOperationId.current = operation.operationId;
+          await runQueueEntry(entry, "enqueue");
+        } catch {
+          if (ownerFenceRef.current?.isCurrent(ticket)) {
+            setError("No se pudo preparar el cierre. El servicio permanece sin cambios.");
+          }
+        } finally {
+          if (ownerFenceRef.current?.isCurrent(ticket)) setBusy(false);
+        }
+      })
+      .catch(() => {
+        if (ownerFenceRef.current?.isCurrent(ticket)) {
+          setError("No se pudo preparar el cierre del servicio.");
+        }
+      });
+  }
+
   async function retryPending() {
     if (!pending) return;
     const ticket = ownerTicketRef.current;
@@ -820,7 +1091,7 @@ export function EfaEpisodePanel({
       const latest = (await getEpisode({ data: selectedConflict.episodeId })) as EpisodeView;
       if (!isActiveConflict(selectedConflict, ticket)) return;
       if (latest.id !== selectedConflict.episodeId) throw new Error("episode-identity-mismatch");
-      const { isoToLocalDateTimeValue } = await loadEpisodeClientHelpers();
+      const helpers = await loadEpisodeClientHelpers();
       if (!isActiveConflict(selectedConflict, ticket)) return;
       const queue = queueModuleRef.current;
       const queuedEntry = queue?.selectEpisodeQueueEntry(
@@ -829,15 +1100,18 @@ export function EfaEpisodePanel({
         selectedConflict.operationId,
       );
       const controller = queueControllerRef.current;
-      if (
-        !queuedEntry ||
-        queuedEntry.kind !== "update" ||
-        (queuedEntry.payload as PendingEpisodeUpdate["payload"]).episodeId !==
-          selectedConflict.episodeId ||
-        !controller
-      )
-        return;
-      await controller.removeResolved(selectedConflict.ownerUserId, selectedConflict.operationId);
+      const matchesConflictEpisode =
+        queuedEntry &&
+        queuedEntry.kind !== "create" &&
+        (queuedEntry.payload as PendingEpisodeUpdate["payload"] | PendingEpisodeClose["payload"])
+          .episodeId === selectedConflict.episodeId;
+      if (!queuedEntry || !matchesConflictEpisode || !controller) return;
+      await helpers.removeEpisodeOperationAfterFreshWriter(
+        selectedConflict.ownerUserId,
+        readSessionFn,
+        () => isActiveConflict(selectedConflict, ticket),
+        () => controller.removeResolved(selectedConflict.ownerUserId, selectedConflict.operationId),
+      );
       if (!isActiveConflict(selectedConflict, ticket)) return;
       {
         const remaining = queueEntriesRef.current.filter(
@@ -849,13 +1123,15 @@ export function EfaEpisodePanel({
         setQueueEntries(remaining);
       }
       setEpisodes((current) => current.map((item) => (item.id === latest.id ? latest : item)));
-      setSelectedId(latest.id);
-      setForm({
-        eventAt: isoToLocalDateTimeValue(latest.eventAt),
-        motive: latest.motive ?? "",
-        address: latest.address ?? "",
-        interventionNumber: latest.interventionNumber ?? "",
-      });
+      if (queuedEntry.kind === "update") {
+        setSelectedId(latest.id);
+        setForm({
+          eventAt: helpers.isoToLocalDateTimeValue(latest.eventAt),
+          motive: latest.motive ?? "",
+          address: latest.address ?? "",
+          interventionNumber: latest.interventionNumber ?? "",
+        });
+      }
       setActiveConflict(null);
       if (pendingRef.current?.operationId === selectedConflict.operationId) {
         setPending(null);
@@ -864,7 +1140,13 @@ export function EfaEpisodePanel({
       if (selectedQueueOperationId.current === selectedConflict.operationId) {
         selectedQueueOperationId.current = null;
       }
-      setMessage("Se cargó la versión actual del servidor. Revisa los datos antes de guardar.");
+      setMessage(
+        queuedEntry.kind === "close"
+          ? latest.state === "closed"
+            ? "El servicio ya figura cerrado en la versión actual del servidor."
+            : `Se cargó la versión ${latest.version}. Si deseas cerrarlo, confirma el cierre nuevamente.`
+          : "Se cargó la versión actual del servidor. Revisa los datos antes de guardar.",
+      );
     } catch {
       if (!isActiveConflict(selectedConflict, ticket)) return;
       setError("No se pudo cargar la versión actual. Tus datos no se modificaron.");
@@ -919,13 +1201,13 @@ export function EfaEpisodePanel({
   }
 
   return (
-    <div className="space-y-5">
-      <Card>
+    <div className="space-y-5 ">
+      <Card className="bg-indigo-100">
         <CardHeader>
-          <CardTitle>Episodios de atención</CardTitle>
+          <CardTitle>Servicios de la guardia</CardTitle>
           <p className="text-sm text-muted-foreground">
-            Los episodios se guardan como borradores. Solo las operaciones enviadas se conservan en
-            este dispositivo; el texto que aún no enviaste puede perderse.
+            Los servicios aparecen primero como activos y luego como cerrados. Solo las operaciones
+            enviadas se conservan en este dispositivo; el texto que aún no enviaste puede perderse.
           </p>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -946,10 +1228,9 @@ export function EfaEpisodePanel({
               conservarla primero en este dispositivo.
             </p>
           )}
-          <p className="rounded-md bg-muted p-3 text-xs text-muted-foreground">
+          <p className="rounded-md bg-muted p-1 text-xs text-muted-foreground">
             Las operaciones enviadas y sus datos privados, incluida la dirección, se guardan en
-            IndexedDB legible por este origen. No es una bóveda segura; evita usar dispositivos
-            compartidos. No se almacenan credenciales ni sesiones.
+            IndexedDB legible por este origen.
           </p>
           {queueError && (
             <p role="alert" className="text-sm text-destructive">
@@ -957,54 +1238,53 @@ export function EfaEpisodePanel({
             </p>
           )}
           {queueEntries.length > 0 && (
-            <div className="space-y-2">
-              <Label htmlFor="episode-pending-operation">Operación local pendiente</Label>
-              <select
-                id="episode-pending-operation"
-                className="min-h-11 w-full rounded-md border bg-background px-3"
-                value={selectedQueueOperationId.current ?? ""}
-                onChange={(event) => selectQueuedOperation(event.target.value)}
-                disabled={busy}
-              >
-                <option value="">Selecciona una operación</option>
-                {queueEntries.map((entry) => (
-                  <option
-                    key={`${entry.ownerUserId}:${entry.operationId}`}
-                    value={entry.operationId}
-                  >
-                    {entry.kind === "create" ? "Creación" : "Actualización"} · {entry.createdAt} ·{" "}
-                    {queueStatusLabel(entry.status)} · {entry.operationId.slice(-6)}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-          {queueEntries.length > 0 && (
-            <div className="space-y-2 rounded-md border p-3 text-sm">
-              <p className="font-medium">Operaciones conservadas en este dispositivo</p>
-              {queueEntries.map((entry) => (
-                <div
-                  key={`${entry.ownerUserId}:${entry.operationId}`}
-                  className="flex flex-col gap-2 border-t pt-2 sm:flex-row sm:items-center sm:justify-between"
+            <details className="rounded-md border p-3 text-sm">
+              <summary className="min-h-11 cursor-pointer py-2 font-medium">
+                Operaciones conservadas en este dispositivo ({queueEntries.length})
+              </summary>
+              <div className="space-y-2 pt-2">
+                <Label htmlFor="episode-pending-operation">Seleccionar operación</Label>
+                <select
+                  id="episode-pending-operation"
+                  className="min-h-11 w-full rounded-md border bg-background px-3"
+                  value={selectedQueueOperationId.current ?? ""}
+                  onChange={(event) => selectQueuedOperation(event.target.value)}
+                  disabled={busy}
                 >
-                  <span>
-                    {entry.kind === "create" ? "Creación" : "Actualización"} · {entry.createdAt} ·{" "}
-                    {queueStatusLabel(entry.status)}
-                  </span>
-                  {entry.status !== "pending" && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="min-h-11"
-                      disabled={busy}
-                      onClick={() => void discardPausedOperation(entry)}
+                  <option value="">Selecciona una operación</option>
+                  {queueEntries.map((entry) => (
+                    <option
+                      key={`${entry.ownerUserId}:${entry.operationId}`}
+                      value={entry.operationId}
                     >
-                      Descartar esta operación pausada
-                    </Button>
-                  )}
-                </div>
-              ))}
-            </div>
+                      {queueOperationLabel(entry)} · {entry.createdAt} ·{" "}
+                      {queueStatusLabel(entry.status)}
+                    </option>
+                  ))}
+                </select>
+                {queueEntries.map((entry) => (
+                  <div
+                    key={`${entry.ownerUserId}:${entry.operationId}`}
+                    className="flex flex-col gap-2 border-t pt-2 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <span>
+                      {queueOperationLabel(entry)} · {queueStatusLabel(entry.status)}
+                    </span>
+                    {entry.status !== "pending" && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="min-h-11"
+                        disabled={busy}
+                        onClick={() => void discardPausedOperation(entry)}
+                      >
+                        Descartar esta operación pausada
+                      </Button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </details>
           )}
           {error && (
             <p role="alert" className="text-sm text-destructive">
@@ -1063,19 +1343,10 @@ export function EfaEpisodePanel({
               Cargar versión actual del servidor
             </Button>
           )}
-          {canWrite && !selected && openOwnGuard && !pending && !conflict && (
-            <Button
-              className="min-h-11 w-full sm:w-auto"
-              disabled={!queueReady || !queueAvailable}
-              onClick={beginCreate}
-            >
-              Nuevo episodio
-            </Button>
-          )}
           {canWrite && !selected && !openOwnGuard && !pending && (
             <p className="rounded-md border p-3 text-sm">
-              Para iniciar un episodio nuevo, abre primero tu guardia EFA. Los borradores existentes
-              pueden completarse aunque su guardia haya terminado.
+              Para registrar un servicio, abre primero tu guardia EFA. Esta vista no muestra
+              servicios de guardias anteriores.
             </p>
           )}
           {selected && canWrite && selected.canEdit && (
@@ -1085,17 +1356,17 @@ export function EfaEpisodePanel({
               onClick={beginCreate}
               disabled={Boolean(pending) || Boolean(conflict)}
             >
-              Dejar de editar
+              Cancelar edición
             </Button>
           )}
         </CardContent>
       </Card>
 
-      {canWrite && (selected || (!selected && openOwnGuard && message === "")) && (
+      {canWrite && (selected || openOwnGuard) && (
         <Card>
           <CardHeader>
             <CardTitle>
-              {selected ? `Editar borrador · versión ${selected.version}` : "Nuevo borrador"}
+              {selected ? `Editar servicio · versión ${selected.version}` : "Nuevo episodio"}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -1200,7 +1471,7 @@ export function EfaEpisodePanel({
               }
               onClick={save}
             >
-              Guardar borrador
+              {selected ? "Guardar cambios" : "Guardar borrador"}
             </Button>
           </CardContent>
         </Card>
@@ -1208,217 +1479,196 @@ export function EfaEpisodePanel({
 
       <Card>
         <CardHeader>
-          <CardTitle>{isAdmin ? "Historial de episodios" : "Mis episodios"}</CardTitle>
+          <CardTitle>Servicios de esta guardia</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          {episodes.length === 0 && (
-            <p className="text-sm text-muted-foreground">Todavía no hay episodios guardados.</p>
+          {activeGuardEpisodes.length === 0 && (
+            <p className="text-sm text-muted-foreground">
+              {openOwnGuard
+                ? "Todavía no hay servicios registrados en esta guardia."
+                : "No hay una guardia EFA abierta para mostrar servicios."}
+            </p>
           )}
-          {episodes.map((episode) => (
-            <article key={episode.id} className="space-y-3 rounded-lg border p-4">
+          {activeGuardEpisodes.map((episode) => (
+            <article
+              key={episode.id}
+              className={`space-y-2.5 rounded-lg border p-3 sm:p-4 ${
+                episode.state === "closed"
+                  ? "border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950/40"
+                  : "border-sky-200 bg-sky-50/60 dark:border-sky-900 dark:bg-sky-950/20"
+              }`}
+            >
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
-                  <h3 className="font-medium">{displayName(episode)}</h3>
+                  <h3 className="font-semibold leading-5">{displayName(episode)}</h3>
+                  <p
+                    className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${
+                      episode.state === "closed"
+                        ? "bg-muted text-muted-foreground"
+                        : "bg-sky-50 text-sky-800"
+                    }`}
+                  >
+                    {episode.state === "closed" ? "Cerrado" : "Activo"}
+                  </p>
                   <p className="text-sm text-muted-foreground">
-                    Borrador · hecho {formatEpisodeDate(episode.eventAt)}
+                    Hecho {formatEpisodeDate(episode.eventAt)}
                   </p>
                   <p className="text-xs text-muted-foreground">
                     Capturado {formatEpisodeDate(episode.createdAt)} · actualizado{" "}
                     {formatEpisodeDate(episode.updatedAt)} · versión {episode.version}
                   </p>
-                  {isAdmin && (
-                    <p className="text-xs text-muted-foreground">Autor: {episode.ownerUserId}</p>
-                  )}
                 </div>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-1.5">
+                  {workspaceEpisodeId !== episode.id && (
+                    <Button
+                      variant="outline"
+                      className="min-h-11 border-sky-200 bg-sky-50 px-3 text-sky-950 hover:bg-sky-100 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100 dark:hover:bg-sky-950/60"
+                      aria-label={`Abrir área de trabajo de ${displayName(episode)}`}
+                      onClick={() => openWorkspace(episode.id, "communications")}
+                    >
+                      <PanelsTopLeft aria-hidden="true" className="size-4" />
+                      Abrir área
+                    </Button>
+                  )}
                   <Button
                     variant="outline"
-                    className="min-h-11"
-                    onClick={() => setSelectedCommunicationEpisodeId(episode.id)}
-                  >
-                    Ver llamadas
-                  </Button>
-                  <Button
-                    variant="outline"
-                    className="min-h-11"
-                    onClick={() => setSelectedDispatchEpisodeId(episode.id)}
-                  >
-                    Ver despachos
-                  </Button>
-                  <Button
-                    variant="outline"
-                    className="min-h-11"
-                    onClick={() => setSelectedPoliceEpisodeId(episode.id)}
-                  >
-                    Ver coordinación policial
-                  </Button>
-                  <Button
-                    variant="outline"
-                    className="min-h-11"
-                    onClick={() => setSelectedObservationEpisodeId(episode.id)}
-                  >
-                    Ver conductas observadas
-                  </Button>
-                  <Button
-                    variant="outline"
-                    className="min-h-11"
+                    className="min-h-11 border-indigo-200 bg-indigo-50 px-3 text-indigo-950 hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-100 dark:hover:bg-indigo-950/60"
                     disabled={busy}
                     onClick={() => void showHistory(episode.id)}
                   >
+                    <History aria-hidden="true" className="size-4" />
                     Ver historial
                   </Button>
                   {canWrite && episode.canEdit && (
                     <Button
-                      variant="secondary"
-                      className="min-h-11"
+                      variant="outline"
+                      className="min-h-11 border-amber-200 bg-amber-50 px-3 text-amber-950 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100 dark:hover:bg-amber-950/60"
                       disabled={!queueReady || busy || Boolean(pending) || Boolean(conflict)}
                       onClick={() => editEpisode(episode)}
                     >
+                      <Pencil aria-hidden="true" className="size-4" />
                       Editar
+                    </Button>
+                  )}
+                  {canWrite && episode.canEdit && episode.state === "draft" && (
+                    <Button
+                      variant="outline"
+                      className="min-h-11 border-slate-300 bg-slate-100 px-3 text-slate-900 hover:bg-slate-200 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+                      disabled={
+                        !queueReady ||
+                        !queueAvailable ||
+                        busy ||
+                        Boolean(pending) ||
+                        Boolean(conflict) ||
+                        formDirty ||
+                        Boolean(serverConfirmedOperationId)
+                      }
+                      onClick={() => closeService(episode)}
+                    >
+                      <LockKeyhole aria-hidden="true" className="size-4" />
+                      Cerrar servicio
                     </Button>
                   )}
                 </div>
               </div>
-              {historyFor === episode.id && (
-                <div className="space-y-3 border-t pt-3">
-                  <h4 className="font-medium">Cambios registrados</h4>
-                  {history.map((item) => (
-                    <div key={item.id} className="rounded-md bg-muted p-3 text-sm">
-                      <p>
-                        {item.action === "created" ? "Creación" : "Corrección"} · versión{" "}
-                        {item.versionBefore ?? "—"} → {item.versionAfter} ·{" "}
-                        {formatEpisodeDate(item.occurredAt)}
-                      </p>
-                      <dl className="mt-2 grid gap-2 sm:grid-cols-2">
-                        <div>
-                          <dt className="font-medium">Antes</dt>
-                          <dd className="break-words">
-                            {item.beforeState
-                              ? JSON.stringify(item.beforeState)
-                              : "Sin estado previo"}
-                          </dd>
-                        </div>
-                        <div>
-                          <dt className="font-medium">Después</dt>
-                          <dd className="break-words">{JSON.stringify(item.afterState)}</dd>
-                        </div>
-                      </dl>
+              {workspaceEpisodeId === episode.id && (
+                <EfaEpisodeWorkspace
+                  key={`${currentUserId}:${episode.id}`}
+                  episodeLabel={displayName(episode)}
+                  activeSection={activeWorkspaceSection}
+                  onSelectSection={(section) => openWorkspace(episode.id, section)}
+                >
+                  {visitedWorkspaceSections.has("communications") && (
+                    <div hidden={activeWorkspaceSection !== "communications"}>
+                      <EfaCommunicationPanel
+                        episodeId={episode.id}
+                        episodeLabel={displayName(episode)}
+                        currentUserId={currentUserId}
+                        canWrite={canWrite}
+                        episodeCanEdit={episode.canEdit}
+                      />
                     </div>
-                  ))}
-                </div>
+                  )}
+                  {visitedWorkspaceSections.has("dispatches") && (
+                    <div hidden={activeWorkspaceSection !== "dispatches"}>
+                      <EfaDispatchStepper
+                        episodeId={episode.id}
+                        episodeLabel={displayName(episode)}
+                        currentUserId={currentUserId}
+                        canWrite={canWrite}
+                        episodeCanEdit={episode.canEdit}
+                      />
+                    </div>
+                  )}
+                  {visitedWorkspaceSections.has("police") && (
+                    <div hidden={activeWorkspaceSection !== "police"}>
+                      <EfaPoliceCoordinationPanel
+                        episodeId={episode.id}
+                        episodeLabel={displayName(episode)}
+                        currentUserId={currentUserId}
+                        canWrite={canWrite}
+                        episodeCanEdit={episode.canEdit}
+                      />
+                    </div>
+                  )}
+                  {visitedWorkspaceSections.has("observations") && (
+                    <div hidden={activeWorkspaceSection !== "observations"}>
+                      <EfaObservationPanel
+                        root={{
+                          guardId: episode.originGuardId,
+                          episodeId: episode.id,
+                          ownerUserId: episode.ownerUserId,
+                          guardEndedAt: null,
+                        }}
+                        title="Conductas observadas del servicio"
+                        currentUserId={currentUserId}
+                        canWrite={canWrite}
+                        isAdmin={isAdmin}
+                      />
+                    </div>
+                  )}
+                </EfaEpisodeWorkspace>
+              )}
+              {historyFor === episode.id && (
+                <details className="border-t pt-3">
+                  <summary className="min-h-11 cursor-pointer py-2 font-medium">
+                    Historial y versiones
+                  </summary>
+                  <div className="space-y-3 pt-2">
+                    {history.map((item) => (
+                      <div key={item.id} className="rounded-md bg-muted p-3 text-sm">
+                        <p>
+                          {item.action === "created"
+                            ? "Creación"
+                            : item.action === "closed"
+                              ? "Cierre"
+                              : "Corrección"}{" "}
+                          · versión {item.versionBefore ?? "—"} → {item.versionAfter} ·{" "}
+                          {formatEpisodeDate(item.occurredAt)}
+                        </p>
+                        <dl className="mt-2 grid gap-2 sm:grid-cols-2">
+                          <div>
+                            <dt className="font-medium">Antes</dt>
+                            <dd className="break-words">
+                              {item.beforeState
+                                ? JSON.stringify(item.beforeState)
+                                : "Sin estado previo"}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt className="font-medium">Después</dt>
+                            <dd className="break-words">{JSON.stringify(item.afterState)}</dd>
+                          </div>
+                        </dl>
+                      </div>
+                    ))}
+                  </div>
+                </details>
               )}
             </article>
           ))}
         </CardContent>
       </Card>
-
-      {selectedCommunicationEpisodeId &&
-        (() => {
-          const communicationEpisode = episodes.find(
-            (episode) => episode.id === selectedCommunicationEpisodeId,
-          );
-          return communicationEpisode ? (
-            <section key={`${currentUserId}:${communicationEpisode.id}`} className="space-y-3">
-              <Button
-                type="button"
-                variant="outline"
-                className="min-h-11"
-                onClick={() => setSelectedCommunicationEpisodeId(null)}
-              >
-                Cerrar llamadas
-              </Button>
-              <EfaCommunicationPanel
-                episodeId={communicationEpisode.id}
-                episodeLabel={displayName(communicationEpisode)}
-                currentUserId={currentUserId}
-                canWrite={canWrite}
-                episodeCanEdit={communicationEpisode.canEdit}
-              />
-            </section>
-          ) : null;
-        })()}
-
-      {selectedDispatchEpisodeId &&
-        (() => {
-          const dispatchEpisode = episodes.find(
-            (episode) => episode.id === selectedDispatchEpisodeId,
-          );
-          return dispatchEpisode ? (
-            <section key={`${currentUserId}:${dispatchEpisode.id}`} className="space-y-3">
-              <Button
-                type="button"
-                variant="outline"
-                className="min-h-11"
-                onClick={() => setSelectedDispatchEpisodeId(null)}
-              >
-                Cerrar despachos
-              </Button>
-              <EfaDispatchStepper
-                episodeId={dispatchEpisode.id}
-                episodeLabel={displayName(dispatchEpisode)}
-                currentUserId={currentUserId}
-                canWrite={canWrite}
-                episodeCanEdit={dispatchEpisode.canEdit}
-              />
-            </section>
-          ) : null;
-        })()}
-
-      {selectedPoliceEpisodeId &&
-        (() => {
-          const policeEpisode = episodes.find((episode) => episode.id === selectedPoliceEpisodeId);
-          return policeEpisode ? (
-            <section key={`${currentUserId}:${policeEpisode.id}`} className="space-y-3">
-              <Button
-                type="button"
-                variant="outline"
-                className="min-h-11"
-                onClick={() => setSelectedPoliceEpisodeId(null)}
-              >
-                Cerrar coordinación policial
-              </Button>
-              <EfaPoliceCoordinationPanel
-                episodeId={policeEpisode.id}
-                episodeLabel={displayName(policeEpisode)}
-                currentUserId={currentUserId}
-                canWrite={canWrite}
-                episodeCanEdit={policeEpisode.canEdit}
-              />
-            </section>
-          ) : null;
-        })()}
-
-      {selectedObservationEpisodeId &&
-        (() => {
-          const observationEpisode = episodes.find(
-            (episode) => episode.id === selectedObservationEpisodeId,
-          );
-          return observationEpisode ? (
-            <section key={`${currentUserId}:${observationEpisode.id}`} className="space-y-3">
-              <Button
-                type="button"
-                variant="outline"
-                className="min-h-11"
-                onClick={() => setSelectedObservationEpisodeId(null)}
-              >
-                Cerrar conductas observadas
-              </Button>
-              <EfaObservationPanel
-                root={{
-                  guardId: observationEpisode.originGuardId,
-                  episodeId: observationEpisode.id,
-                  ownerUserId: observationEpisode.ownerUserId,
-                  guardEndedAt:
-                    openOwnGuard?.id === observationEpisode.originGuardId ? null : "closed",
-                }}
-                title="Conductas observadas del episodio"
-                currentUserId={currentUserId}
-                canWrite={canWrite}
-                isAdmin={isAdmin}
-              />
-            </section>
-          ) : null;
-        })()}
 
       <Card>
         <CardHeader>

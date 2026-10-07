@@ -31,6 +31,17 @@ export type PendingEpisodeUpdate = {
     interventionNumber: string | null;
   }>;
 };
+export type PendingEpisodeClose = {
+  kind: "close";
+  operationId: string;
+  payload: Readonly<{
+    episodeId: string;
+    expectedVersion: number;
+    operationId: string;
+  }>;
+};
+export type PendingEpisodeOperation =
+  PendingEpisodeCreate | PendingEpisodeUpdate | PendingEpisodeClose;
 export type EpisodeFormSource = {
   id: string;
   version: number;
@@ -39,6 +50,78 @@ export type EpisodeFormSource = {
   address: string | null;
   interventionNumber: string | null;
 };
+
+export type EpisodeWriterSession = {
+  user: { id: string };
+  roles: string[];
+  expiresAt: string;
+} | null;
+
+export function isActiveEpisodeWriterSession(
+  session: EpisodeWriterSession,
+  actorUserId: string,
+  now = Date.now(),
+): session is NonNullable<EpisodeWriterSession> {
+  const expiresAt = session ? Date.parse(session.expiresAt) : Number.NaN;
+  return Boolean(
+    session &&
+    session.user.id === actorUserId &&
+    Number.isFinite(expiresAt) &&
+    expiresAt > now &&
+    (session.roles.includes("efa") || session.roles.includes("admin")),
+  );
+}
+
+export async function dispatchEpisodeCloseWithFreshWriter<TResult>(
+  payload: PendingEpisodeClose["payload"],
+  actorUserId: string,
+  readSession: () => Promise<EpisodeWriterSession>,
+  close: (payload: PendingEpisodeClose["payload"]) => Promise<TResult>,
+  now = Date.now(),
+): Promise<TResult> {
+  const session = await readSession();
+  if (!isActiveEpisodeWriterSession(session, actorUserId, now)) {
+    throw new Error("Current active EFA permission is required to close this episode.");
+  }
+  return close(payload);
+}
+
+export async function removeEpisodeOperationAfterFreshWriter<TResult>(
+  actorUserId: string,
+  readSession: () => Promise<EpisodeWriterSession>,
+  isCurrent: () => boolean,
+  remove: () => Promise<TResult>,
+  now = Date.now(),
+): Promise<TResult> {
+  const session = await readSession();
+  if (!isCurrent() || !isActiveEpisodeWriterSession(session, actorUserId, now)) {
+    throw new Error("Current active EFA permission is required to resolve this episode operation.");
+  }
+  return remove();
+}
+
+export function mergeConfirmedEpisodeSnapshot<T extends { id: string; version: number }>(
+  current: T[],
+  refreshed: T[],
+  confirmed: T,
+): T[] {
+  const merged = new Map<string, T>();
+  for (const episode of [...refreshed, ...current, confirmed]) {
+    const prior = merged.get(episode.id);
+    if (!prior || episode.version >= prior.version) merged.set(episode.id, episode);
+  }
+  return [...merged.values()];
+}
+
+export function adoptConfirmedEpisodeToState<T extends { id: string; version: number }>(
+  current: T[],
+  confirmed: T,
+  commit: (episodes: T[]) => void,
+): T[] {
+  const next = mergeConfirmedEpisodeSnapshot(current, [], confirmed);
+  commit(next);
+  return next;
+}
 
 export function createPendingCreate(
   guardId: string,
@@ -62,6 +145,19 @@ export function createPendingUpdate(
     kind: "update",
     operationId,
     payload: Object.freeze({ ...input, operationId }),
+  };
+}
+
+export function createPendingClose(
+  episodeId: string,
+  expectedVersion: number,
+  makeId: () => string = () => crypto.randomUUID(),
+): PendingEpisodeClose {
+  const operationId = makeId();
+  return {
+    kind: "close",
+    operationId,
+    payload: Object.freeze({ episodeId, expectedVersion, operationId }),
   };
 }
 

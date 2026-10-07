@@ -12,6 +12,7 @@ import {
   type EpisodeQueueEntry,
   type EpisodeQueueStore,
 } from "./efa-episodes.queue";
+import { dispatchEpisodeCloseWithFreshWriter } from "./efa-episodes.client";
 
 function entry(
   ownerUserId: string,
@@ -36,12 +37,40 @@ function entry(
   };
 }
 
+function closeEntry(operationId = "close-op", overrides: Partial<EpisodeQueueEntry> = {}) {
+  return entry("owner-a", operationId, {
+    kind: "close",
+    payload: { episodeId: "episode-1", expectedVersion: 4, operationId },
+    ...overrides,
+  });
+}
+
+function closeReceipt(operationId: string, overrides: Record<string, unknown> = {}) {
+  return {
+    episode: {
+      id: "episode-1",
+      state: "closed",
+      closedAt: "2026-10-07T10:00:00.000Z",
+      version: 5,
+    },
+    operation: {
+      id: operationId,
+      action: "closed",
+      appliedVersion: 5,
+      changed: true,
+      replayed: false,
+    },
+    ...overrides,
+  };
+}
+
 function fakeStore(initial: EpisodeQueueEntry[] = []) {
   const records = new Map<string, EpisodeQueueEntry>();
   const key = (owner: string, operationId: string) => `${owner}:${operationId}`;
   for (const item of initial) records.set(key(item.ownerUserId, item.operationId), item);
   let failPut = false;
   let failDelete = false;
+  let failStatus = false;
   const store: EpisodeQueueStore = {
     async list(ownerUserId) {
       return [...records.values()].filter((item) => item.ownerUserId === ownerUserId);
@@ -60,6 +89,7 @@ function fakeStore(initial: EpisodeQueueEntry[] = []) {
       return prior ?? item;
     },
     async setStatus(ownerUserId, operationId, status) {
+      if (failStatus) throw new Error("storage status write unavailable");
       const storageKey = key(ownerUserId, operationId);
       const prior = records.get(storageKey);
       if (prior) records.set(storageKey, { ...prior, status });
@@ -77,6 +107,9 @@ function fakeStore(initial: EpisodeQueueEntry[] = []) {
     },
     failDelete(value = true) {
       failDelete = value;
+    },
+    failStatus(value = true) {
+      failStatus = value;
     },
   };
 }
@@ -101,6 +134,247 @@ describe("EFA episode browser queue controller", () => {
     await expect(
       controller.enqueue({ ...payload, payload: { ...payload.payload, address: "changed" } }),
     ).rejects.toThrow(/immutable/i);
+  });
+
+  it("restores a queued close without converting it into an edit or create payload", async () => {
+    const closeEntry: EpisodeQueueEntry = {
+      ownerUserId: "owner-a",
+      operationId: "close-1",
+      kind: "close",
+      payload: { episodeId: "episode-1", expectedVersion: 4, operationId: "close-1" },
+      status: "pending",
+      createdAt: "2026-10-06T09:30:00.000Z",
+    };
+    const restored = restoreQueuedEpisode(closeEntry);
+    expect(restored.operation).toEqual({
+      kind: "close",
+      operationId: "close-1",
+      payload: closeEntry.payload,
+    });
+    expect(restored.form).toBeNull();
+
+    const db = fakeStore();
+    db.failPut();
+    const events: string[] = [];
+    const dispatch = vi.fn(async (queued: EpisodeQueueEntry) => {
+      events.push(`dispatch:${queued.operationId}`);
+      return closeReceipt(queued.operationId);
+    });
+    const storePut = db.store.put.bind(db.store);
+    vi.spyOn(db.store, "put").mockImplementation(async (queued) => {
+      events.push(`persist:${queued.operationId}`);
+      return storePut(queued);
+    });
+    const controller = createEpisodeQueueController(db.store, dispatch);
+    await expect(controller.enqueue(closeEntry)).rejects.toThrow(/quota/i);
+    expect(dispatch).not.toHaveBeenCalled();
+    db.failPut(false);
+    expect((await controller.enqueue(closeEntry)).status).toBe("confirmed");
+    expect(dispatch).toHaveBeenCalledWith(closeEntry);
+    expect(events).toEqual(["persist:close-1", "persist:close-1", "dispatch:close-1"]);
+  });
+
+  it("pauses malformed close receipts and never dispatches them again", async () => {
+    const db = fakeStore([closeEntry("close-bad")]);
+    const dispatch = vi.fn(async () =>
+      closeReceipt("close-bad", {
+        operation: {
+          id: "close-bad",
+          action: "updated",
+          appliedVersion: 5,
+          changed: true,
+          replayed: false,
+        },
+      }),
+    );
+    const controller = createEpisodeQueueController(db.store, dispatch);
+    const close = closeEntry("close-bad");
+
+    const first = await controller.retry(close);
+    expect(first.status).toBe("mismatched");
+    expect(await db.store.get("owner-a", "close-bad")).toMatchObject({
+      status: "paused-mismatch",
+    });
+    expect((await controller.retry(close)).status).toBe("mismatched");
+    expect(await controller.reconcile("owner-a")).toEqual([]);
+    expect(dispatch).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects close receipts with mismatched entity, version, timestamp, or flags", async () => {
+    const invalidReceipts = [
+      closeReceipt("close-invalid", {
+        episode: { id: "other", state: "closed", version: 5, closedAt: "2026-10-07T10:00:00.000Z" },
+      }),
+      closeReceipt("close-invalid", {
+        episode: { id: "episode-1", state: "closed", version: 5, closedAt: null },
+      }),
+      closeReceipt("close-invalid", {
+        operation: {
+          id: "close-invalid",
+          action: "closed",
+          appliedVersion: 6,
+          changed: true,
+          replayed: false,
+        },
+      }),
+      closeReceipt("close-invalid", {
+        operation: {
+          id: "close-invalid",
+          action: "closed",
+          appliedVersion: 5,
+          changed: "yes",
+          replayed: false,
+        },
+      }),
+    ];
+
+    for (const [index, receipt] of invalidReceipts.entries()) {
+      const operationId = `close-invalid-${index}`;
+      const close = closeEntry(operationId);
+      const db = fakeStore([close]);
+      const dispatch = vi.fn(async () => ({
+        ...receipt,
+        operation: { ...(receipt.operation as Record<string, unknown>), id: operationId },
+      }));
+      const controller = createEpisodeQueueController(db.store, dispatch);
+      expect((await controller.retry(close)).status).toBe("mismatched");
+      expect(db.records.get(`owner-a:${operationId}`)?.status).toBe("paused-mismatch");
+    }
+  });
+
+  it("accepts a no-change close replay with a newer current entity and original applied version", async () => {
+    const close = closeEntry("close-replay");
+    const db = fakeStore();
+    const dispatch = vi.fn(async () =>
+      closeReceipt("close-replay", {
+        episode: {
+          id: "episode-1",
+          state: "closed",
+          closedAt: "2026-10-07T10:00:00.000Z",
+          version: 9,
+        },
+        operation: {
+          id: "close-replay",
+          action: "closed",
+          appliedVersion: 5,
+          changed: false,
+          replayed: true,
+        },
+      }),
+    );
+    const controller = createEpisodeQueueController(db.store, dispatch);
+
+    const outcome = await controller.enqueue(close);
+    expect(outcome.status).toBe("confirmed");
+    expect(outcome).toMatchObject({
+      result: { operation: { appliedVersion: 5, replayed: true }, episode: { version: 9 } },
+    });
+  });
+
+  it("keeps an in-memory fence when a mismatched receipt cannot be persisted", async () => {
+    const close = closeEntry("close-unstored-mismatch");
+    const db = fakeStore([close]);
+    db.failStatus();
+    const dispatch = vi.fn(async () =>
+      closeReceipt("close-unstored-mismatch", {
+        operation: {
+          id: "close-unstored-mismatch",
+          action: "updated",
+          appliedVersion: 5,
+          changed: true,
+          replayed: false,
+        },
+      }),
+    );
+    const controller = createEpisodeQueueController(db.store, dispatch);
+
+    expect((await controller.retry(close)).status).toBe("pause-storage-failed");
+    db.failStatus(false);
+    expect((await controller.retry(close)).status).toBe("pause-storage-failed");
+    expect(await controller.reconcile("owner-a")).toEqual([]);
+    expect(dispatch).toHaveBeenCalledTimes(1);
+  });
+
+  it("cleans a confirmed close without redispatching after cleanup recovers", async () => {
+    const db = fakeStore([closeEntry("close-cleanup")]);
+    db.failDelete();
+    const stateAtDelete: string[] = [];
+    const deleteEntry = db.store.delete.bind(db.store);
+    vi.spyOn(db.store, "delete").mockImplementation(async (owner, operationId) => {
+      stateAtDelete.push(db.records.get(`${owner}:${operationId}`)?.status ?? "missing");
+      return deleteEntry(owner, operationId);
+    });
+    const dispatch = vi.fn(async (queued: EpisodeQueueEntry) => closeReceipt(queued.operationId));
+    const controller = createEpisodeQueueController(db.store, dispatch);
+    const close = closeEntry("close-cleanup");
+
+    expect((await controller.retry(close)).status).toBe("confirmed-cleanup-failed");
+    expect(stateAtDelete).toEqual(["confirmed-cleanup"]);
+    expect(await db.store.get("owner-a", "close-cleanup")).toMatchObject({
+      status: "confirmed-cleanup",
+    });
+    db.failDelete(false);
+    const afterReloadDispatch = vi.fn(async (queued: EpisodeQueueEntry) =>
+      closeReceipt(queued.operationId),
+    );
+    const afterReload = createEpisodeQueueController(db.store, afterReloadDispatch);
+    const reconciled = await afterReload.reconcile("owner-a");
+    expect(reconciled).toMatchObject([
+      { status: "cleaned", entry: { operationId: "close-cleanup" } },
+    ]);
+    expect(dispatch).toHaveBeenCalledTimes(1);
+    expect(afterReloadDispatch).not.toHaveBeenCalled();
+    expect(await db.store.get("owner-a", "close-cleanup")).toBeNull();
+  });
+
+  it("retains an in-memory confirmed receipt if the terminal marker cannot be written", async () => {
+    const db = fakeStore([closeEntry("close-status-failure")]);
+    db.failDelete();
+    db.failStatus();
+    const dispatch = vi.fn(async (queued: EpisodeQueueEntry) => closeReceipt(queued.operationId));
+    const controller = createEpisodeQueueController(db.store, dispatch);
+    const close = closeEntry("close-status-failure");
+
+    expect((await controller.retry(close)).status).toBe("confirmed-cleanup-failed");
+    db.failStatus(false);
+    db.failDelete(false);
+    expect((await controller.retry(close)).status).toBe("confirmed");
+    expect(dispatch).toHaveBeenCalledTimes(1);
+    expect(await db.store.get("owner-a", "close-status-failure")).toBeNull();
+  });
+
+  it("rechecks the queued actor after storage yields and blocks a revoked close", async () => {
+    const close = closeEntry("close-revoked");
+    const db = fakeStore([close]);
+    const storedGet = db.store.get.bind(db.store);
+    let releaseGet!: (value: EpisodeQueueEntry | null) => void;
+    vi.spyOn(db.store, "get").mockImplementation(
+      () => new Promise((resolve) => (releaseGet = resolve)),
+    );
+    const currentSession = {
+      user: { id: "owner-a" },
+      roles: ["efa"],
+      expiresAt: "2026-10-07T13:00:00.000Z",
+    };
+    const closeApi = vi.fn(async () => closeReceipt("close-revoked"));
+    const controller = createEpisodeQueueController(db.store, async (queued) =>
+      dispatchEpisodeCloseWithFreshWriter(
+        queued.payload as { episodeId: string; expectedVersion: number; operationId: string },
+        queued.ownerUserId,
+        async () => currentSession,
+        closeApi,
+        Date.parse("2026-10-07T12:00:00.000Z"),
+      ),
+    );
+
+    const retry = controller.retry(close);
+    currentSession.roles = [];
+    releaseGet(await storedGet("owner-a", "close-revoked"));
+    expect((await retry).status).toBe("paused-permission");
+    expect(closeApi).not.toHaveBeenCalled();
+    expect(db.records.get("owner-a:close-revoked")).toMatchObject({
+      status: "paused-permission",
+    });
   });
 
   it("does not dispatch if local persistence fails and retains entered operation data", async () => {
@@ -369,7 +643,7 @@ describe("EFA episode browser queue controller", () => {
       expectedVersion: 7,
       address: "Private address",
     });
-    expect(restored.form.motive).toBe("Private event");
+    expect(restored.form?.motive).toBe("Private event");
   });
 
   it("fences late asynchronous state callbacks after the active account changes", async () => {

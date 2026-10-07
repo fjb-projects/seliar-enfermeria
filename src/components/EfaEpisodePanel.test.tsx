@@ -11,7 +11,9 @@ vi.mock("@tanstack/react-start", () => ({
   createClientOnlyFn: (fn: () => unknown) => fn,
   useServerFn: () => vi.fn(async () => []),
 }));
+vi.mock("@/lib/auth.functions", () => ({ readSession: vi.fn() }));
 vi.mock("@/lib/efa-episodes.functions", () => ({
+  closeEfaEpisode: vi.fn(),
   createEfaEpisode: vi.fn(),
   getEfaEpisode: vi.fn(),
   getEfaEpisodeHistory: vi.fn(),
@@ -121,12 +123,12 @@ describe("EfaEpisodePanel", () => {
     expect(formatEpisodeDate("2026-10-06T09:30:00.000Z")).toContain("06:30");
   });
 
-  it("keeps a revoked EFA account's episode history read-only", () => {
+  it("keeps a revoked EFA account's active-guard services read-only", () => {
     const html = renderToStaticMarkup(
       <EfaEpisodePanel
         initialEpisodes={[episode]}
         initialNotices={[]}
-        openOwnGuard={null}
+        openOwnGuard={{ id: "guard-1", startedAt: "2026-10-06T09:00:00.000Z", endedAt: null }}
         currentUserId="owner"
         canWrite={false}
         isAdmin={false}
@@ -134,12 +136,11 @@ describe("EfaEpisodePanel", () => {
     );
 
     expect(html).toContain("2026");
-    expect(html).toContain("Borrador");
+    expect(html).toContain("Activo");
     expect(html).toContain("Solo lectura");
-    expect(html).toContain("Ver llamadas");
-    expect(html).toContain("Ver despachos");
-    expect(html).toContain("Ver coordinación policial");
-    expect(html).toContain("Ver conductas observadas");
+    expect(html).toContain("Servicios de esta guardia");
+    expect(html).not.toContain("Historial de episodios");
+    expect(html).toContain("Abrir área");
     expect(html).not.toContain("Guardar borrador");
   });
 
@@ -180,9 +181,45 @@ describe("EfaEpisodePanel", () => {
     );
 
     expect(html).toContain("Preparando el almacenamiento local");
-    expect(html).toContain("No es una bóveda segura");
+    expect(html).toContain("se guardan en IndexedDB legible por este origen");
+    expect(html).toContain("Nuevo episodio");
     expect(html).toMatch(/id="episode-event-at"[^>]*disabled=""/);
     expect(html).toMatch(/Guardar borrador<\/button>/);
     expect(html).toMatch(/disabled=""[^>]*>Guardar borrador<\/button>/);
+  });
+
+  it("limits the visible workspace to the open guard and exposes explicit closure", () => {
+    const editable = { ...episode, canEdit: true };
+    const older = { ...editable, id: "older", eventAt: "2026-10-05T09:30:00.000Z" };
+    const closed = { ...editable, id: "closed", state: "closed" as const };
+    const foreign = { ...editable, id: "foreign", originGuardId: "guard-other" };
+    const html = renderToStaticMarkup(
+      <EfaEpisodePanel
+        initialEpisodes={[older, closed, foreign, editable]}
+        initialNotices={[]}
+        openOwnGuard={{ id: "guard-1", startedAt: "2026-10-06T09:00:00.000Z", endedAt: null }}
+        currentUserId="owner"
+        canWrite={true}
+        isAdmin={false}
+      />,
+    );
+
+    expect(html).toContain("Cerrar servicio");
+    expect(html).toContain("Cerrado");
+    expect(html).toContain("Servicios de esta guardia");
+    expect(html).not.toContain("Historial de episodios");
+    expect(html).not.toContain("Área de trabajo abierta");
+    expect(html).toMatch(/<button(?=[^>]*bg-sky-50)[^>]*>[\s\S]*?Abrir área[\s\S]*?<\/button>/);
+    expect(html).toMatch(
+      /<button(?=[^>]*bg-indigo-50)[^>]*>[\s\S]*?Ver historial[\s\S]*?<\/button>/,
+    );
+    expect(html).toMatch(/<button(?=[^>]*bg-amber-50)[^>]*>[\s\S]*?Editar[\s\S]*?<\/button>/);
+    expect(html).toMatch(
+      /<button(?=[^>]*bg-slate-100)[^>]*>[\s\S]*?Cerrar servicio[\s\S]*?<\/button>/,
+    );
+    expect(html).not.toContain("foreign");
+    expect(html.indexOf("Activo")).toBeLessThan(html.indexOf("Cerrado"));
+    expect(html).toContain("Guardar borrador");
+    expect(html).not.toContain("Dejar de editar");
   });
 });

@@ -3,15 +3,21 @@ import {
   isoToLocalDateTimeValue,
   type EpisodeFormValues,
   type PendingEpisodeCreate,
+  type PendingEpisodeClose,
+  type PendingEpisodeOperation,
   type PendingEpisodeUpdate,
 } from "./efa-episodes.client";
 
-export type EpisodeQueueStatus = "pending" | "paused-conflict" | "paused-permission";
+export type EpisodeQueueStatus =
+  "pending" | "paused-conflict" | "paused-permission" | "paused-mismatch" | "confirmed-cleanup";
 export type EpisodeQueueEntry = {
   ownerUserId: string;
   operationId: string;
-  kind: PendingEpisodeCreate["kind"] | PendingEpisodeUpdate["kind"];
-  payload: PendingEpisodeCreate["payload"] | PendingEpisodeUpdate["payload"];
+  kind: "create" | "update" | "close";
+  payload:
+    | PendingEpisodeCreate["payload"]
+    | PendingEpisodeUpdate["payload"]
+    | PendingEpisodeClose["payload"];
   status: EpisodeQueueStatus;
   createdAt: string;
 };
@@ -25,6 +31,7 @@ export interface EpisodeQueueStore {
 export type EpisodeQueueOutcome<TResult> =
   | { status: "confirmed"; entry: EpisodeQueueEntry; result: TResult }
   | { status: "confirmed-cleanup-failed"; entry: EpisodeQueueEntry; result: TResult }
+  | { status: "cleaned" | "cleanup-failed"; entry: EpisodeQueueEntry }
   | {
       status: "mismatched" | "uncertain" | "already-in-flight" | "missing" | "paused";
       entry: EpisodeQueueEntry;
@@ -39,16 +46,32 @@ const freezeEntry = (entry: EpisodeQueueEntry): EpisodeQueueEntry => {
 };
 const samePayload = (left: EpisodeQueueEntry, right: EpisodeQueueEntry) =>
   left.kind === right.kind && JSON.stringify(left.payload) === JSON.stringify(right.payload);
-const payloadOperationId = (entry: EpisodeQueueEntry) =>
-  entry.kind === "create"
-    ? (entry.payload as PendingEpisodeCreate["payload"]).clientCreationKey
-    : (entry.payload as PendingEpisodeUpdate["payload"]).operationId;
+const payloadOperationId = (entry: EpisodeQueueEntry) => {
+  if (entry.kind === "create")
+    return (entry.payload as PendingEpisodeCreate["payload"]).clientCreationKey;
+  return (entry.payload as PendingEpisodeUpdate["payload"] | PendingEpisodeClose["payload"])
+    .operationId;
+};
 
-export function restoreQueuedEpisode(entry: EpisodeQueueEntry): {
-  operation: PendingEpisodeCreate | PendingEpisodeUpdate;
-  form: EpisodeFormValues;
-} {
-  const payload = structuredClone(entry.payload);
+export type RestoredEpisodeQueueEntry = {
+  operation: PendingEpisodeOperation;
+  form: EpisodeFormValues | null;
+};
+
+export function restoreQueuedEpisode(entry: EpisodeQueueEntry): RestoredEpisodeQueueEntry {
+  if (entry.kind === "close") {
+    const payload = structuredClone(entry.payload);
+    return {
+      operation: {
+        kind: "close",
+        operationId: entry.operationId,
+        payload: payload as PendingEpisodeClose["payload"],
+      },
+      form: null,
+    };
+  }
+  const payload = structuredClone(entry.payload) as
+    PendingEpisodeCreate["payload"] | PendingEpisodeUpdate["payload"];
   const eventAt = payload.eventAt;
   const operation: PendingEpisodeCreate | PendingEpisodeUpdate =
     entry.kind === "create"
@@ -111,6 +134,36 @@ export function selectEpisodeQueueEntry(
     entries.find(
       (entry) => entry.ownerUserId === ownerUserId && entry.operationId === operationId,
     ) ?? null
+  );
+}
+
+export function isValidEpisodeQueueReceipt(entry: EpisodeQueueEntry, result: unknown): boolean {
+  if (!result || typeof result !== "object") return false;
+  const mutation = result as {
+    operation?: Record<string, unknown>;
+    episode?: Record<string, unknown>;
+  };
+  const operation = mutation.operation;
+  if (operation?.["id"] !== entry.operationId) return false;
+  if (entry.kind !== "close") return true;
+
+  const payload = entry.payload as PendingEpisodeClose["payload"];
+  const episode = mutation.episode;
+  const appliedVersion = operation["appliedVersion"];
+  const version = episode?.["version"];
+  const closedAt = episode?.["closedAt"];
+  return Boolean(
+    operation["action"] === "closed" &&
+    Number.isInteger(appliedVersion) &&
+    Number(appliedVersion) > 0 &&
+    Number.isInteger(version) &&
+    Number(version) >= Number(appliedVersion) &&
+    typeof operation["changed"] === "boolean" &&
+    typeof operation["replayed"] === "boolean" &&
+    episode?.["id"] === payload.episodeId &&
+    episode?.["state"] === "closed" &&
+    typeof closedAt === "string" &&
+    Number.isFinite(Date.parse(closedAt)),
   );
 }
 
@@ -187,21 +240,54 @@ export function createEpisodeQueueController<TResult extends { operation?: { id?
 ) {
   const inFlight = new Set<string>();
   const pausedAfterStorageFailure = new Set<string>();
+  const confirmedResults = new Map<string, TResult>();
+
+  async function cleanConfirmed(
+    entry: EpisodeQueueEntry,
+    result?: TResult,
+  ): Promise<EpisodeQueueOutcome<TResult>> {
+    try {
+      await store.delete(entry.ownerUserId, entry.operationId);
+      confirmedResults.delete(queueKey(entry));
+      return result ? { status: "confirmed", entry, result } : { status: "cleaned", entry };
+    } catch {
+      return result
+        ? { status: "confirmed-cleanup-failed", entry, result }
+        : { status: "cleanup-failed", entry };
+    }
+  }
+
+  async function pauseMismatched(entry: EpisodeQueueEntry): Promise<EpisodeQueueOutcome<TResult>> {
+    const key = queueKey(entry);
+    try {
+      await store.setStatus(entry.ownerUserId, entry.operationId, "paused-mismatch");
+      return { status: "mismatched", entry: { ...entry, status: "paused-mismatch" } };
+    } catch {
+      pausedAfterStorageFailure.add(key);
+      return { status: "pause-storage-failed", entry };
+    }
+  }
 
   async function attempt(entry: EpisodeQueueEntry): Promise<EpisodeQueueOutcome<TResult>> {
-    if (entry.status !== "pending") return { status: "paused", entry };
     const key = queueKey(entry);
+    const confirmed = confirmedResults.get(key);
+    if (confirmed) return cleanConfirmed(entry, confirmed);
+    if (entry.status === "confirmed-cleanup") return cleanConfirmed(entry);
+    if (entry.status === "paused-mismatch") return { status: "mismatched", entry };
+    if (entry.status !== "pending") return { status: "paused", entry };
+    if (pausedAfterStorageFailure.has(key)) return { status: "pause-storage-failed", entry };
     if (inFlight.has(key)) return { status: "already-in-flight", entry };
     inFlight.add(key);
     try {
       const result = await dispatch(entry);
-      if (result?.operation?.id !== entry.operationId) return { status: "mismatched", entry };
       try {
-        await store.delete(entry.ownerUserId, entry.operationId);
-        return { status: "confirmed", entry, result };
+        if (!isValidEpisodeQueueReceipt(entry, result)) return await pauseMismatched(entry);
+        confirmedResults.set(key, result);
+        await store.setStatus(entry.ownerUserId, entry.operationId, "confirmed-cleanup");
       } catch {
-        return { status: "confirmed-cleanup-failed", entry, result };
+        // The server receipt is already known; keep an in-memory fence if its local marker fails.
       }
+      return cleanConfirmed({ ...entry, status: "confirmed-cleanup" }, result);
     } catch (error) {
       const kind = episodeErrorKind(error);
       if (kind === "conflict" || kind === "permission") {
@@ -233,6 +319,11 @@ export function createEpisodeQueueController<TResult extends { operation?: { id?
       const persisted = await store.get(entry.ownerUserId, entry.operationId);
       if (!persisted) return { status: "missing", entry };
       if (!samePayload(persisted, entry)) throw new Error("Operation payload is immutable.");
+      const confirmed = confirmedResults.get(queueKey(entry));
+      if (confirmed || persisted.status === "confirmed-cleanup") {
+        return cleanConfirmed(persisted, confirmed);
+      }
+      if (persisted.status === "paused-mismatch") return { status: "mismatched", entry: persisted };
       if (pausedAfterStorageFailure.has(queueKey(entry))) {
         return { status: "pause-storage-failed", entry };
       }
@@ -242,7 +333,13 @@ export function createEpisodeQueueController<TResult extends { operation?: { id?
       const entries = await store.list(ownerUserId);
       const outcomes: Array<EpisodeQueueOutcome<TResult>> = [];
       for (const entry of entries) {
-        if (entry.ownerUserId !== ownerUserId || entry.status !== "pending") continue;
+        if (entry.ownerUserId !== ownerUserId) continue;
+        const confirmed = confirmedResults.get(queueKey(entry));
+        if (confirmed || entry.status === "confirmed-cleanup") {
+          outcomes.push(await cleanConfirmed(entry, confirmed));
+          continue;
+        }
+        if (entry.status !== "pending") continue;
         if (pausedAfterStorageFailure.has(queueKey(entry))) continue;
         outcomes.push(await attempt(entry));
       }
@@ -250,7 +347,9 @@ export function createEpisodeQueueController<TResult extends { operation?: { id?
     },
     async removeResolved(ownerUserId: string, operationId: string): Promise<void> {
       await store.delete(ownerUserId, operationId);
-      pausedAfterStorageFailure.delete(`${ownerUserId}\u0000${operationId}`);
+      const key = `${ownerUserId}\u0000${operationId}`;
+      pausedAfterStorageFailure.delete(key);
+      confirmedResults.delete(key);
     },
   };
 }

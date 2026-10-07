@@ -10,6 +10,22 @@ import { readSession } from "@/lib/auth.functions";
 import { listEfaGuards } from "@/lib/efa-guards.functions";
 import { listEfaEpisodes, listEfaEpisodeNotices } from "@/lib/efa-episodes.functions";
 
+export async function loadEpisodeRouteData(userId: string) {
+  const [episodes, notices, guards] = await Promise.all([
+    listEfaEpisodes(),
+    listEfaEpisodeNotices(),
+    listEfaGuards(),
+  ]);
+  const openOwnGuard = (guards as GuardView[]).find(
+    (guard) => guard.ownerUserId === userId && !guard.endedAt,
+  );
+  return {
+    episodes: episodes as EpisodeView[],
+    notices: notices as EpisodeNoticeView[],
+    openOwnGuard: openOwnGuard ?? null,
+  };
+}
+
 export const Route = createFileRoute("/episodios-efa")({
   beforeLoad: async () => {
     let session;
@@ -23,20 +39,7 @@ export const Route = createFileRoute("/episodios-efa")({
   },
   loader: async ({ context }) => {
     const session = context.session as PrivateSession;
-    const canWrite = session.roles.includes("efa") || session.roles.includes("admin");
-    const [episodes, notices, guards] = await Promise.all([
-      listEfaEpisodes(),
-      listEfaEpisodeNotices(),
-      canWrite ? listEfaGuards() : Promise.resolve([]),
-    ]);
-    const openOwnGuard = (guards as GuardView[]).find(
-      (guard) => guard.ownerUserId === session.user.id && !guard.endedAt,
-    );
-    return {
-      episodes: episodes as EpisodeView[],
-      notices: notices as EpisodeNoticeView[],
-      openOwnGuard: openOwnGuard ?? null,
-    };
+    return loadEpisodeRouteData(session.user.id);
   },
   component: EfaEpisodesPage,
 });
