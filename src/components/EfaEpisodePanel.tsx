@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { EfaCommunicationPanel } from "@/components/EfaCommunicationStepper";
 import {
   createEfaEpisode,
   getEfaEpisode,
@@ -136,6 +137,9 @@ export function EfaEpisodePanel({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [history, setHistory] = useState<EpisodeAuditView[]>([]);
   const [historyFor, setHistoryFor] = useState<string | null>(null);
+  const [selectedCommunicationEpisodeId, setSelectedCommunicationEpisodeId] = useState<
+    string | null
+  >(null);
   const [pending, setPending] = useState<PendingEpisodeCreate | PendingEpisodeUpdate | null>(null);
   const [conflict, setConflict] = useState<ActiveEpisodeConflict | null>(null);
   const [busy, setBusy] = useState(false);
@@ -1221,6 +1225,13 @@ export function EfaEpisodePanel({
                   <Button
                     variant="outline"
                     className="min-h-11"
+                    onClick={() => setSelectedCommunicationEpisodeId(episode.id)}
+                  >
+                    Ver llamadas
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="min-h-11"
                     disabled={busy}
                     onClick={() => void showHistory(episode.id)}
                   >
@@ -1270,6 +1281,32 @@ export function EfaEpisodePanel({
           ))}
         </CardContent>
       </Card>
+
+      {selectedCommunicationEpisodeId &&
+        (() => {
+          const communicationEpisode = episodes.find(
+            (episode) => episode.id === selectedCommunicationEpisodeId,
+          );
+          return communicationEpisode ? (
+            <section key={`${currentUserId}:${communicationEpisode.id}`} className="space-y-3">
+              <Button
+                type="button"
+                variant="outline"
+                className="min-h-11"
+                onClick={() => setSelectedCommunicationEpisodeId(null)}
+              >
+                Cerrar llamadas
+              </Button>
+              <EfaCommunicationPanel
+                episodeId={communicationEpisode.id}
+                episodeLabel={displayName(communicationEpisode)}
+                currentUserId={currentUserId}
+                canWrite={canWrite}
+                episodeCanEdit={communicationEpisode.canEdit}
+              />
+            </section>
+          ) : null;
+        })()}
 
       <Card>
         <CardHeader>

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  communicationEpisodeIdSchema,
   communicationCreateSchema,
   communicationFinalizeSchema,
   communicationUpdateSchema,
@@ -14,6 +15,11 @@ const createInput = {
 };
 
 describe("EFA phone communication function inputs", () => {
+  it("accepts only a UUID for episode-scoped communication history", () => {
+    expect(communicationEpisodeIdSchema.safeParse(createInput.episodeId).success).toBe(true);
+    expect(communicationEpisodeIdSchema.safeParse("not-an-id").success).toBe(false);
+  });
+
   it("allows missing actual times without coercing or inventing timestamps", () => {
     expect(communicationCreateSchema.safeParse(createInput).success).toBe(true);
     expect(

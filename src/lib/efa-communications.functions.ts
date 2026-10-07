@@ -4,6 +4,7 @@ import { currentAccessSession } from "./auth.functions";
 import { requireActiveSession, requireEfa } from "./access";
 
 export const communicationIdSchema = z.string().uuid();
+export const communicationEpisodeIdSchema = z.string().uuid();
 export const communicationNoticeIdSchema = z.string().uuid();
 const positiveVersion = z.number().int().positive();
 const communicationTime = z.iso.datetime({ offset: true });
@@ -53,6 +54,13 @@ export const listEfaCommunications = createServerFn({ method: "GET" }).handler(a
   const access = requireActiveSession(await currentAccessSession());
   return getService().then((service) => service.list(access.userId));
 });
+
+export const listEfaCommunicationsForEpisode = createServerFn({ method: "GET" })
+  .validator((data: unknown) => communicationEpisodeIdSchema.parse(data))
+  .handler(async ({ data }) => {
+    const access = requireActiveSession(await currentAccessSession());
+    return getService().then((service) => service.listForEpisode(access.userId, data));
+  });
 
 export const getEfaCommunication = createServerFn({ method: "GET" })
   .validator((data: unknown) => communicationIdSchema.parse(data))

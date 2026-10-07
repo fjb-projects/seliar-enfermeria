@@ -41,13 +41,19 @@ Registrar llamadas entrantes y salientes como comunicaciones únicas de un episo
 
 ### C2 — Interfaz de llamadas y captura rápida
 
-**Ruta:** delegada directa; derivar superficies exactas después de C1.
+**Ruta:** delegada directa; UI, cliente, cola y sus contratos requieren lectura preparatoria y pruebas de varios archivos.
+**Superficies exactas autorizadas:** `src/components/EfaEpisodePanel.tsx`, `src/components/EfaEpisodePanel.test.tsx`, `src/components/EfaCommunicationStepper.tsx`, `src/components/EfaCommunicationStepper.test.tsx`, `src/lib/efa-communications.client.ts`, `src/lib/efa-communications.client.test.ts`, `src/lib/efa-communications.queue.ts`, `src/lib/efa-communications.queue.test.ts`, `src/lib/efa-communications.server.ts`, `src/lib/efa-communications.server.test.ts`, `src/lib/efa-communications.functions.ts`, `src/lib/efa-communications.functions.test.ts` y este documento. Sin rutas nuevas, esquema, migraciones ni cambios a la cola de episodios.
+**Diseño confirmado:** asistente accesible de cinco pasos (dirección → inicio → fin → prioridad → revisión), con indicador visible `Paso N de 5`, paso activo semántico, avance/retroceso explícitos y controles táctiles grandes; no navegación sólo por gestos ni control numérico ambiguo. Cada paso opcional puede omitirse; finalizar requiere prioridad real roja/amarilla/verde y una comunicación ya persistida.
+**Integración y límites:** listado acotado al episodio seleccionado mediante API autorizada por dueño/admin; acceso explícito para consultar llamadas propias en modo solo lectura tras revocación EFA. La UI no crea identidad de llamante/operador, ni teléfonos, canales o destinos. Inicio/fin manuales opcionales conservan precisión existente al editar otros campos; captura rápida usa hora del clic, no una hora posterior a esperas de red. Finalizar no altera episodio ni despacho.
+**Continuidad:** cola IndexedDB específica de comunicaciones, temporal y por cuenta/episodio/operación; persiste solicitud congelada antes del envío, conserva mismo ID/cuerpo en reintento y sólo elimina el recibo coincidente. Conflictos/permisos quedan en pausa; estado confirmado del servidor se distingue del fallo de refresco/limpieza local. Se comunica que la cola temporal contiene datos privados en el dispositivo y que campos no enviados no son respaldo. No cambiar ni corregir observaciones pendientes de C1-A2/E2-A/E3-A.
 
-- [ ] Integrar listado y carga por pasos dentro del episodio seleccionado, coherentes con los estilos existentes.
-- [ ] Ofrecer inicio y fin opcionales con acción rápida independiente y edición manual; conservar el horario original al editar otro dato.
-- [ ] Mostrar prioridad y cierre de llamada independiente, historial y avisos autorizados.
-- [ ] Conservar confirmación/reintentos sin duplicados y documentar límites de continuidad local; no reutilizar una cola de episodios como si aceptara comunicaciones sin adaptar su contrato.
-- [ ] Verificar controles, autorización y transiciones con runners existentes, sin dependencias innecesarias.
+- [x] Agregar listado del episodio seleccionado y un acceso explícito a llamadas sin usar selección de episodio como único modo de abrirlas; filtrar en servidor y autorizar padre antes de consultar hijos.
+- [x] Implementar asistente responsive de cinco pasos accesible, con horas reales opcionales, acción rápida que captura al clic, edición manual y restauración que no trunque precisión existente.
+- [x] Permitir borradores sin prioridad, cierre independiente con prioridad obligatoria, edición de finalizadas conservando el cierre, y lectura de historial/avisos del destinatario.
+- [x] Implementar cola IndexedDB aislada por cuenta/episodio con cuerpo/ID congelado, persistencia previa al envío, reintento manual acotado, selección de entradas restantes y limpieza sólo por recibo coincidente.
+- [x] Cubrir estados, stepper, autorización/filtrado por episodio, captura temporal y recuperación de cola con RED/GREEN determinista; ejecutar suite, typecheck, build, lint/formato y diff check.
+
+**Proyección:** varios componentes y pruebas cliente/cola; la estimación supera el presupuesto usual por tarea, pero se conserva como una unidad coherente UI+continuidad sin comprimir lógica ni dividir artificialmente. Verificación SSR/fake no acredita visualización en navegador ni durabilidad real en IndexedDB; no requiere `db:generate`.
 
 ## Comprobaciones
 
@@ -58,7 +64,7 @@ Registrar llamadas entrantes y salientes como comunicaciones únicas de un episo
 
 ## Estado y siguiente paso
 
-Horas de inicio/fin confirmadas; C1 registrada y con revisión nativa aprobada/cerrada. C2 aún sin implementar: listado/formulario mobile-first, edición de ambos horarios y acción rápida independiente para inicio/fin. La migración real y prueba de navegador siguen pendientes. C1-A2 conserva una observación informativa de precisión superior al milisegundo. Mirror Engram pendiente por falta de identidad runtime; conservar avances en este documento.
+Horas de inicio/fin confirmadas; C1 registrada y con revisión nativa aprobada/cerrada. C2 implementada localmente en UI/cliente/cola; verificación real en navegador e IndexedDB pendiente. La migración real también sigue pendiente. C1-A2 conserva una observación informativa de precisión superior al milisegundo. Mirror Engram pendiente por falta de identidad runtime; conservar avances en este documento.
 
 ### Evidencia C1
 
@@ -70,12 +76,41 @@ Horas de inicio/fin confirmadas; C1 registrada y con revisión nativa aprobada/c
 - La migración y snapshot generados se conservaron; un intento de retirar/recrear artefactos generados fue rechazado por el entorno, por lo que se ajustaron en su ubicación autorizada y luego se verificó convergencia de generación.
 - Estado de entrega: commit local `3bad1bb573ed991a7921e41ea905c95f9b491b24`, revisión nativa aprobada y reconocimiento exacto completado. Siguiente paso: implementar C2 en una unidad separada; migración real queda pendiente de autorización y entorno con base de datos.
 
+### Evidencia C2
+
+- RED observado: prueba de listado por episodio falló inicialmente porque `service.listForEpisode` aún no existía. La prueba de guardia de envío también falló antes de implementar el bloqueo síncrono del submit. GREEN: `npm.cmd run test -- src/components/EfaCommunicationStepper.test.tsx src/components/EfaEpisodePanel.test.tsx src/lib/efa-communications.client.test.ts src/lib/efa-communications.queue.test.ts src/lib/efa-communications.server.test.ts src/lib/efa-communications.functions.test.ts` — 6 archivos, 29 pruebas aprobadas.
+- `npm.cmd run test`: 23 archivos, 128 pruebas aprobadas. `npm.cmd run typecheck`: aprobado. `npx.cmd --no-install eslint` sobre las 12 superficies TypeScript C2: aprobado sin errores ni avisos.
+- `npm.cmd run build`: aprobado. Avisos existentes: resolución `vite-tsconfig-paths`, deprecaciones `inputValidator()` de módulos ajenos y tiempos de plugin. La primera compilación del candidato falló porque la protección SSR bloqueó un import estático desde `*.client.ts`; el gate se movió al módulo SSR del stepper y la compilación final quedó aprobada.
+- Prettier focalizado y `git diff --check` acotado aprobados. No se ejecutó generación/aplicación de migraciones ni se conectó a PostgreSQL.
+- Límite de verificación: las pruebas SSR y el store fake no ejercitan layout táctil en navegador ni durabilidad/concurrencia real de IndexedDB. La cola se carga sólo en el cliente y filtra mediante índice compuesto propietario+episodio; estas garantías de almacenamiento deben validarse en navegador real.
+- Estado de entrega: sin commit ni revisión nativa en este bloque; parent gestiona commit selectivo y evaluación. Próximo paso: revisión/commit del segmento C2 y prueba manual de navegador; migración real permanece fuera de alcance.
+
 ### Corrección acotada C1-A1
 
 - [x] Ajustar el orden de finalización para que el `UPDATE ... WHERE version = expectedVersion` tenga éxito antes de agregar auditoría o aviso.
 - [x] Completar aserciones de auditoría con actor, acción, versiones y estado íntegro antes/después para correcciones propias y administrativas; probar que un CAS fallido no agrega auditoría ni aviso.
 - [x] Verificar el ajuste: RED observado en finalización CAS fallida (se agregó una segunda auditoría antes del rechazo); GREEN en `npm.cmd run test -- src/lib/efa-communications.server.test.ts` — 9 pruebas aprobadas. La suite focalizada de C1 pasó 22/22; suite completa 20 archivos/115 pruebas; typecheck, build, ESLint, Prettier y diff check aprobados.
 - El fake sólo valida el orden de invocación: no simula rollback transaccional ni acredita comportamiento concurrente real de PostgreSQL. Build conservó avisos existentes de Vite y `inputValidator()`; no se accedió a la base ni se aplicó migración.
+
+### Correcciones acotadas C2 — seguridad de envío y recuperación
+
+- [x] Comprobar inmediatamente antes de cada envío, también después de leer IndexedDB, que siguen vigentes cuenta, episodio, montaje y permiso actual; cancelar sin invocar servidor si el contexto cambió.
+- [x] Separar errores de transporte de recibos confirmados o incompatibles. Si falla la limpieza local, conservar una barrera terminal en memoria mientras viva el controlador y permitir sólo limpieza local; no reenviar tras confirmación o discrepancia conocida.
+- [x] Dar salida explícita a conflictos CAS: cargar versión actual sin borrar el payload local; permitir resolver únicamente la operación conflictiva seleccionada con confirmación explícita y volver a validar identidad tras cada espera.
+- [x] Respetar `communication.canEdit` además del permiso actual para modificar/finalizar; las llamadas no editables mantienen lectura de historial y avisos.
+- [x] Observar RED/GREEN para cambio de cuenta durante lectura, fallas de limpieza tras recibos, resolución aislada de conflictos y permisos de edición; repetir suite completa, typecheck, build, lint, Prettier y diff check acotados.
+
+**Límite conocido:** si IndexedDB no puede persistir un estado terminal y la página se recarga, no es posible garantizar localmente que la misma operación no vuelva a enviarse; los recibos idempotentes del servidor siguen siendo la protección remota. No afirmar prueba real de navegador/IndexedDB.
+
+### Corrección acotada C2-A4 — restauración de finalización en conflicto
+
+- [x] Restaurar operaciones `finalize` usando la llamada actual como fuente de dirección y horas reales, aplicando sólo la prioridad congelada del recibo; cargar el registro si aún no está disponible y cercar cada espera por cuenta/episodio/operación.
+- [x] Al elegir conservar los datos locales en una resolución explícita, conservar la prioridad de la operación, pero tomar dirección e inicio/fin de la versión actual y su baseline; no borrar observaciones reales ni reutilizar la versión esperada vieja.
+- [x] Observar RED/GREEN en recarga de finalización pausada seguida de edición válida sin pérdida de tiempos con segundos/milisegundos; comprobar suite focalizada/completa, typecheck, build, lint, formato y diff check.
+
+**Evidencia C2-A4:** RED observado en la prueba de restauración de una finalización en conflicto, que falló porque el helper de reconstrucción aún no existía. GREEN focalizado: `npm.cmd run test -- src/lib/efa-communications.client.test.ts src/components/EfaCommunicationStepper.test.tsx src/lib/efa-communications.queue.test.ts` — 3 archivos, 18 pruebas; conjunto C2 final `npm.cmd run test -- src/lib/efa-communications.queue.test.ts src/lib/efa-communications.client.test.ts src/components/EfaCommunicationStepper.test.tsx src/components/EfaEpisodePanel.test.tsx src/lib/efa-communications.server.test.ts src/lib/efa-communications.functions.test.ts` — 6 archivos, 36 pruebas; suite completa `npm.cmd run test` — 23 archivos, 135 pruebas. `npm.cmd run typecheck`, `npm.cmd run build`, ESLint, Prettier y diff check aprobados sobre el candidato final. Build mantiene avisos existentes de `vite-tsconfig-paths` y `inputValidator()` ajenos al cambio.
+
+**Evidencia C2-A3:** RED observado en las regresiones de cola para permiso revocado después de lectura, recibo confirmado con fallas de eliminación/estado y recibo discrepante con falla de persistencia; las tres fallaron antes del ajuste. RED adicional observado al introducir la prueba de lectura de conflicto cancelada por cambio de selección. GREEN: `npm.cmd run test -- src/lib/efa-communications.queue.test.ts src/lib/efa-communications.client.test.ts src/components/EfaCommunicationStepper.test.tsx src/components/EfaEpisodePanel.test.tsx src/lib/efa-communications.server.test.ts src/lib/efa-communications.functions.test.ts` — 6 archivos, 35 pruebas; `npm.cmd run test` — 23 archivos, 134 pruebas. `npm.cmd run typecheck`, `npm.cmd run build`, ESLint focalizado, Prettier focalizado y `git diff --check` acotado aprobados. Build mantiene avisos preexistentes de `vite-tsconfig-paths` y deprecación de `inputValidator()` en funciones ajenas. Sin navegador real ni IndexedDB real; la barrera terminal en memoria dura sólo mientras vive el store y no promete recuperación durable si el almacenamiento no puede guardar el estado.
 
 ### C1 — Commit y revisión cerrada
 

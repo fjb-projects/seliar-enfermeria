@@ -77,6 +77,7 @@ export interface EfaCommunicationTransaction {
   findActor(userId: string): Promise<Actor | null>;
   findEpisode(episodeId: string, lock?: boolean): Promise<EfaCommunicationEpisode | null>;
   listCommunications(ownerUserId: string | null): Promise<EfaCommunicationRecord[]>;
+  listCommunicationsForEpisode(episodeId: string): Promise<EfaCommunicationRecord[]>;
   findCommunication(
     communicationId: string,
     lock?: boolean,
@@ -245,6 +246,18 @@ export function createEfaCommunicationsService(
       return store.transaction(async (tx) => {
         const { roles, canEdit } = await actor(tx, userId, false);
         const records = await tx.listCommunications(roles.includes("admin") ? null : userId);
+        return records.map((record) => asView(record, canEdit));
+      });
+    },
+
+    async listForEpisode(userId: string, episodeId: string) {
+      return store.transaction(async (tx) => {
+        const { roles, canEdit } = await actor(tx, userId, false);
+        const episode = await tx.findEpisode(episodeId);
+        if (!episode || (episode.ownerUserId !== userId && !roles.includes("admin"))) {
+          throw new Error("No se encontró el episodio.");
+        }
+        const records = await tx.listCommunicationsForEpisode(episodeId);
         return records.map((record) => asView(record, canEdit));
       });
     },
@@ -687,6 +700,14 @@ const drizzleStore: EfaCommunicationStore = {
                 .where(eq(efaCommunication.ownerUserId, ownerUserId))
                 .orderBy(desc(efaCommunication.createdAt))
             : await query.orderBy(desc(efaCommunication.createdAt));
+          return rows as EfaCommunicationRecord[];
+        },
+        async listCommunicationsForEpisode(episodeId) {
+          const rows = await db
+            .select()
+            .from(efaCommunication)
+            .where(eq(efaCommunication.episodeId, episodeId))
+            .orderBy(desc(efaCommunication.createdAt));
           return rows as EfaCommunicationRecord[];
         },
         async findCommunication(communicationId, lock = false) {

@@ -71,6 +71,9 @@ function createStore() {
         .filter((item) => !ownerUserId || item.ownerUserId === ownerUserId)
         .map(detach);
     },
+    async listCommunicationsForEpisode(episodeId: string) {
+      return communications.filter((item) => item.episodeId === episodeId).map(detach);
+    },
     async findCommunication(id: string, lock = false) {
       if (lock) lockOrder.push("communication-lock");
       const found = communications.find((item) => item.id === id);
@@ -303,6 +306,30 @@ describe("EFA phone communication persistence", () => {
       ),
     ).rejects.toThrow(/EFA/i);
     await expect(service.list("disabled")).rejects.toThrow(/inactiva/i);
+  });
+
+  it("lists only an authorized episode's calls for owners and administrators", async () => {
+    const db = createStore();
+    const service = createEfaCommunicationsService(db.store, {
+      newId: (() => {
+        let id = 0;
+        return () => `communication-${++id}`;
+      })(),
+    });
+    await service.create(owner, createInput());
+    await service.create(
+      admin,
+      createInput({
+        episodeId: "episode-other",
+        clientCreationKey: "92929292-9292-4292-8292-929292929292",
+      }),
+    );
+
+    await expect(service.listForEpisode(owner, episodeId)).resolves.toHaveLength(1);
+    await expect(service.listForEpisode(admin, "episode-other")).resolves.toHaveLength(1);
+    await expect(service.listForEpisode(owner, "episode-other")).rejects.toThrow(/episodio/i);
+    db.revokeEfa(owner);
+    await expect(service.listForEpisode(owner, episodeId)).resolves.toHaveLength(1);
   });
 
   it("preserves finalized state on edits, records exact snapshots, and rejects stale versions without receipts", async () => {

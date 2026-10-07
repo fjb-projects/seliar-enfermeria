@@ -20,6 +20,15 @@ vi.mock("@/lib/efa-episodes.functions", () => ({
   markEfaEpisodeNoticeRead: vi.fn(),
   updateEfaEpisode: vi.fn(),
 }));
+vi.mock("@/lib/efa-communications.functions", () => ({
+  createEfaCommunication: vi.fn(),
+  finalizeEfaCommunication: vi.fn(),
+  getEfaCommunicationHistory: vi.fn(),
+  listEfaCommunicationsForEpisode: vi.fn(),
+  listEfaCommunicationNotices: vi.fn(),
+  markEfaCommunicationNoticeRead: vi.fn(),
+  updateEfaCommunication: vi.fn(),
+}));
 
 const episode: EpisodeView = {
   id: "episode-1",
@@ -89,6 +98,7 @@ describe("EfaEpisodePanel", () => {
     expect(html).toContain("2026");
     expect(html).toContain("Borrador");
     expect(html).toContain("Solo lectura");
+    expect(html).toContain("Ver llamadas");
     expect(html).not.toContain("Guardar borrador");
   });
 
