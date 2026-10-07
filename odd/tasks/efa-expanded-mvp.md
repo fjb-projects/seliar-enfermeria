@@ -195,7 +195,7 @@ The admin account route uses a catalog-ID selector for all plan targets, with ef
 - `npm run db:generate`: exit 0; generated `drizzle/0020_ancient_kabuki.sql`, snapshot 0020, and journal entry 20. Migration is forward-only and unapplied; no remote DB was accessed.
 - `npm run test -- src/lib/efa-episodes.server.test.ts src/lib/efa-episodes.functions.test.ts src/lib/efa-communications.server.test.ts src/lib/efa-dispatches.server.test.ts src/components/EfaEpisodePanel.test.tsx`: exit 0; 5 files, 59 tests. The broader schema-inclusive focused run passed 6 files, 80 tests.
 - `npm run typecheck`: exit 0. `npm run build`: exit 0, retaining existing Vite path-plugin, route-test-file, and unrelated deprecated `inputValidator()` warnings. `git diff --check`: exit 0.
-- No migration was applied, no live PostgreSQL locking was tested, and no commit was created. The deterministic fakes assert parent-before-child lock requests; they do not prove PostgreSQL runtime behavior.
+- No migration was applied and no live PostgreSQL locking was tested. The deterministic fakes assert parent-before-child lock requests; they do not prove PostgreSQL runtime behavior. Work-unit commit: `77aadcf` (`feat(efa): audit episode cancellation and reactivation`). Independent code review and focused parent spot check passed.
 
 **Excluded from task 13:** Police coordination/events, support requests, observations, and staffing lifecycle changes.
 
@@ -206,4 +206,4 @@ The admin account route uses a catalog-ID selector for all plan targets, with ef
 
 ## Next step
 
-Parent review/commit of 13C is pending; then complete the explicitly scoped final integration checks without expanding task 13 into police coordination/events, support requests, observations, or staffing.
+Complete the explicitly scoped final integration checks without expanding task 13 into police coordination/events, support requests, observations, or staffing.
