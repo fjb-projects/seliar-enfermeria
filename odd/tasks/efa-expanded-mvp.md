@@ -135,7 +135,7 @@ The admin account route uses a catalog-ID selector for all plan targets, with ef
 - Final local checks: `npm run test` passed (54 files, 317 tests); `npm run typecheck` passed; `git diff --check` passed. These are local automated tests/type checks, not real-browser or IndexedDB validation.
 - Existing tests verify recipient-scoped correction notice read state and idempotent acknowledgement in `src/lib/efa-episodes.server.test.ts`; the panel test verifies generic unread notice rendering. Queue tests cover per-user reconciliation, frozen same-ID retry after uncertain transport, receipt validation, explicit conflict selection, and preservation of another uncertain operation. No test claims real browser storage or UI interaction behavior.
 - Residual deferred issue: E3-A R3-001 remains. If IndexedDB itself fails while persisting a mismatched-receipt pause or confirmed-cleanup marker/deletion, the controller can only retain an in-memory fence; after reload, persisted `pending` state can still be resent. This task does not claim recovery if IndexedDB fails. Real-browser IndexedDB behavior remains unverified.
-- E2-A timestamp formatting and C1-A2 submillisecond preservation remain explicitly out of scope; no timestamp contract changes were made. No Neon/remote database access or migrations occurred, no public Forms/Drive work occurred, and no commit was created.
+- E2-A timestamp formatting and C1-A2 submillisecond preservation remain explicitly out of scope; no timestamp contract changes were made. No Neon/remote database access or migrations occurred, and no public Forms/Drive work occurred. Work-unit commit: `ab285ba` (`fix(efa): recheck episode queue state before retry`). Independent read-only verification and a focused parent spot check passed.
 
 ### 13 — Cancellation and reactivation
 
@@ -148,4 +148,4 @@ The admin account route uses a catalog-ID selector for all plan targets, with ef
 
 ## Next step
 
-Implement task 12: verify correction notices, recipient read state, offline retry/idempotency, and manual conflict resolution; change only demonstrated gaps.
+Implement task 13: audited cancellation/reactivation with owner/admin permissions and explicit parent-child constraints, without deleting children or changing public forms.
