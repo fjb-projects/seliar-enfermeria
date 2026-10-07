@@ -36,6 +36,12 @@ import {
   efaSupportRequestAudit,
   efaSupportRequestOperation,
   efaSupportRequestNotice,
+  efaPoliceCoordination,
+  efaPoliceCoordinationDispatch,
+  efaPoliceCoordinationEvent,
+  efaPoliceCoordinationAudit,
+  efaPoliceCoordinationOperation,
+  efaPoliceCoordinationNotice,
 } from "./schema";
 
 describe("ambulance dispatch persistence", () => {
@@ -89,6 +95,50 @@ describe("ambulance dispatch persistence", () => {
       "efa_support_request_operation_append_only",
     ])
       expect(migration).toContain(`CREATE TRIGGER ${trigger}`);
+  });
+});
+
+describe("EFA police coordination persistence", () => {
+  it("models one shared episode record, typed dispatch associations, optional-time events and owner notices", () => {
+    expect(getTableName(efaPoliceCoordination)).toBe("efa_police_coordination");
+    expect(getTableName(efaPoliceCoordinationDispatch)).toBe("efa_police_coordination_dispatch");
+    expect(getTableName(efaPoliceCoordinationEvent)).toBe("efa_police_coordination_event");
+    expect(getTableName(efaPoliceCoordinationAudit)).toBe("efa_police_coordination_audit");
+    expect(getTableName(efaPoliceCoordinationOperation)).toBe("efa_police_coordination_operation");
+    expect(getTableName(efaPoliceCoordinationNotice)).toBe("efa_police_coordination_notice");
+    expect(
+      getTableConfig(efaPoliceCoordination).uniqueConstraints.map((item) => item.name),
+    ).toEqual(
+      expect.arrayContaining([
+        "efa_police_coordination_id_episode_owner_unique",
+        "efa_police_coordination_id_owner_unique",
+        "efa_police_coordination_owner_creation_key_unique",
+      ]),
+    );
+    expect(getTableConfig(efaPoliceCoordinationEvent).checks.map((item) => item.name)).toContain(
+      "efa_police_coordination_event_dispatch_scope",
+    );
+    expect(getTableConfig(efaPoliceCoordinationEvent).foreignKeys).toHaveLength(3);
+    expect(getTableConfig(efaPoliceCoordinationNotice).checks.map((item) => item.name)).toContain(
+      "efa_police_coordination_notice_recipient_is_owner",
+    );
+  });
+
+  it("orders referenced unique keys and protects immutable coordination history and operation receipts", () => {
+    const migration = readFileSync(
+      resolve(process.cwd(), "drizzle/0009_efa_police_coordination.sql"),
+      "utf8",
+    );
+    expect(migration.indexOf('CONSTRAINT "efa_police_coordination_id_owner_unique"')).toBeLessThan(
+      migration.indexOf('ADD CONSTRAINT "efa_police_coordination_audit_fk"'),
+    );
+    expect(
+      migration.indexOf('CONSTRAINT "efa_police_coordination_dispatch_scope_unique"'),
+    ).toBeLessThan(
+      migration.indexOf('ADD CONSTRAINT "efa_police_coordination_event_linked_dispatch_fk"'),
+    );
+    expect(migration).toContain("efa_police_coordination_audit_append_only");
+    expect(migration).toContain("efa_police_coordination_operation_append_only");
   });
 });
 

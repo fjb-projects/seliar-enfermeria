@@ -982,3 +982,281 @@ export const efaSupportRequestNotice = pgTable(
     ),
   ],
 );
+
+export const efaPoliceCoordination = pgTable(
+  "efa_police_coordination",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    episodeId: uuid("episode_id").notNull(),
+    ownerUserId: text("owner_user_id").notNull(),
+    clientCreationKey: uuid("client_creation_key").notNull(),
+    initiator: text("initiator").notNull(),
+    initiatingDispatchId: uuid("initiating_dispatch_id"),
+    placeType: text("place_type").notNull(),
+    meetingReference: text("meeting_reference"),
+    notes: text("notes"),
+    state: text("state").notNull().default("draft"),
+    version: integer("version").notNull().default(1),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: "efa_police_coordination_episode_owner_fk",
+      columns: [table.episodeId, table.ownerUserId],
+      foreignColumns: [efaEpisode.id, efaEpisode.ownerUserId],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "efa_police_coordination_initiating_dispatch_fk",
+      columns: [table.initiatingDispatchId, table.episodeId, table.ownerUserId],
+      foreignColumns: [efaDispatch.id, efaDispatch.episodeId, efaDispatch.ownerUserId],
+    }).onDelete("restrict"),
+    unique("efa_police_coordination_id_episode_owner_unique").on(
+      table.id,
+      table.episodeId,
+      table.ownerUserId,
+    ),
+    unique("efa_police_coordination_id_owner_unique").on(table.id, table.ownerUserId),
+    unique("efa_police_coordination_owner_creation_key_unique").on(
+      table.ownerUserId,
+      table.clientCreationKey,
+    ),
+    check(
+      "efa_police_coordination_initiator_allowed",
+      sql`${table.initiator} in ('central','ambulance')`,
+    ),
+    check(
+      "efa_police_coordination_place_allowed",
+      sql`${table.placeType} in ('incident','meeting_point')`,
+    ),
+    check("efa_police_coordination_state_allowed", sql`${table.state} in ('draft','finalized')`),
+    check("efa_police_coordination_version_positive", sql`${table.version} > 0`),
+    check(
+      "efa_police_coordination_reference_lengths",
+      sql`(${table.meetingReference} is null or char_length(${table.meetingReference}) <= 500) and (${table.notes} is null or char_length(${table.notes}) <= 2000)`,
+    ),
+  ],
+);
+
+export const efaPoliceCoordinationDispatch = pgTable(
+  "efa_police_coordination_dispatch",
+  {
+    coordinationId: uuid("coordination_id").notNull(),
+    episodeId: uuid("episode_id").notNull(),
+    ownerUserId: text("owner_user_id").notNull(),
+    dispatchId: uuid("dispatch_id").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.coordinationId, table.dispatchId] }),
+    foreignKey({
+      name: "efa_police_coordination_dispatch_coordination_fk",
+      columns: [table.coordinationId, table.episodeId, table.ownerUserId],
+      foreignColumns: [
+        efaPoliceCoordination.id,
+        efaPoliceCoordination.episodeId,
+        efaPoliceCoordination.ownerUserId,
+      ],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "efa_police_coordination_dispatch_dispatch_fk",
+      columns: [table.dispatchId, table.episodeId, table.ownerUserId],
+      foreignColumns: [efaDispatch.id, efaDispatch.episodeId, efaDispatch.ownerUserId],
+    }).onDelete("restrict"),
+    unique("efa_police_coordination_dispatch_scope_unique").on(
+      table.coordinationId,
+      table.dispatchId,
+      table.episodeId,
+      table.ownerUserId,
+    ),
+  ],
+);
+
+export const efaPoliceCoordinationEvent = pgTable(
+  "efa_police_coordination_event",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    coordinationId: uuid("coordination_id").notNull(),
+    episodeId: uuid("episode_id").notNull(),
+    ownerUserId: text("owner_user_id").notNull(),
+    dispatchId: uuid("dispatch_id"),
+    actorUserId: text("actor_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    clientEventId: uuid("client_event_id").notNull(),
+    kind: text("kind").notNull(),
+    occurredAt: timestamp("occurred_at"),
+    timeStatus: text("time_status").notNull().default("not_observed"),
+    note: text("note"),
+    version: integer("version").notNull().default(1),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: "efa_police_coordination_event_coordination_fk",
+      columns: [table.coordinationId, table.episodeId, table.ownerUserId],
+      foreignColumns: [
+        efaPoliceCoordination.id,
+        efaPoliceCoordination.episodeId,
+        efaPoliceCoordination.ownerUserId,
+      ],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "efa_police_coordination_event_linked_dispatch_fk",
+      columns: [table.coordinationId, table.dispatchId, table.episodeId, table.ownerUserId],
+      foreignColumns: [
+        efaPoliceCoordinationDispatch.coordinationId,
+        efaPoliceCoordinationDispatch.dispatchId,
+        efaPoliceCoordinationDispatch.episodeId,
+        efaPoliceCoordinationDispatch.ownerUserId,
+      ],
+    }).onDelete("restrict"),
+    unique("efa_police_coordination_event_id_scope_unique").on(
+      table.id,
+      table.coordinationId,
+      table.ownerUserId,
+    ),
+    unique("efa_police_coordination_event_client_unique").on(
+      table.coordinationId,
+      table.clientEventId,
+    ),
+    check(
+      "efa_police_coordination_event_kind_allowed",
+      sql`${table.kind} in ('request','response','reiteration','arrival_meeting_point','waiting','actual_meeting')`,
+    ),
+    check(
+      "efa_police_coordination_event_dispatch_scope",
+      sql`(${table.kind} in ('request','response','reiteration') and ${table.dispatchId} is null) or (${table.kind} in ('arrival_meeting_point','waiting','actual_meeting') and ${table.dispatchId} is not null)`,
+    ),
+    check(
+      "efa_police_coordination_event_time_status_valid",
+      sql`${table.timeStatus} in ('observed','not_observed','not_informed','not_applicable') and ((${table.timeStatus} = 'observed') = (${table.occurredAt} is not null))`,
+    ),
+    check("efa_police_coordination_event_version_positive", sql`${table.version} > 0`),
+    check(
+      "efa_police_coordination_event_note_length",
+      sql`${table.note} is null or char_length(${table.note}) <= 2000`,
+    ),
+  ],
+);
+
+export const efaPoliceCoordinationAudit = pgTable(
+  "efa_police_coordination_audit",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    coordinationId: uuid("coordination_id").notNull(),
+    ownerUserId: text("owner_user_id").notNull(),
+    actorUserId: text("actor_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    operationId: uuid("operation_id").notNull(),
+    action: text("action").notNull(),
+    versionBefore: integer("version_before"),
+    versionAfter: integer("version_after").notNull(),
+    beforeState: jsonb("before_state").$type<Record<string, unknown> | null>(),
+    afterState: jsonb("after_state").$type<Record<string, unknown>>().notNull(),
+    occurredAt: timestamp("occurred_at").notNull().defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: "efa_police_coordination_audit_fk",
+      columns: [table.coordinationId, table.ownerUserId],
+      foreignColumns: [efaPoliceCoordination.id, efaPoliceCoordination.ownerUserId],
+    }).onDelete("restrict"),
+    unique("efa_police_coordination_audit_version_unique").on(
+      table.coordinationId,
+      table.versionAfter,
+    ),
+    unique("efa_police_coordination_audit_operation_unique").on(
+      table.coordinationId,
+      table.operationId,
+    ),
+    unique("efa_police_coordination_audit_id_scope_unique").on(table.id, table.coordinationId),
+    check(
+      "efa_police_coordination_audit_action_allowed",
+      sql`${table.action} in ('created','updated','event_created','event_updated','dispatches_set')`,
+    ),
+    check(
+      "efa_police_coordination_audit_version_transition_valid",
+      sql`(${table.versionBefore} is null and ${table.versionAfter} = 1) or (${table.versionBefore} > 0 and ${table.versionAfter} = ${table.versionBefore} + 1)`,
+    ),
+    check(
+      "efa_police_coordination_audit_state_object",
+      sql`jsonb_typeof(${table.afterState}) = 'object' and (${table.beforeState} is null or jsonb_typeof(${table.beforeState}) = 'object')`,
+    ),
+  ],
+);
+
+export const efaPoliceCoordinationOperation = pgTable(
+  "efa_police_coordination_operation",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    coordinationId: uuid("coordination_id").notNull(),
+    ownerUserId: text("owner_user_id").notNull(),
+    actorUserId: text("actor_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    clientOperationId: uuid("client_operation_id").notNull(),
+    action: text("action").notNull(),
+    requestHash: text("request_hash").notNull(),
+    appliedVersion: integer("applied_version").notNull(),
+    changed: boolean("changed").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: "efa_police_coordination_operation_fk",
+      columns: [table.coordinationId, table.ownerUserId],
+      foreignColumns: [efaPoliceCoordination.id, efaPoliceCoordination.ownerUserId],
+    }).onDelete("restrict"),
+    unique("efa_police_coordination_operation_client_unique").on(
+      table.coordinationId,
+      table.clientOperationId,
+    ),
+    check(
+      "efa_police_coordination_operation_action_allowed",
+      sql`${table.action} in ('created','updated','event_created','event_updated','dispatches_set')`,
+    ),
+    check(
+      "efa_police_coordination_operation_hash_sha256",
+      sql`${table.requestHash} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check("efa_police_coordination_operation_version_positive", sql`${table.appliedVersion} > 0`),
+  ],
+);
+
+export const efaPoliceCoordinationNotice = pgTable(
+  "efa_police_coordination_notice",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    coordinationId: uuid("coordination_id").notNull(),
+    ownerUserId: text("owner_user_id").notNull(),
+    auditId: uuid("audit_id").notNull(),
+    recipientUserId: text("recipient_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    readAt: timestamp("read_at"),
+  },
+  (table) => [
+    foreignKey({
+      name: "efa_police_coordination_notice_owner_fk",
+      columns: [table.coordinationId, table.ownerUserId],
+      foreignColumns: [efaPoliceCoordination.id, efaPoliceCoordination.ownerUserId],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "efa_police_coordination_notice_audit_fk",
+      columns: [table.auditId, table.coordinationId],
+      foreignColumns: [efaPoliceCoordinationAudit.id, efaPoliceCoordinationAudit.coordinationId],
+    }).onDelete("restrict"),
+    unique("efa_police_coordination_notice_audit_recipient_unique").on(
+      table.auditId,
+      table.recipientUserId,
+    ),
+    check(
+      "efa_police_coordination_notice_recipient_is_owner",
+      sql`${table.recipientUserId} = ${table.ownerUserId}`,
+    ),
+  ],
+);
