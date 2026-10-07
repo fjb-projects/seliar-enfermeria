@@ -40,13 +40,25 @@ describe("EfaPanelHome", () => {
     expect(html).toContain("min-h-11");
   });
 
-  it("explains read-only consultation while preserving own-history routes", () => {
+  it("prioritizes own guard history and limits episode consultation to an open guard", () => {
     const html = render(summary());
     expect(html).toContain("Solo consulta");
     expect(html).toContain("no cuenta con permisos de escritura EFA");
     expect(html).toContain('href="/guardia-efa"');
-    expect(html).toContain('href="/episodios-efa"');
+    expect(html).toContain("Consultar mis guardias");
+    expect(html).not.toContain('href="/episodios-efa"');
+    expect(html).not.toContain("historial de guardias y episodios");
     expect(html).not.toContain("Iniciar guardia EFA");
+  });
+
+  it("keeps read-only home navigation focused on guard history even if an open guard is supplied", () => {
+    const html = render(summary({
+      openGuard: { startedAt: "2026-10-06T10:00:00.000Z", baseCount: 1, activeEpisodeCount: 2 },
+    }));
+    expect(html).toContain("Consultar mis guardias");
+    expect(html).toContain("historial de tus guardias");
+    expect(html).not.toContain('href="/episodios-efa"');
+    expect(html).not.toContain("historial de guardias y episodios");
   });
 
   it("shows admin navigation only to administrators", () => {

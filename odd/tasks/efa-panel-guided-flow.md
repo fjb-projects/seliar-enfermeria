@@ -56,6 +56,7 @@ The current `/panel` presents the same episode link to every account and hides t
 
 #### P3b — Episode history
 - **Predecessor:** P3a commit `9282b27` (`feat(efa): condense guard history cards`).
+- **P3b work-unit commit:** `05ccb5a`.
 - [x] Compact the episode-card summary to status, event time, and the existing concise motive/address identifier; keep workspace access and closing an active editable service directly visible. Long identifiers wrap within two lines, and existing status ordering and data scope remain unchanged.
 - [x] Move captured/updated timestamps, version, edit, cancel/reactivate, and the history entry point under a native `Ver detalles` disclosure. Keep audit history available through its existing action and preserve all existing write, ownership, state, and notice gates; no route, database, or server behavior changed.
 - [x] Add rendering assertions for summary fields and visible core actions, plus detail-only metadata and secondary actions, including the cancelled/reactivation case.
@@ -63,6 +64,17 @@ The current `/panel` presents the same episode link to every account and hides t
 **Test-first evidence:** the updated rendering assertions failed before the compact-card/disclosure implementation (2 failures), then passed after the UI change.
 
 **Observed P3b checks:** `npm run test -- src/components/EfaEpisodePanel.test.tsx` passed (1 file, 7 tests); `npm run typecheck` passed; `npm run build` passed with existing route-test discovery, TanStack `inputValidator()`, and `vite-tsconfig-paths` warnings; `git diff --check -- odd/tasks/efa-panel-guided-flow.md src/components/EfaEpisodePanel.tsx src/components/EfaEpisodePanel.test.tsx` passed. No live database, staging, commit, or remote action was performed.
+
+#### V1 correction — read-only navigation accuracy
+**Reopened V1 defects:** integration review found that the private-panel copy implied complete episode history even though `/episodios-efa` is limited to episodes for the caller's open guard, and the open-guard handoff still said “Registrar atenciones” when EFA write access had been revoked. Cross-guard episode history remains explicitly deferred; no route or server permission changes are in scope.
+
+- [x] Make guard history the only read-only destination from the home panel, with copy that promises only guard history. Episode consultation remains linked from the guard page when its existing read-only open-guard state can identify the caller's open guard.
+- [x] Keep the open-guard episode route available after access revocation while changing its action and explanatory copy to read-only consultation; retain the existing no-open-guard read-only state without a registration action.
+- [x] Add regression coverage for revoked EFA with and without an open guard, including truthful scope copy and the retained consultation link.
+
+**Test-first evidence:** new/updated assertions failed before the UI fixes (three failures initially, then one after the follow-up clarified that the read-only panel summary does not expose an open guard), then passed after implementation (15 focused tests).
+
+**Observed correction checks:** `npm run test -- src/components/EfaPanelHome.test.tsx src/components/EfaGuardPanel.test.tsx` passed (2 files, 15 tests); `npm run typecheck` passed; `npm run build` passed with existing `vite-tsconfig-paths` and route-test discovery warnings plus deprecated `inputValidator()` warnings; `git diff --check -- odd/tasks/efa-panel-guided-flow.md src/components/EfaPanelHome.tsx src/components/EfaPanelHome.test.tsx src/components/EfaGuardPanel.tsx src/components/EfaGuardPanel.test.tsx` passed. No live database, staging, commit, or remote action was performed.
 
 ### V1 — Integration and mobile validation
 - [ ] Validate end-to-end navigation, state transitions, and narrow-screen layout with available local checks.
@@ -77,4 +89,4 @@ The current `/panel` presents the same episode link to every account and hides t
 Engram mirror is pending because this delegated worker has no authoritative registered session identity. The parent session should mirror the full current document after completing the feature.
 
 ## Next step
-P1, P2, P3a, and P3b are complete. V1 integration/mobile validation remains open; do not broaden P3b into that follow-up task.
+P1, P2, P3a, and P3b are complete, including the read-only navigation corrections. V1 end-to-end navigation, state-transition, and narrow-screen validation remains pending; the focused component checks above do not complete full V1 verification.

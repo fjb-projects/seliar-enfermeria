@@ -714,11 +714,14 @@ export function EfaGuardPanel({
               </div>
               <div className="space-y-2 rounded-md bg-muted/50 p-3">
                 <p className="text-sm text-muted-foreground">
-                  Después de iniciar la guardia, registra las atenciones en episodios. Elegir bases
-                  es opcional.
+                  {canWrite
+                    ? "Después de iniciar la guardia, registra las atenciones en episodios. Elegir bases es opcional."
+                    : "Puedes consultar las atenciones de esta guardia en episodios. Elegir bases es opcional."}
                 </p>
                 <Button asChild variant="outline" className="min-h-11 w-full sm:w-auto">
-                  <Link to="/episodios-efa">Registrar atenciones</Link>
+                  <Link to="/episodios-efa">
+                    {canWrite ? "Registrar atenciones" : "Consultar atenciones de la guardia abierta"}
+                  </Link>
                 </Button>
               </div>
               <fieldset className="space-y-3" disabled={busy || !canWrite}>

@@ -220,6 +220,33 @@ describe("EfaGuardPanel", () => {
     expect(html).toContain("Mis guardias");
     expect(html).toContain("Solo se muestran guardias propias.");
     expect(html).not.toContain("Iniciar guardia");
+    expect(html).not.toContain("Registrar atenciones");
+  });
+
+  it("keeps open-guard episodes consultable but does not label them as registration when access is revoked", () => {
+    const html = renderToStaticMarkup(
+      <EfaGuardPanel
+        initialGuards={[{
+          id: "own-open-guard",
+          ownerUserId: "current-user",
+          startedAt: "2026-10-07T08:00:00.000Z",
+          endedAt: null,
+          declaredAtCentral: false,
+          version: 1,
+          bases: [],
+          baseEvents: [],
+        }]}
+        activeBases={[]}
+        initialStaffing={{}}
+        currentUserId="current-user"
+        isAdmin={false}
+        canWrite={false}
+      />,
+    );
+
+    expect(html).toContain('href="/episodios-efa"');
+    expect(html).toContain("Consultar atenciones de la guardia abierta");
+    expect(html).not.toContain("Registrar atenciones");
   });
 
   it("explains that starting a guard leads to episode recording and bases are optional", () => {

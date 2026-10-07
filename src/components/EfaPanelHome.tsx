@@ -64,11 +64,13 @@ export function EfaPanelHome({ summary }: { summary: EfaPanelSummary }) {
           <section aria-labelledby="efa-readonly-title" className="space-y-4">
             <div className="space-y-1">
               <h2 id="efa-readonly-title" className="text-lg font-semibold">Consulta de tu actividad · Solo consulta</h2>
-              <p className="text-sm text-muted-foreground">Tu cuenta está activa, pero hoy no cuenta con permisos de escritura EFA. Puedes consultar tu historial de guardias y episodios.</p>
+              <p className="text-sm text-muted-foreground">
+                Tu cuenta está activa, pero hoy no cuenta con permisos de escritura EFA. Puedes
+                consultar el historial de tus guardias.
+              </p>
             </div>
             <div className="flex flex-col gap-3 sm:flex-row">
               <ActionLink to="/guardia-efa" variant="outline">Consultar mis guardias</ActionLink>
-              <ActionLink to="/episodios-efa" variant="outline">Consultar mis episodios</ActionLink>
             </div>
           </section>
         )}
