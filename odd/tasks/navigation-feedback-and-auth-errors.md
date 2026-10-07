@@ -59,3 +59,5 @@ Next: complete A1, then parent independently verifies the combined feature slice
 - Rollback boundary: auth-safe diagnostics/session read normalization and panel/guard retry boundaries plus their tests; retain database models, EFA server authorization and public forms. The external/unattributed pending-spinner copy edit stays uncommitted and untouched.
 - RDD remains OFF; no native approval, publication or remote operation. Engram mirror remains pending due to missing runtime identity. Browser rendering, assistive technology, cookies and real Neon reproduction are unverified.
 - Next: user restarts the development server and checks panel → guardia-efa, then follows the episode walkthrough; if the database failure persists, its sanitized code is the next diagnostic evidence.
+
+- Delivery record: A1 committed as 5ff15d5b18063eaa4fea3c02a12d11ca72ef37ce (415 additions, 36 deletions; 451 authored changed lines). Running behavior-unit count is 594, with N1 and A1 as coherent feature-branch-chain slices; no PR was created. User changes remain outside these commits.
