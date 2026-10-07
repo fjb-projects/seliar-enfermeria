@@ -5,6 +5,12 @@ import {
   type EfaCommunicationRecord,
   type EfaCommunicationTransaction,
 } from "./efa-communications.server";
+import {
+  createEfaDispatchesService,
+  type DispatchRecord,
+  type DispatchStore,
+  type DispatchTransaction,
+} from "./efa-dispatches.server";
 
 const owner = "owner";
 const admin = "admin";
@@ -226,6 +232,65 @@ describe("EFA phone communication persistence", () => {
       }),
     );
 
+    const openDispatches: DispatchRecord[] = [];
+    let dispatchId = 0;
+    const dispatchTx = {
+      async findActor() {
+        return { isActive: true, roles: ["efa"] as const };
+      },
+      async findEpisode(id: string) {
+        return id === episodeId ? { id, ownerUserId: owner } : null;
+      },
+      async findBase(id: string) {
+        return { id, isActive: true };
+      },
+      async findCommunication() {
+        return null;
+      },
+      async findDispatchByKey() {
+        return null;
+      },
+      async findDispatchOperation() {
+        return null;
+      },
+      async insertDispatch(
+        input: Omit<DispatchRecord, "version" | "createdAt" | "updatedAt" | "finalizedAt">,
+      ) {
+        const timestamp = new Date("2026-10-06T10:00:00.000Z");
+        openDispatches.push({
+          ...input,
+          version: 1,
+          finalizedAt: null,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        });
+      },
+      async appendDispatchAudit() {
+        return "dispatch-audit";
+      },
+      async insertDispatchOperation() {},
+      async findDispatch(id: string) {
+        return openDispatches.find((dispatch) => dispatch.id === id) ?? null;
+      },
+      async listContactAttempts() {
+        return [];
+      },
+      async listSupportRequests() {
+        return [];
+      },
+    } as unknown as DispatchTransaction;
+    const dispatchService = createEfaDispatchesService(
+      { transaction: (work) => work(dispatchTx) } as DispatchStore,
+      { newId: () => `open-dispatch-${++dispatchId}` },
+    );
+    const openDispatch = await dispatchService.create(owner, {
+      clientCreationKey: "open-dispatch-key",
+      episodeId,
+      baseId: "active-base",
+      t0At: preciseStart,
+      t0Status: "observed",
+    });
+
     expect(first.communication).toMatchObject({
       startedAt: preciseStart,
       endedAt: null,
@@ -252,6 +317,13 @@ describe("EFA phone communication persistence", () => {
       version: 2,
     });
     expect(finalized.communication.finalizedAt).toBe("2026-10-06T12:30:00.000Z");
+    expect(await dispatchService.get(owner, openDispatch.dispatch.id)).toMatchObject({
+      state: "draft",
+      version: 1,
+      t0At: preciseStart,
+      t0Status: "observed",
+      finalizedAt: null,
+    });
     expect(db.audits.map(({ action }) => action)).toEqual([
       "created",
       "created",

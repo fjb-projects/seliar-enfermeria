@@ -190,7 +190,7 @@ describe("EFA police coordination service", () => {
     ).not.toHaveProperty("createdAt");
   });
 
-  it("stores shared requests once and requires mobile events to reference an associated same-episode dispatch", async () => {
+  it("stores distinct shared reiterations once and requires mobile events to reference an associated same-episode dispatch", async () => {
     const f = fixture();
     const created = await f.service.create("owner", {
       episodeId: episode.id,
@@ -219,10 +219,38 @@ describe("EFA police coordination service", () => {
     });
     expect(requestReplay.operation.replayed).toBe(true);
     expect(requestReplay.event?.id).toBe(request.event!.id);
+    expect(f.events).toHaveLength(1);
+    expect(requestReplay.coordination.version).toBe(request.coordination.version);
+
+    const secondRequestInput = {
+      ...requestInput,
+      expectedVersion: 2,
+      operationId: "op-request-second",
+      clientEventId: "event-request-second",
+      occurredAt: "2026-10-07T10:01:30.456Z",
+    };
+    const secondRequest = await f.service.addEvent("owner", secondRequestInput);
+    const secondRequestReplay = await f.service.addEvent("owner", secondRequestInput);
+    expect(secondRequest.event?.id).not.toBe(request.event?.id);
+    expect(secondRequestReplay.operation.replayed).toBe(true);
+    expect(secondRequestReplay.event?.id).toBe(secondRequest.event?.id);
+    expect(secondRequest.coordination.version).toBe(3);
+    expect(secondRequestReplay.coordination.version).toBe(secondRequest.coordination.version);
+    expect(f.events.filter((event) => event.kind === "reiteration")).toHaveLength(2);
+    expect(f.events.filter((event) => event.kind === "reiteration")).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: request.event?.id, dispatchId: null }),
+        expect.objectContaining({ id: secondRequest.event?.id, dispatchId: null }),
+      ]),
+    );
+    expect(f.audits).toHaveLength(3);
+    expect(f.operations).toHaveLength(3);
+    expect(secondRequest.coordination.dispatchIds).toEqual(["dispatch-1", "dispatch-2"]);
+
     await expect(
       f.service.addEvent("owner", {
         coordinationId: id,
-        expectedVersion: 2,
+        expectedVersion: 3,
         operationId: "op-bad",
         clientEventId: "event-bad",
         kind: "actual_meeting",
@@ -232,7 +260,7 @@ describe("EFA police coordination service", () => {
     ).rejects.toThrow("asociado");
     const meeting = await f.service.addEvent("owner", {
       coordinationId: id,
-      expectedVersion: 2,
+      expectedVersion: 3,
       operationId: "op-meet",
       clientEventId: "event-meet",
       kind: "actual_meeting",
@@ -241,12 +269,12 @@ describe("EFA police coordination service", () => {
       timeStatus: "observed",
     });
     expect(meeting.coordination.dispatchIds).toEqual(["dispatch-1", "dispatch-2"]);
-    expect(f.events).toHaveLength(2);
+    expect(f.events).toHaveLength(3);
     expect(f.events[0]?.occurredAt?.toISOString()).toBe("2026-10-07T10:01:02.345Z");
-    expect(f.audits).toHaveLength(3);
-    expect(f.audits[2]?.action).toBe("event_created");
-    expect(f.audits[2]).toMatchObject({ actorUserId: "owner", versionBefore: 2, versionAfter: 3 });
-    expect(f.audits[2]?.afterState).toMatchObject({
+    expect(f.audits).toHaveLength(4);
+    expect(f.audits[3]?.action).toBe("event_created");
+    expect(f.audits[3]).toMatchObject({ actorUserId: "owner", versionBefore: 3, versionAfter: 4 });
+    expect(f.audits[3]?.afterState).toMatchObject({
       event: {
         kind: "actual_meeting",
         dispatchId: "dispatch-1",
@@ -256,7 +284,7 @@ describe("EFA police coordination service", () => {
     await expect(
       f.service.setDispatches("owner", {
         coordinationId: id,
-        expectedVersion: 3,
+        expectedVersion: 4,
         operationId: "remove-linked-event",
         dispatchIds: ["dispatch-2"],
       }),
