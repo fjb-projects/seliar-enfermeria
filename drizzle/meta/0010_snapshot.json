@@ -1,0 +1,4597 @@
+{
+  "id": "8785abcc-71de-4f5f-99ea-d5551c089aa5",
+  "prevId": "3f86c7cd-8b2a-469a-88ed-93e66638e5d6",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.account": {
+      "name": "account",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "account_id": {
+          "name": "account_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider_id": {
+          "name": "provider_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "access_token": {
+          "name": "access_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "refresh_token": {
+          "name": "refresh_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "id_token": {
+          "name": "id_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "access_token_expires_at": {
+          "name": "access_token_expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "refresh_token_expires_at": {
+          "name": "refresh_token_expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "scope": {
+          "name": "scope",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "password": {
+          "name": "password",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "account_user_id_user_id_fk": {
+          "name": "account_user_id_user_id_fk",
+          "tableFrom": "account",
+          "tableTo": "user",
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.account_access": {
+      "name": "account_access",
+      "schema": "",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "is_active": {
+          "name": "is_active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "account_access_user_id_user_id_fk": {
+          "name": "account_access_user_id_user_id_fk",
+          "tableFrom": "account_access",
+          "tableTo": "user",
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "account_access_version_positive": {
+          "name": "account_access_version_positive",
+          "value": "\"account_access\".\"version\" > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.account_audit": {
+      "name": "account_audit",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "actor_user_id": {
+          "name": "actor_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "target_user_id": {
+          "name": "target_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version_before": {
+          "name": "version_before",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "version_after": {
+          "name": "version_after",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "before_state": {
+          "name": "before_state",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "after_state": {
+          "name": "after_state",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "account_audit_actor_user_id_user_id_fk": {
+          "name": "account_audit_actor_user_id_user_id_fk",
+          "tableFrom": "account_audit",
+          "tableTo": "user",
+          "columnsFrom": ["actor_user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "account_audit_target_user_id_user_id_fk": {
+          "name": "account_audit_target_user_id_user_id_fk",
+          "tableFrom": "account_audit",
+          "tableTo": "user",
+          "columnsFrom": ["target_user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "account_audit_target_version_unique": {
+          "name": "account_audit_target_version_unique",
+          "nullsNotDistinct": false,
+          "columns": ["target_user_id", "version_after"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "account_audit_action_allowed": {
+          "name": "account_audit_action_allowed",
+          "value": "\"account_audit\".\"action\" in ('created', 'roles_changed', 'disabled', 'reactivated', 'password_reset')"
+        },
+        "account_audit_version_transition_valid": {
+          "name": "account_audit_version_transition_valid",
+          "value": "(\"account_audit\".\"version_before\" is null and \"account_audit\".\"version_after\" = 1) or (\"account_audit\".\"version_before\" is not null and \"account_audit\".\"version_before\" > 0 and \"account_audit\".\"version_after\" = \"account_audit\".\"version_before\" + 1)"
+        },
+        "account_audit_state_is_object": {
+          "name": "account_audit_state_is_object",
+          "value": "jsonb_typeof(\"account_audit\".\"after_state\") = 'object' and (\"account_audit\".\"before_state\" is null or jsonb_typeof(\"account_audit\".\"before_state\") = 'object')"
+        },
+        "account_audit_state_keys_allowlisted": {
+          "name": "account_audit_state_keys_allowlisted",
+          "value": "(\"account_audit\".\"after_state\" - 'isActive' - 'roles') = '{}'::jsonb and (\"account_audit\".\"before_state\" is null or (\"account_audit\".\"before_state\" - 'isActive' - 'roles') = '{}'::jsonb)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.account_role_grant": {
+      "name": "account_role_grant",
+      "schema": "",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "role": {
+          "name": "role",
+          "type": "account_role",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "granted_by_user_id": {
+          "name": "granted_by_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "granted_at": {
+          "name": "granted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "account_role_grant_user_id_user_id_fk": {
+          "name": "account_role_grant_user_id_user_id_fk",
+          "tableFrom": "account_role_grant",
+          "tableTo": "user",
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "account_role_grant_granted_by_user_id_user_id_fk": {
+          "name": "account_role_grant_granted_by_user_id_user_id_fk",
+          "tableFrom": "account_role_grant",
+          "tableTo": "user",
+          "columnsFrom": ["granted_by_user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "account_role_grant_user_id_role_pk": {
+          "name": "account_role_grant_user_id_role_pk",
+          "columns": ["user_id", "role"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.efa_base": {
+      "name": "efa_base",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "normalized_name": {
+          "name": "normalized_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "is_active": {
+          "name": "is_active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "created_by_user_id": {
+          "name": "created_by_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "efa_base_created_by_user_id_user_id_fk": {
+          "name": "efa_base_created_by_user_id_user_id_fk",
+          "tableFrom": "efa_base",
+          "tableTo": "user",
+          "columnsFrom": ["created_by_user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "efa_base_normalized_name_unique": {
+          "name": "efa_base_normalized_name_unique",
+          "nullsNotDistinct": false,
+          "columns": ["normalized_name"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "efa_base_name_valid": {
+          "name": "efa_base_name_valid",
+          "value": "char_length(btrim(\"efa_base\".\"name\")) between 1 and 120 and char_length(\"efa_base\".\"normalized_name\") between 1 and 120"
+        },
+        "efa_base_version_positive": {
+          "name": "efa_base_version_positive",
+          "value": "\"efa_base\".\"version\" > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.efa_base_audit": {
+      "name": "efa_base_audit",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "base_id": {
+          "name": "base_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actor_user_id": {
+          "name": "actor_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version_before": {
+          "name": "version_before",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "version_after": {
+          "name": "version_after",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "before_state": {
+          "name": "before_state",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "after_state": {
+          "name": "after_state",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "efa_base_audit_base_id_efa_base_id_fk": {
+          "name": "efa_base_audit_base_id_efa_base_id_fk",
+          "tableFrom": "efa_base_audit",
+          "tableTo": "efa_base",
+          "columnsFrom": ["base_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "efa_base_audit_actor_user_id_user_id_fk": {
+          "name": "efa_base_audit_actor_user_id_user_id_fk",
+          "tableFrom": "efa_base_audit",
+          "tableTo": "user",
+          "columnsFrom": ["actor_user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "efa_base_audit_base_version_unique": {
+          "name": "efa_base_audit_base_version_unique",
+          "nullsNotDistinct": false,
+          "columns": ["base_id", "version_after"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "efa_base_audit_action_allowed": {
+          "name": "efa_base_audit_action_allowed",
+          "value": "\"efa_base_audit\".\"action\" in ('created', 'renamed', 'disabled', 'reactivated')"
+        },
+        "efa_base_audit_version_transition_valid": {
+          "name": "efa_base_audit_version_transition_valid",
+          "value": "(\"efa_base_audit\".\"version_before\" is null and \"efa_base_audit\".\"version_after\" = 1) or (\"efa_base_audit\".\"version_before\" is not null and \"efa_base_audit\".\"version_before\" > 0 and \"efa_base_audit\".\"version_after\" = \"efa_base_audit\".\"version_before\" + 1)"
+        },
+        "efa_base_audit_state_keys_allowlisted": {
+          "name": "efa_base_audit_state_keys_allowlisted",
+          "value": "(\"efa_base_audit\".\"after_state\" - 'name' - 'isActive') = '{}'::jsonb and (\"efa_base_audit\".\"before_state\" is null or (\"efa_base_audit\".\"before_state\" - 'name' - 'isActive') = '{}'::jsonb)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.efa_communication": {
+      "name": "efa_communication",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "episode_id": {
+          "name": "episode_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "owner_user_id": {
+          "name": "owner_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "client_creation_key": {
+          "name": "client_creation_key",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "direction": {
+          "name": "direction",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ended_at": {
+          "name": "ended_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "priority": {
+          "name": "priority",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "state": {
+          "name": "state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'draft'"
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "finalized_at": {
+          "name": "finalized_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "efa_communication_episode_owner_fk": {
+          "name": "efa_communication_episode_owner_fk",
+          "tableFrom": "efa_communication",
+          "tableTo": "efa_episode",
+          "columnsFrom": ["episode_id", "owner_user_id"],
+          "columnsTo": ["id", "owner_user_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "efa_communication_id_owner_unique": {
+          "name": "efa_communication_id_owner_unique",
+          "nullsNotDistinct": false,
+          "columns": ["id", "owner_user_id"]
+        },
+        "efa_communication_id_episode_owner_unique": {
+          "name": "efa_communication_id_episode_owner_unique",
+          "nullsNotDistinct": false,
+          "columns": ["id", "episode_id", "owner_user_id"]
+        },
+        "efa_communication_owner_creation_key_unique": {
+          "name": "efa_communication_owner_creation_key_unique",
+          "nullsNotDistinct": false,
+          "columns": ["owner_user_id", "client_creation_key"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "efa_communication_direction_allowed": {
+          "name": "efa_communication_direction_allowed",
+          "value": "\"efa_communication\".\"direction\" in ('incoming', 'outgoing')"
+        },
+        "efa_communication_priority_allowed": {
+          "name": "efa_communication_priority_allowed",
+          "value": "\"efa_communication\".\"priority\" is null or \"efa_communication\".\"priority\" in ('red', 'yellow', 'green')"
+        },
+        "efa_communication_state_allowed": {
+          "name": "efa_communication_state_allowed",
+          "value": "(\"efa_communication\".\"state\" = 'draft' and \"efa_communication\".\"finalized_at\" is null) or (\"efa_communication\".\"state\" = 'finalized' and \"efa_communication\".\"finalized_at\" is not null and \"efa_communication\".\"priority\" is not null)"
+        },
+        "efa_communication_version_positive": {
+          "name": "efa_communication_version_positive",
+          "value": "\"efa_communication\".\"version\" > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.efa_communication_audit": {
+      "name": "efa_communication_audit",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "communication_id": {
+          "name": "communication_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "owner_user_id": {
+          "name": "owner_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actor_user_id": {
+          "name": "actor_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "operation_id": {
+          "name": "operation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version_before": {
+          "name": "version_before",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "version_after": {
+          "name": "version_after",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "before_state": {
+          "name": "before_state",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "after_state": {
+          "name": "after_state",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "efa_communication_audit_actor_user_id_user_id_fk": {
+          "name": "efa_communication_audit_actor_user_id_user_id_fk",
+          "tableFrom": "efa_communication_audit",
+          "tableTo": "user",
+          "columnsFrom": ["actor_user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "efa_communication_audit_communication_fk": {
+          "name": "efa_communication_audit_communication_fk",
+          "tableFrom": "efa_communication_audit",
+          "tableTo": "efa_communication",
+          "columnsFrom": ["communication_id", "owner_user_id"],
+          "columnsTo": ["id", "owner_user_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "efa_communication_audit_communication_version_unique": {
+          "name": "efa_communication_audit_communication_version_unique",
+          "nullsNotDistinct": false,
+          "columns": ["communication_id", "version_after"]
+        },
+        "efa_communication_audit_communication_operation_unique": {
+          "name": "efa_communication_audit_communication_operation_unique",
+          "nullsNotDistinct": false,
+          "columns": ["communication_id", "operation_id"]
+        },
+        "efa_communication_audit_id_communication_unique": {
+          "name": "efa_communication_audit_id_communication_unique",
+          "nullsNotDistinct": false,
+          "columns": ["id", "communication_id"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "efa_communication_audit_action_allowed": {
+          "name": "efa_communication_audit_action_allowed",
+          "value": "\"efa_communication_audit\".\"action\" in ('created', 'updated', 'finalized')"
+        },
+        "efa_communication_audit_version_transition_valid": {
+          "name": "efa_communication_audit_version_transition_valid",
+          "value": "(\"efa_communication_audit\".\"version_before\" is null and \"efa_communication_audit\".\"version_after\" = 1) or (\"efa_communication_audit\".\"version_before\" is not null and \"efa_communication_audit\".\"version_before\" > 0 and \"efa_communication_audit\".\"version_after\" = \"efa_communication_audit\".\"version_before\" + 1)"
+        },
+        "efa_communication_audit_action_version_valid": {
+          "name": "efa_communication_audit_action_version_valid",
+          "value": "(\"efa_communication_audit\".\"action\" = 'created' and \"efa_communication_audit\".\"version_before\" is null and \"efa_communication_audit\".\"version_after\" = 1) or (\"efa_communication_audit\".\"action\" in ('updated', 'finalized') and \"efa_communication_audit\".\"version_before\" is not null and \"efa_communication_audit\".\"version_after\" = \"efa_communication_audit\".\"version_before\" + 1)"
+        },
+        "efa_communication_audit_state_is_object": {
+          "name": "efa_communication_audit_state_is_object",
+          "value": "jsonb_typeof(\"efa_communication_audit\".\"after_state\") = 'object' and (\"efa_communication_audit\".\"before_state\" is null or jsonb_typeof(\"efa_communication_audit\".\"before_state\") = 'object')"
+        },
+        "efa_communication_audit_state_keys_allowlisted": {
+          "name": "efa_communication_audit_state_keys_allowlisted",
+          "value": "(\"efa_communication_audit\".\"after_state\" - 'direction' - 'startedAt' - 'endedAt' - 'priority' - 'state' - 'finalizedAt') = '{}'::jsonb and (\"efa_communication_audit\".\"before_state\" is null or (\"efa_communication_audit\".\"before_state\" - 'direction' - 'startedAt' - 'endedAt' - 'priority' - 'state' - 'finalizedAt') = '{}'::jsonb)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.efa_communication_notice": {
+      "name": "efa_communication_notice",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "communication_id": {
+          "name": "communication_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "owner_user_id": {
+          "name": "owner_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "audit_id": {
+          "name": "audit_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "recipient_user_id": {
+          "name": "recipient_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "read_at": {
+          "name": "read_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "efa_communication_notice_recipient_user_id_user_id_fk": {
+          "name": "efa_communication_notice_recipient_user_id_user_id_fk",
+          "tableFrom": "efa_communication_notice",
+          "tableTo": "user",
+          "columnsFrom": ["recipient_user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "efa_communication_notice_owner_fk": {
+          "name": "efa_communication_notice_owner_fk",
+          "tableFrom": "efa_communication_notice",
+          "tableTo": "efa_communication",
+          "columnsFrom": ["communication_id", "owner_user_id"],
+          "columnsTo": ["id", "owner_user_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "efa_communication_notice_audit_fk": {
+          "name": "efa_communication_notice_audit_fk",
+          "tableFrom": "efa_communication_notice",
+          "tableTo": "efa_communication_audit",
+          "columnsFrom": ["audit_id", "communication_id"],
+          "columnsTo": ["id", "communication_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "efa_communication_notice_audit_recipient_unique": {
+          "name": "efa_communication_notice_audit_recipient_unique",
+          "nullsNotDistinct": false,
+          "columns": ["audit_id", "recipient_user_id"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "efa_communication_notice_recipient_is_owner": {
+          "name": "efa_communication_notice_recipient_is_owner",
+          "value": "\"efa_communication_notice\".\"recipient_user_id\" = \"efa_communication_notice\".\"owner_user_id\""
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.efa_communication_operation": {
+      "name": "efa_communication_operation",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "communication_id": {
+          "name": "communication_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "owner_user_id": {
+          "name": "owner_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actor_user_id": {
+          "name": "actor_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "client_operation_id": {
+          "name": "client_operation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "request_hash": {
+          "name": "request_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "applied_version": {
+          "name": "applied_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "changed": {
+          "name": "changed",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "efa_communication_operation_actor_user_id_user_id_fk": {
+          "name": "efa_communication_operation_actor_user_id_user_id_fk",
+          "tableFrom": "efa_communication_operation",
+          "tableTo": "user",
+          "columnsFrom": ["actor_user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "efa_communication_operation_communication_fk": {
+          "name": "efa_communication_operation_communication_fk",
+          "tableFrom": "efa_communication_operation",
+          "tableTo": "efa_communication",
+          "columnsFrom": ["communication_id", "owner_user_id"],
+          "columnsTo": ["id", "owner_user_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "efa_communication_operation_client_unique": {
+          "name": "efa_communication_operation_client_unique",
+          "nullsNotDistinct": false,
+          "columns": ["communication_id", "client_operation_id"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "efa_communication_operation_action_allowed": {
+          "name": "efa_communication_operation_action_allowed",
+          "value": "\"efa_communication_operation\".\"action\" in ('created', 'updated', 'finalized')"
+        },
+        "efa_communication_operation_create_result_valid": {
+          "name": "efa_communication_operation_create_result_valid",
+          "value": "\"efa_communication_operation\".\"action\" <> 'created' or (\"efa_communication_operation\".\"applied_version\" = 1 and \"efa_communication_operation\".\"changed\")"
+        },
+        "efa_communication_operation_version_positive": {
+          "name": "efa_communication_operation_version_positive",
+          "value": "\"efa_communication_operation\".\"applied_version\" > 0"
+        },
+        "efa_communication_operation_hash_sha256": {
+          "name": "efa_communication_operation_hash_sha256",
+          "value": "\"efa_communication_operation\".\"request_hash\" ~ '^[0-9a-f]{64}$'"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.efa_dispatch": {
+      "name": "efa_dispatch",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "episode_id": {
+          "name": "episode_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "owner_user_id": {
+          "name": "owner_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "base_id": {
+          "name": "base_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "communication_id": {
+          "name": "communication_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "client_creation_key": {
+          "name": "client_creation_key",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "priority": {
+          "name": "priority",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "t0_at": {
+          "name": "t0_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "t0_status": {
+          "name": "t0_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'not_observed'"
+        },
+        "t1_at": {
+          "name": "t1_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "t1_status": {
+          "name": "t1_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'not_observed'"
+        },
+        "t2_at": {
+          "name": "t2_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "t2_status": {
+          "name": "t2_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'not_observed'"
+        },
+        "t3_at": {
+          "name": "t3_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "t3_status": {
+          "name": "t3_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'not_observed'"
+        },
+        "t4_at": {
+          "name": "t4_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "t4_status": {
+          "name": "t4_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'not_observed'"
+        },
+        "t5_at": {
+          "name": "t5_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "t5_status": {
+          "name": "t5_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'not_observed'"
+        },
+        "t6_at": {
+          "name": "t6_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "t6_status": {
+          "name": "t6_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'not_observed'"
+        },
+        "first_response_role": {
+          "name": "first_response_role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "first_response_at": {
+          "name": "first_response_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "result": {
+          "name": "result",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "result_clarification": {
+          "name": "result_clarification",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "state": {
+          "name": "state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'draft'"
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "finalized_at": {
+          "name": "finalized_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "efa_dispatch_base_id_efa_base_id_fk": {
+          "name": "efa_dispatch_base_id_efa_base_id_fk",
+          "tableFrom": "efa_dispatch",
+          "tableTo": "efa_base",
+          "columnsFrom": ["base_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "efa_dispatch_episode_owner_fk": {
+          "name": "efa_dispatch_episode_owner_fk",
+          "tableFrom": "efa_dispatch",
+          "tableTo": "efa_episode",
+          "columnsFrom": ["episode_id", "owner_user_id"],
+          "columnsTo": ["id", "owner_user_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "efa_dispatch_communication_episode_owner_fk": {
+          "name": "efa_dispatch_communication_episode_owner_fk",
+          "tableFrom": "efa_dispatch",
+          "tableTo": "efa_communication",
+          "columnsFrom": ["communication_id", "episode_id", "owner_user_id"],
+          "columnsTo": ["id", "episode_id", "owner_user_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "efa_dispatch_id_owner_unique": {
+          "name": "efa_dispatch_id_owner_unique",
+          "nullsNotDistinct": false,
+          "columns": ["id", "owner_user_id"]
+        },
+        "efa_dispatch_id_episode_owner_unique": {
+          "name": "efa_dispatch_id_episode_owner_unique",
+          "nullsNotDistinct": false,
+          "columns": ["id", "episode_id", "owner_user_id"]
+        },
+        "efa_dispatch_owner_creation_key_unique": {
+          "name": "efa_dispatch_owner_creation_key_unique",
+          "nullsNotDistinct": false,
+          "columns": ["owner_user_id", "client_creation_key"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "efa_dispatch_priority_allowed": {
+          "name": "efa_dispatch_priority_allowed",
+          "value": "\"efa_dispatch\".\"priority\" is null or \"efa_dispatch\".\"priority\" in ('red','yellow','green')"
+        },
+        "efa_dispatch_result_allowed": {
+          "name": "efa_dispatch_result_allowed",
+          "value": "\"efa_dispatch\".\"result\" is null or \"efa_dispatch\".\"result\" in ('transported','treated_at_home','refused','not_located','cancelled','death','not_informed')"
+        },
+        "efa_dispatch_state_allowed": {
+          "name": "efa_dispatch_state_allowed",
+          "value": "(\"efa_dispatch\".\"state\" = 'draft' and \"efa_dispatch\".\"finalized_at\" is null) or (\"efa_dispatch\".\"state\" = 'finalized' and \"efa_dispatch\".\"finalized_at\" is not null and \"efa_dispatch\".\"priority\" is not null and \"efa_dispatch\".\"result\" is not null)"
+        },
+        "efa_dispatch_version_positive": {
+          "name": "efa_dispatch_version_positive",
+          "value": "\"efa_dispatch\".\"version\" > 0"
+        },
+        "efa_dispatch_time_observation_statuses_valid": {
+          "name": "efa_dispatch_time_observation_statuses_valid",
+          "value": "(\"efa_dispatch\".\"t0_status\" in ('observed','not_observed','not_informed','not_applicable') and ((\"efa_dispatch\".\"t0_status\" = 'observed') = (\"efa_dispatch\".\"t0_at\" is not null))) and (\"efa_dispatch\".\"t1_status\" in ('observed','not_observed','not_informed','not_applicable') and ((\"efa_dispatch\".\"t1_status\" = 'observed') = (\"efa_dispatch\".\"t1_at\" is not null))) and (\"efa_dispatch\".\"t2_status\" in ('observed','not_observed','not_informed','not_applicable') and ((\"efa_dispatch\".\"t2_status\" = 'observed') = (\"efa_dispatch\".\"t2_at\" is not null))) and (\"efa_dispatch\".\"t3_status\" in ('observed','not_observed','not_informed','not_applicable') and ((\"efa_dispatch\".\"t3_status\" = 'observed') = (\"efa_dispatch\".\"t3_at\" is not null))) and (\"efa_dispatch\".\"t4_status\" in ('observed','not_observed','not_informed','not_applicable') and ((\"efa_dispatch\".\"t4_status\" = 'observed') = (\"efa_dispatch\".\"t4_at\" is not null))) and (\"efa_dispatch\".\"t5_status\" in ('observed','not_observed','not_informed','not_applicable') and ((\"efa_dispatch\".\"t5_status\" = 'observed') = (\"efa_dispatch\".\"t5_at\" is not null))) and (\"efa_dispatch\".\"t6_status\" in ('observed','not_observed','not_informed','not_applicable') and ((\"efa_dispatch\".\"t6_status\" = 'observed') = (\"efa_dispatch\".\"t6_at\" is not null)))"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.efa_dispatch_audit": {
+      "name": "efa_dispatch_audit",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "dispatch_id": {
+          "name": "dispatch_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "owner_user_id": {
+          "name": "owner_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actor_user_id": {
+          "name": "actor_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "operation_id": {
+          "name": "operation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version_before": {
+          "name": "version_before",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "version_after": {
+          "name": "version_after",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "before_state": {
+          "name": "before_state",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "after_state": {
+          "name": "after_state",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "efa_dispatch_audit_actor_user_id_user_id_fk": {
+          "name": "efa_dispatch_audit_actor_user_id_user_id_fk",
+          "tableFrom": "efa_dispatch_audit",
+          "tableTo": "user",
+          "columnsFrom": ["actor_user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "efa_dispatch_audit_dispatch_fk": {
+          "name": "efa_dispatch_audit_dispatch_fk",
+          "tableFrom": "efa_dispatch_audit",
+          "tableTo": "efa_dispatch",
+          "columnsFrom": ["dispatch_id", "owner_user_id"],
+          "columnsTo": ["id", "owner_user_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "efa_dispatch_audit_dispatch_version_unique": {
+          "name": "efa_dispatch_audit_dispatch_version_unique",
+          "nullsNotDistinct": false,
+          "columns": ["dispatch_id", "version_after"]
+        },
+        "efa_dispatch_audit_dispatch_operation_unique": {
+          "name": "efa_dispatch_audit_dispatch_operation_unique",
+          "nullsNotDistinct": false,
+          "columns": ["dispatch_id", "operation_id"]
+        },
+        "efa_dispatch_audit_id_dispatch_unique": {
+          "name": "efa_dispatch_audit_id_dispatch_unique",
+          "nullsNotDistinct": false,
+          "columns": ["id", "dispatch_id"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "efa_dispatch_audit_action_allowed": {
+          "name": "efa_dispatch_audit_action_allowed",
+          "value": "\"efa_dispatch_audit\".\"action\" in ('created','updated','finalized')"
+        },
+        "efa_dispatch_audit_version_transition_valid": {
+          "name": "efa_dispatch_audit_version_transition_valid",
+          "value": "(\"efa_dispatch_audit\".\"version_before\" is null and \"efa_dispatch_audit\".\"version_after\" = 1) or (\"efa_dispatch_audit\".\"version_before\" > 0 and \"efa_dispatch_audit\".\"version_after\" = \"efa_dispatch_audit\".\"version_before\" + 1)"
+        },
+        "efa_dispatch_audit_state_object": {
+          "name": "efa_dispatch_audit_state_object",
+          "value": "jsonb_typeof(\"efa_dispatch_audit\".\"after_state\") = 'object' and (\"efa_dispatch_audit\".\"before_state\" is null or jsonb_typeof(\"efa_dispatch_audit\".\"before_state\") = 'object')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.efa_dispatch_contact_attempt": {
+      "name": "efa_dispatch_contact_attempt",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "dispatch_id": {
+          "name": "dispatch_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "owner_user_id": {
+          "name": "owner_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actor_user_id": {
+          "name": "actor_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "client_event_id": {
+          "name": "client_event_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "efa_dispatch_contact_attempt_actor_user_id_user_id_fk": {
+          "name": "efa_dispatch_contact_attempt_actor_user_id_user_id_fk",
+          "tableFrom": "efa_dispatch_contact_attempt",
+          "tableTo": "user",
+          "columnsFrom": ["actor_user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "efa_dispatch_contact_attempt_dispatch_fk": {
+          "name": "efa_dispatch_contact_attempt_dispatch_fk",
+          "tableFrom": "efa_dispatch_contact_attempt",
+          "tableTo": "efa_dispatch",
+          "columnsFrom": ["dispatch_id", "owner_user_id"],
+          "columnsTo": ["id", "owner_user_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "efa_dispatch_contact_attempt_event_unique": {
+          "name": "efa_dispatch_contact_attempt_event_unique",
+          "nullsNotDistinct": false,
+          "columns": ["dispatch_id", "client_event_id"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "efa_dispatch_contact_attempt_note_length": {
+          "name": "efa_dispatch_contact_attempt_note_length",
+          "value": "\"efa_dispatch_contact_attempt\".\"note\" is null or char_length(\"efa_dispatch_contact_attempt\".\"note\") <= 1000"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.efa_dispatch_notice": {
+      "name": "efa_dispatch_notice",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "dispatch_id": {
+          "name": "dispatch_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "owner_user_id": {
+          "name": "owner_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "audit_id": {
+          "name": "audit_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "recipient_user_id": {
+          "name": "recipient_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "read_at": {
+          "name": "read_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "efa_dispatch_notice_recipient_user_id_user_id_fk": {
+          "name": "efa_dispatch_notice_recipient_user_id_user_id_fk",
+          "tableFrom": "efa_dispatch_notice",
+          "tableTo": "user",
+          "columnsFrom": ["recipient_user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "efa_dispatch_notice_owner_fk": {
+          "name": "efa_dispatch_notice_owner_fk",
+          "tableFrom": "efa_dispatch_notice",
+          "tableTo": "efa_dispatch",
+          "columnsFrom": ["dispatch_id", "owner_user_id"],
+          "columnsTo": ["id", "owner_user_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "efa_dispatch_notice_audit_fk": {
+          "name": "efa_dispatch_notice_audit_fk",
+          "tableFrom": "efa_dispatch_notice",
+          "tableTo": "efa_dispatch_audit",
+          "columnsFrom": ["audit_id", "dispatch_id"],
+          "columnsTo": ["id", "dispatch_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "efa_dispatch_notice_audit_recipient_unique": {
+          "name": "efa_dispatch_notice_audit_recipient_unique",
+          "nullsNotDistinct": false,
+          "columns": ["audit_id", "recipient_user_id"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "efa_dispatch_notice_recipient_is_owner": {
+          "name": "efa_dispatch_notice_recipient_is_owner",
+          "value": "\"efa_dispatch_notice\".\"recipient_user_id\" = \"efa_dispatch_notice\".\"owner_user_id\""
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.efa_dispatch_operation": {
+      "name": "efa_dispatch_operation",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "dispatch_id": {
+          "name": "dispatch_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "owner_user_id": {
+          "name": "owner_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actor_user_id": {
+          "name": "actor_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "client_operation_id": {
+          "name": "client_operation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "request_hash": {
+          "name": "request_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "applied_version": {
+          "name": "applied_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "changed": {
+          "name": "changed",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "efa_dispatch_operation_actor_user_id_user_id_fk": {
+          "name": "efa_dispatch_operation_actor_user_id_user_id_fk",
+          "tableFrom": "efa_dispatch_operation",
+          "tableTo": "user",
+          "columnsFrom": ["actor_user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "efa_dispatch_operation_dispatch_fk": {
+          "name": "efa_dispatch_operation_dispatch_fk",
+          "tableFrom": "efa_dispatch_operation",
+          "tableTo": "efa_dispatch",
+          "columnsFrom": ["dispatch_id", "owner_user_id"],
+          "columnsTo": ["id", "owner_user_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "efa_dispatch_operation_client_unique": {
+          "name": "efa_dispatch_operation_client_unique",
+          "nullsNotDistinct": false,
+          "columns": ["dispatch_id", "client_operation_id"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "efa_dispatch_operation_action_allowed": {
+          "name": "efa_dispatch_operation_action_allowed",
+          "value": "\"efa_dispatch_operation\".\"action\" in ('created','updated','finalized')"
+        },
+        "efa_dispatch_operation_create_result_valid": {
+          "name": "efa_dispatch_operation_create_result_valid",
+          "value": "\"efa_dispatch_operation\".\"action\" <> 'created' or (\"efa_dispatch_operation\".\"applied_version\" = 1 and \"efa_dispatch_operation\".\"changed\")"
+        },
+        "efa_dispatch_operation_hash_sha256": {
+          "name": "efa_dispatch_operation_hash_sha256",
+          "value": "\"efa_dispatch_operation\".\"request_hash\" ~ '^[0-9a-f]{64}$'"
+        },
+        "efa_dispatch_operation_version_positive": {
+          "name": "efa_dispatch_operation_version_positive",
+          "value": "\"efa_dispatch_operation\".\"applied_version\" > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.efa_episode": {
+      "name": "efa_episode",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "client_creation_key": {
+          "name": "client_creation_key",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "owner_user_id": {
+          "name": "owner_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "origin_guard_id": {
+          "name": "origin_guard_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "event_at": {
+          "name": "event_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "motive": {
+          "name": "motive",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "address": {
+          "name": "address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "intervention_number": {
+          "name": "intervention_number",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "state": {
+          "name": "state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'draft'"
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "efa_episode_owner_user_id_user_id_fk": {
+          "name": "efa_episode_owner_user_id_user_id_fk",
+          "tableFrom": "efa_episode",
+          "tableTo": "user",
+          "columnsFrom": ["owner_user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "efa_episode_origin_owner_guard_fk": {
+          "name": "efa_episode_origin_owner_guard_fk",
+          "tableFrom": "efa_episode",
+          "tableTo": "efa_guard",
+          "columnsFrom": ["origin_guard_id", "owner_user_id"],
+          "columnsTo": ["id", "owner_user_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "efa_episode_owner_creation_key_unique": {
+          "name": "efa_episode_owner_creation_key_unique",
+          "nullsNotDistinct": false,
+          "columns": ["owner_user_id", "client_creation_key"]
+        },
+        "efa_episode_id_owner_unique": {
+          "name": "efa_episode_id_owner_unique",
+          "nullsNotDistinct": false,
+          "columns": ["id", "owner_user_id"]
+        },
+        "efa_episode_id_guard_owner_unique": {
+          "name": "efa_episode_id_guard_owner_unique",
+          "nullsNotDistinct": false,
+          "columns": ["id", "origin_guard_id", "owner_user_id"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "efa_episode_version_positive": {
+          "name": "efa_episode_version_positive",
+          "value": "\"efa_episode\".\"version\" > 0"
+        },
+        "efa_episode_draft_only": {
+          "name": "efa_episode_draft_only",
+          "value": "\"efa_episode\".\"state\" = 'draft'"
+        },
+        "efa_episode_optional_text_bounds": {
+          "name": "efa_episode_optional_text_bounds",
+          "value": "(\"efa_episode\".\"motive\" is null or char_length(\"efa_episode\".\"motive\") <= 2000) and (\"efa_episode\".\"address\" is null or char_length(\"efa_episode\".\"address\") <= 1000) and (\"efa_episode\".\"intervention_number\" is null or char_length(\"efa_episode\".\"intervention_number\") <= 100)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.efa_episode_audit": {
+      "name": "efa_episode_audit",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "episode_id": {
+          "name": "episode_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actor_user_id": {
+          "name": "actor_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "operation_id": {
+          "name": "operation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version_before": {
+          "name": "version_before",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "version_after": {
+          "name": "version_after",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "before_state": {
+          "name": "before_state",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "after_state": {
+          "name": "after_state",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "efa_episode_audit_episode_id_efa_episode_id_fk": {
+          "name": "efa_episode_audit_episode_id_efa_episode_id_fk",
+          "tableFrom": "efa_episode_audit",
+          "tableTo": "efa_episode",
+          "columnsFrom": ["episode_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "efa_episode_audit_actor_user_id_user_id_fk": {
+          "name": "efa_episode_audit_actor_user_id_user_id_fk",
+          "tableFrom": "efa_episode_audit",
+          "tableTo": "user",
+          "columnsFrom": ["actor_user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "efa_episode_audit_episode_version_unique": {
+          "name": "efa_episode_audit_episode_version_unique",
+          "nullsNotDistinct": false,
+          "columns": ["episode_id", "version_after"]
+        },
+        "efa_episode_audit_operation_unique": {
+          "name": "efa_episode_audit_operation_unique",
+          "nullsNotDistinct": false,
+          "columns": ["episode_id", "operation_id"]
+        },
+        "efa_episode_audit_id_episode_unique": {
+          "name": "efa_episode_audit_id_episode_unique",
+          "nullsNotDistinct": false,
+          "columns": ["id", "episode_id"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "efa_episode_audit_action_allowed": {
+          "name": "efa_episode_audit_action_allowed",
+          "value": "\"efa_episode_audit\".\"action\" in ('created', 'updated')"
+        },
+        "efa_episode_audit_version_transition_valid": {
+          "name": "efa_episode_audit_version_transition_valid",
+          "value": "(\"efa_episode_audit\".\"version_before\" is null and \"efa_episode_audit\".\"version_after\" = 1) or (\"efa_episode_audit\".\"version_before\" is not null and \"efa_episode_audit\".\"version_before\" > 0 and \"efa_episode_audit\".\"version_after\" = \"efa_episode_audit\".\"version_before\" + 1)"
+        },
+        "efa_episode_audit_action_version_valid": {
+          "name": "efa_episode_audit_action_version_valid",
+          "value": "(\"efa_episode_audit\".\"action\" = 'created' and \"efa_episode_audit\".\"version_before\" is null and \"efa_episode_audit\".\"version_after\" = 1) or (\"efa_episode_audit\".\"action\" = 'updated' and \"efa_episode_audit\".\"version_before\" is not null and \"efa_episode_audit\".\"version_after\" = \"efa_episode_audit\".\"version_before\" + 1)"
+        },
+        "efa_episode_audit_state_is_object": {
+          "name": "efa_episode_audit_state_is_object",
+          "value": "jsonb_typeof(\"efa_episode_audit\".\"after_state\") = 'object' and (\"efa_episode_audit\".\"before_state\" is null or jsonb_typeof(\"efa_episode_audit\".\"before_state\") = 'object')"
+        },
+        "efa_episode_audit_state_keys_allowlisted": {
+          "name": "efa_episode_audit_state_keys_allowlisted",
+          "value": "(\"efa_episode_audit\".\"after_state\" - 'eventAt' - 'motive' - 'address' - 'interventionNumber' - 'state') = '{}'::jsonb and (\"efa_episode_audit\".\"before_state\" is null or (\"efa_episode_audit\".\"before_state\" - 'eventAt' - 'motive' - 'address' - 'interventionNumber' - 'state') = '{}'::jsonb)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.efa_episode_notice": {
+      "name": "efa_episode_notice",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "episode_id": {
+          "name": "episode_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "audit_id": {
+          "name": "audit_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "recipient_user_id": {
+          "name": "recipient_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "read_at": {
+          "name": "read_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "efa_episode_notice_recipient_user_id_user_id_fk": {
+          "name": "efa_episode_notice_recipient_user_id_user_id_fk",
+          "tableFrom": "efa_episode_notice",
+          "tableTo": "user",
+          "columnsFrom": ["recipient_user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "efa_episode_notice_owner_fk": {
+          "name": "efa_episode_notice_owner_fk",
+          "tableFrom": "efa_episode_notice",
+          "tableTo": "efa_episode",
+          "columnsFrom": ["episode_id", "recipient_user_id"],
+          "columnsTo": ["id", "owner_user_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "efa_episode_notice_audit_episode_fk": {
+          "name": "efa_episode_notice_audit_episode_fk",
+          "tableFrom": "efa_episode_notice",
+          "tableTo": "efa_episode_audit",
+          "columnsFrom": ["audit_id", "episode_id"],
+          "columnsTo": ["id", "episode_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "efa_episode_notice_audit_recipient_unique": {
+          "name": "efa_episode_notice_audit_recipient_unique",
+          "nullsNotDistinct": false,
+          "columns": ["audit_id", "recipient_user_id"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.efa_episode_operation": {
+      "name": "efa_episode_operation",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "episode_id": {
+          "name": "episode_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actor_user_id": {
+          "name": "actor_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "client_operation_id": {
+          "name": "client_operation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "request_hash": {
+          "name": "request_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "applied_version": {
+          "name": "applied_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "changed": {
+          "name": "changed",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "efa_episode_operation_episode_id_efa_episode_id_fk": {
+          "name": "efa_episode_operation_episode_id_efa_episode_id_fk",
+          "tableFrom": "efa_episode_operation",
+          "tableTo": "efa_episode",
+          "columnsFrom": ["episode_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "efa_episode_operation_actor_user_id_user_id_fk": {
+          "name": "efa_episode_operation_actor_user_id_user_id_fk",
+          "tableFrom": "efa_episode_operation",
+          "tableTo": "user",
+          "columnsFrom": ["actor_user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "efa_episode_operation_episode_client_unique": {
+          "name": "efa_episode_operation_episode_client_unique",
+          "nullsNotDistinct": false,
+          "columns": ["episode_id", "client_operation_id"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "efa_episode_operation_action_allowed": {
+          "name": "efa_episode_operation_action_allowed",
+          "value": "\"efa_episode_operation\".\"action\" in ('created', 'updated')"
+        },
+        "efa_episode_operation_create_result_valid": {
+          "name": "efa_episode_operation_create_result_valid",
+          "value": "\"efa_episode_operation\".\"action\" <> 'created' or (\"efa_episode_operation\".\"applied_version\" = 1 and \"efa_episode_operation\".\"changed\")"
+        },
+        "efa_episode_operation_version_positive": {
+          "name": "efa_episode_operation_version_positive",
+          "value": "\"efa_episode_operation\".\"applied_version\" > 0"
+        },
+        "efa_episode_operation_hash_sha256": {
+          "name": "efa_episode_operation_hash_sha256",
+          "value": "\"efa_episode_operation\".\"request_hash\" ~ '^[0-9a-f]{64}$'"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.efa_guard": {
+      "name": "efa_guard",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "owner_user_id": {
+          "name": "owner_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "ended_at": {
+          "name": "ended_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "declared_at_central": {
+          "name": "declared_at_central",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "efa_guard_id_owner_user_unique": {
+          "name": "efa_guard_id_owner_user_unique",
+          "columns": [
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "owner_user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "efa_guard_one_open_per_owner_unique": {
+          "name": "efa_guard_one_open_per_owner_unique",
+          "columns": [
+            {
+              "expression": "owner_user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"efa_guard\".\"ended_at\" is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "efa_guard_owner_user_id_user_id_fk": {
+          "name": "efa_guard_owner_user_id_user_id_fk",
+          "tableFrom": "efa_guard",
+          "tableTo": "user",
+          "columnsFrom": ["owner_user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "efa_guard_version_positive": {
+          "name": "efa_guard_version_positive",
+          "value": "\"efa_guard\".\"version\" > 0"
+        },
+        "efa_guard_end_after_start": {
+          "name": "efa_guard_end_after_start",
+          "value": "\"efa_guard\".\"ended_at\" is null or \"efa_guard\".\"ended_at\" >= \"efa_guard\".\"started_at\""
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.efa_guard_audit": {
+      "name": "efa_guard_audit",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "guard_id": {
+          "name": "guard_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actor_user_id": {
+          "name": "actor_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version_before": {
+          "name": "version_before",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "version_after": {
+          "name": "version_after",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "before_state": {
+          "name": "before_state",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "after_state": {
+          "name": "after_state",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "efa_guard_audit_guard_id_efa_guard_id_fk": {
+          "name": "efa_guard_audit_guard_id_efa_guard_id_fk",
+          "tableFrom": "efa_guard_audit",
+          "tableTo": "efa_guard",
+          "columnsFrom": ["guard_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "efa_guard_audit_actor_user_id_user_id_fk": {
+          "name": "efa_guard_audit_actor_user_id_user_id_fk",
+          "tableFrom": "efa_guard_audit",
+          "tableTo": "user",
+          "columnsFrom": ["actor_user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "efa_guard_audit_guard_version_unique": {
+          "name": "efa_guard_audit_guard_version_unique",
+          "nullsNotDistinct": false,
+          "columns": ["guard_id", "version_after"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "efa_guard_audit_action_allowed": {
+          "name": "efa_guard_audit_action_allowed",
+          "value": "\"efa_guard_audit\".\"action\" in ('started', 'ended', 'end_corrected')"
+        },
+        "efa_guard_audit_version_transition_valid": {
+          "name": "efa_guard_audit_version_transition_valid",
+          "value": "(\"efa_guard_audit\".\"version_before\" is null and \"efa_guard_audit\".\"version_after\" = 1) or (\"efa_guard_audit\".\"version_before\" is not null and \"efa_guard_audit\".\"version_before\" > 0 and \"efa_guard_audit\".\"version_after\" = \"efa_guard_audit\".\"version_before\" + 1)"
+        },
+        "efa_guard_audit_state_is_object": {
+          "name": "efa_guard_audit_state_is_object",
+          "value": "jsonb_typeof(\"efa_guard_audit\".\"after_state\") = 'object' and (\"efa_guard_audit\".\"before_state\" is null or jsonb_typeof(\"efa_guard_audit\".\"before_state\") = 'object')"
+        },
+        "efa_guard_audit_state_keys_allowlisted": {
+          "name": "efa_guard_audit_state_keys_allowlisted",
+          "value": "(\"efa_guard_audit\".\"after_state\" - 'startedAt' - 'endedAt') = '{}'::jsonb and (\"efa_guard_audit\".\"before_state\" is null or (\"efa_guard_audit\".\"before_state\" - 'startedAt' - 'endedAt') = '{}'::jsonb)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.efa_guard_base_event": {
+      "name": "efa_guard_base_event",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "guard_id": {
+          "name": "guard_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "base_id": {
+          "name": "base_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actor_user_id": {
+          "name": "actor_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sequence": {
+          "name": "sequence",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "efa_guard_base_event_guard_id_efa_guard_id_fk": {
+          "name": "efa_guard_base_event_guard_id_efa_guard_id_fk",
+          "tableFrom": "efa_guard_base_event",
+          "tableTo": "efa_guard",
+          "columnsFrom": ["guard_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "efa_guard_base_event_base_id_efa_base_id_fk": {
+          "name": "efa_guard_base_event_base_id_efa_base_id_fk",
+          "tableFrom": "efa_guard_base_event",
+          "tableTo": "efa_base",
+          "columnsFrom": ["base_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "efa_guard_base_event_actor_user_id_user_id_fk": {
+          "name": "efa_guard_base_event_actor_user_id_user_id_fk",
+          "tableFrom": "efa_guard_base_event",
+          "tableTo": "user",
+          "columnsFrom": ["actor_user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "efa_guard_base_event_guard_sequence_unique": {
+          "name": "efa_guard_base_event_guard_sequence_unique",
+          "nullsNotDistinct": false,
+          "columns": ["guard_id", "sequence"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "efa_guard_base_event_sequence_positive": {
+          "name": "efa_guard_base_event_sequence_positive",
+          "value": "\"efa_guard_base_event\".\"sequence\" > 0"
+        },
+        "efa_guard_base_event_action_allowed": {
+          "name": "efa_guard_base_event_action_allowed",
+          "value": "\"efa_guard_base_event\".\"action\" in ('added', 'removed')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.efa_observation": {
+      "name": "efa_observation",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "owner_user_id": {
+          "name": "owner_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "guard_id": {
+          "name": "guard_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "episode_id": {
+          "name": "episode_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "context_type": {
+          "name": "context_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "communication_id": {
+          "name": "communication_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "dispatch_id": {
+          "name": "dispatch_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "coordination_id": {
+          "name": "coordination_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "police_event_id": {
+          "name": "police_event_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "catalog_item_key": {
+          "name": "catalog_item_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "catalog_key_snapshot": {
+          "name": "catalog_key_snapshot",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "catalog_label_snapshot": {
+          "name": "catalog_label_snapshot",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "catalog_group_snapshot": {
+          "name": "catalog_group_snapshot",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "other_description": {
+          "name": "other_description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "classification": {
+          "name": "classification",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "comment": {
+          "name": "comment",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "observed_at": {
+          "name": "observed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "client_creation_key": {
+          "name": "client_creation_key",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "efa_observation_owner_user_id_user_id_fk": {
+          "name": "efa_observation_owner_user_id_user_id_fk",
+          "tableFrom": "efa_observation",
+          "tableTo": "user",
+          "columnsFrom": ["owner_user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "efa_observation_guard_owner_fk": {
+          "name": "efa_observation_guard_owner_fk",
+          "tableFrom": "efa_observation",
+          "tableTo": "efa_guard",
+          "columnsFrom": ["guard_id", "owner_user_id"],
+          "columnsTo": ["id", "owner_user_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "efa_observation_episode_guard_owner_fk": {
+          "name": "efa_observation_episode_guard_owner_fk",
+          "tableFrom": "efa_observation",
+          "tableTo": "efa_episode",
+          "columnsFrom": ["episode_id", "guard_id", "owner_user_id"],
+          "columnsTo": ["id", "origin_guard_id", "owner_user_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "efa_observation_communication_scope_fk": {
+          "name": "efa_observation_communication_scope_fk",
+          "tableFrom": "efa_observation",
+          "tableTo": "efa_communication",
+          "columnsFrom": ["communication_id", "episode_id", "owner_user_id"],
+          "columnsTo": ["id", "episode_id", "owner_user_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "efa_observation_dispatch_scope_fk": {
+          "name": "efa_observation_dispatch_scope_fk",
+          "tableFrom": "efa_observation",
+          "tableTo": "efa_dispatch",
+          "columnsFrom": ["dispatch_id", "episode_id", "owner_user_id"],
+          "columnsTo": ["id", "episode_id", "owner_user_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "efa_observation_coordination_scope_fk": {
+          "name": "efa_observation_coordination_scope_fk",
+          "tableFrom": "efa_observation",
+          "tableTo": "efa_police_coordination",
+          "columnsFrom": ["coordination_id", "episode_id", "owner_user_id"],
+          "columnsTo": ["id", "episode_id", "owner_user_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "efa_observation_police_event_scope_fk": {
+          "name": "efa_observation_police_event_scope_fk",
+          "tableFrom": "efa_observation",
+          "tableTo": "efa_police_coordination_event",
+          "columnsFrom": ["police_event_id", "coordination_id", "owner_user_id"],
+          "columnsTo": ["id", "coordination_id", "owner_user_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "efa_observation_catalog_item_fk": {
+          "name": "efa_observation_catalog_item_fk",
+          "tableFrom": "efa_observation",
+          "tableTo": "efa_observation_catalog",
+          "columnsFrom": ["catalog_item_key"],
+          "columnsTo": ["key"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "efa_observation_id_owner_unique": {
+          "name": "efa_observation_id_owner_unique",
+          "nullsNotDistinct": false,
+          "columns": ["id", "owner_user_id"]
+        },
+        "efa_observation_owner_creation_key_unique": {
+          "name": "efa_observation_owner_creation_key_unique",
+          "nullsNotDistinct": false,
+          "columns": ["owner_user_id", "client_creation_key"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "efa_observation_context_allowed": {
+          "name": "efa_observation_context_allowed",
+          "value": "\"efa_observation\".\"context_type\" in ('guard','episode','communication','dispatch','coordination','police_event')"
+        },
+        "efa_observation_exactly_one_context": {
+          "name": "efa_observation_exactly_one_context",
+          "value": "(\"efa_observation\".\"context_type\" = 'guard' and \"efa_observation\".\"episode_id\" is null and \"efa_observation\".\"communication_id\" is null and \"efa_observation\".\"dispatch_id\" is null and \"efa_observation\".\"coordination_id\" is null and \"efa_observation\".\"police_event_id\" is null) or (\"efa_observation\".\"context_type\" = 'episode' and \"efa_observation\".\"episode_id\" is not null and \"efa_observation\".\"communication_id\" is null and \"efa_observation\".\"dispatch_id\" is null and \"efa_observation\".\"coordination_id\" is null and \"efa_observation\".\"police_event_id\" is null) or (\"efa_observation\".\"context_type\" = 'communication' and \"efa_observation\".\"episode_id\" is not null and \"efa_observation\".\"communication_id\" is not null and \"efa_observation\".\"dispatch_id\" is null and \"efa_observation\".\"coordination_id\" is null and \"efa_observation\".\"police_event_id\" is null) or (\"efa_observation\".\"context_type\" = 'dispatch' and \"efa_observation\".\"episode_id\" is not null and \"efa_observation\".\"communication_id\" is null and \"efa_observation\".\"dispatch_id\" is not null and \"efa_observation\".\"coordination_id\" is null and \"efa_observation\".\"police_event_id\" is null) or (\"efa_observation\".\"context_type\" = 'coordination' and \"efa_observation\".\"episode_id\" is not null and \"efa_observation\".\"communication_id\" is null and \"efa_observation\".\"dispatch_id\" is null and \"efa_observation\".\"coordination_id\" is not null and \"efa_observation\".\"police_event_id\" is null) or (\"efa_observation\".\"context_type\" = 'police_event' and \"efa_observation\".\"episode_id\" is not null and \"efa_observation\".\"communication_id\" is null and \"efa_observation\".\"dispatch_id\" is null and \"efa_observation\".\"coordination_id\" is not null and \"efa_observation\".\"police_event_id\" is not null)"
+        },
+        "efa_observation_classification_allowed": {
+          "name": "efa_observation_classification_allowed",
+          "value": "\"efa_observation\".\"classification\" in ('adequate','needs_improvement')"
+        },
+        "efa_observation_other_description_required": {
+          "name": "efa_observation_other_description_required",
+          "value": "(\"efa_observation\".\"catalog_item_key\" is not null and \"efa_observation\".\"other_description\" is null) or (\"efa_observation\".\"catalog_item_key\" is null and \"efa_observation\".\"catalog_key_snapshot\" = 'other' and \"efa_observation\".\"other_description\" is not null and char_length(trim(\"efa_observation\".\"other_description\")) > 0)"
+        },
+        "efa_observation_text_bounds": {
+          "name": "efa_observation_text_bounds",
+          "value": "char_length(\"efa_observation\".\"catalog_key_snapshot\") <= 100 and char_length(\"efa_observation\".\"catalog_label_snapshot\") <= 200 and char_length(\"efa_observation\".\"catalog_group_snapshot\") <= 30 and (\"efa_observation\".\"other_description\" is null or char_length(\"efa_observation\".\"other_description\") <= 1000) and (\"efa_observation\".\"comment\" is null or char_length(\"efa_observation\".\"comment\") <= 1000)"
+        },
+        "efa_observation_version_positive": {
+          "name": "efa_observation_version_positive",
+          "value": "\"efa_observation\".\"version\" > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.efa_observation_audit": {
+      "name": "efa_observation_audit",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "observation_id": {
+          "name": "observation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "owner_user_id": {
+          "name": "owner_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actor_user_id": {
+          "name": "actor_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "operation_id": {
+          "name": "operation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version_before": {
+          "name": "version_before",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "version_after": {
+          "name": "version_after",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "before_state": {
+          "name": "before_state",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "after_state": {
+          "name": "after_state",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "efa_observation_audit_actor_user_id_user_id_fk": {
+          "name": "efa_observation_audit_actor_user_id_user_id_fk",
+          "tableFrom": "efa_observation_audit",
+          "tableTo": "user",
+          "columnsFrom": ["actor_user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "efa_observation_audit_owner_fk": {
+          "name": "efa_observation_audit_owner_fk",
+          "tableFrom": "efa_observation_audit",
+          "tableTo": "efa_observation",
+          "columnsFrom": ["observation_id", "owner_user_id"],
+          "columnsTo": ["id", "owner_user_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "efa_observation_audit_version_unique": {
+          "name": "efa_observation_audit_version_unique",
+          "nullsNotDistinct": false,
+          "columns": ["observation_id", "version_after"]
+        },
+        "efa_observation_audit_operation_unique": {
+          "name": "efa_observation_audit_operation_unique",
+          "nullsNotDistinct": false,
+          "columns": ["observation_id", "operation_id"]
+        },
+        "efa_observation_audit_id_scope_unique": {
+          "name": "efa_observation_audit_id_scope_unique",
+          "nullsNotDistinct": false,
+          "columns": ["id", "observation_id"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "efa_observation_audit_action_allowed": {
+          "name": "efa_observation_audit_action_allowed",
+          "value": "\"efa_observation_audit\".\"action\" in ('created','updated')"
+        },
+        "efa_observation_audit_version_transition_valid": {
+          "name": "efa_observation_audit_version_transition_valid",
+          "value": "(\"efa_observation_audit\".\"version_before\" is null and \"efa_observation_audit\".\"version_after\" = 1) or (\"efa_observation_audit\".\"version_before\" > 0 and \"efa_observation_audit\".\"version_after\" = \"efa_observation_audit\".\"version_before\" + 1)"
+        },
+        "efa_observation_audit_state_objects": {
+          "name": "efa_observation_audit_state_objects",
+          "value": "jsonb_typeof(\"efa_observation_audit\".\"after_state\") = 'object' and (\"efa_observation_audit\".\"before_state\" is null or jsonb_typeof(\"efa_observation_audit\".\"before_state\") = 'object')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.efa_observation_catalog": {
+      "name": "efa_observation_catalog",
+      "schema": "",
+      "columns": {
+        "key": {
+          "name": "key",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "label": {
+          "name": "label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "group": {
+          "name": "group",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "competency_reference": {
+          "name": "competency_reference",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "is_active": {
+          "name": "is_active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "efa_observation_catalog_group_allowed": {
+          "name": "efa_observation_catalog_group_allowed",
+          "value": "\"efa_observation_catalog\".\"group\" in ('phone','radio','coordination','duty','record')"
+        },
+        "efa_observation_catalog_key_label_nonempty": {
+          "name": "efa_observation_catalog_key_label_nonempty",
+          "value": "char_length(\"efa_observation_catalog\".\"key\") > 0 and char_length(\"efa_observation_catalog\".\"label\") > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.efa_observation_notice": {
+      "name": "efa_observation_notice",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "observation_id": {
+          "name": "observation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "owner_user_id": {
+          "name": "owner_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "audit_id": {
+          "name": "audit_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "recipient_user_id": {
+          "name": "recipient_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "read_at": {
+          "name": "read_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "efa_observation_notice_recipient_user_id_user_id_fk": {
+          "name": "efa_observation_notice_recipient_user_id_user_id_fk",
+          "tableFrom": "efa_observation_notice",
+          "tableTo": "user",
+          "columnsFrom": ["recipient_user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "efa_observation_notice_owner_fk": {
+          "name": "efa_observation_notice_owner_fk",
+          "tableFrom": "efa_observation_notice",
+          "tableTo": "efa_observation",
+          "columnsFrom": ["observation_id", "owner_user_id"],
+          "columnsTo": ["id", "owner_user_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "efa_observation_notice_audit_fk": {
+          "name": "efa_observation_notice_audit_fk",
+          "tableFrom": "efa_observation_notice",
+          "tableTo": "efa_observation_audit",
+          "columnsFrom": ["audit_id", "observation_id"],
+          "columnsTo": ["id", "observation_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "efa_observation_notice_audit_recipient_unique": {
+          "name": "efa_observation_notice_audit_recipient_unique",
+          "nullsNotDistinct": false,
+          "columns": ["audit_id", "recipient_user_id"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "efa_observation_notice_recipient_is_owner": {
+          "name": "efa_observation_notice_recipient_is_owner",
+          "value": "\"efa_observation_notice\".\"recipient_user_id\" = \"efa_observation_notice\".\"owner_user_id\""
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.efa_observation_operation": {
+      "name": "efa_observation_operation",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "observation_id": {
+          "name": "observation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "owner_user_id": {
+          "name": "owner_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actor_user_id": {
+          "name": "actor_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "client_operation_id": {
+          "name": "client_operation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "request_hash": {
+          "name": "request_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "applied_version": {
+          "name": "applied_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "changed": {
+          "name": "changed",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "efa_observation_operation_actor_user_id_user_id_fk": {
+          "name": "efa_observation_operation_actor_user_id_user_id_fk",
+          "tableFrom": "efa_observation_operation",
+          "tableTo": "user",
+          "columnsFrom": ["actor_user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "efa_observation_operation_owner_fk": {
+          "name": "efa_observation_operation_owner_fk",
+          "tableFrom": "efa_observation_operation",
+          "tableTo": "efa_observation",
+          "columnsFrom": ["observation_id", "owner_user_id"],
+          "columnsTo": ["id", "owner_user_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "efa_observation_operation_client_unique": {
+          "name": "efa_observation_operation_client_unique",
+          "nullsNotDistinct": false,
+          "columns": ["observation_id", "client_operation_id"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "efa_observation_operation_action_allowed": {
+          "name": "efa_observation_operation_action_allowed",
+          "value": "\"efa_observation_operation\".\"action\" in ('created','updated')"
+        },
+        "efa_observation_operation_hash_sha256": {
+          "name": "efa_observation_operation_hash_sha256",
+          "value": "\"efa_observation_operation\".\"request_hash\" ~ '^[0-9a-f]{64}$'"
+        },
+        "efa_observation_operation_version_positive": {
+          "name": "efa_observation_operation_version_positive",
+          "value": "\"efa_observation_operation\".\"applied_version\" > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.efa_police_coordination": {
+      "name": "efa_police_coordination",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "episode_id": {
+          "name": "episode_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "owner_user_id": {
+          "name": "owner_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "client_creation_key": {
+          "name": "client_creation_key",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "initiator": {
+          "name": "initiator",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "initiating_dispatch_id": {
+          "name": "initiating_dispatch_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "place_type": {
+          "name": "place_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "meeting_reference": {
+          "name": "meeting_reference",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "notes": {
+          "name": "notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "state": {
+          "name": "state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'draft'"
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "efa_police_coordination_episode_owner_fk": {
+          "name": "efa_police_coordination_episode_owner_fk",
+          "tableFrom": "efa_police_coordination",
+          "tableTo": "efa_episode",
+          "columnsFrom": ["episode_id", "owner_user_id"],
+          "columnsTo": ["id", "owner_user_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "efa_police_coordination_initiating_dispatch_fk": {
+          "name": "efa_police_coordination_initiating_dispatch_fk",
+          "tableFrom": "efa_police_coordination",
+          "tableTo": "efa_dispatch",
+          "columnsFrom": ["initiating_dispatch_id", "episode_id", "owner_user_id"],
+          "columnsTo": ["id", "episode_id", "owner_user_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "efa_police_coordination_id_episode_owner_unique": {
+          "name": "efa_police_coordination_id_episode_owner_unique",
+          "nullsNotDistinct": false,
+          "columns": ["id", "episode_id", "owner_user_id"]
+        },
+        "efa_police_coordination_id_owner_unique": {
+          "name": "efa_police_coordination_id_owner_unique",
+          "nullsNotDistinct": false,
+          "columns": ["id", "owner_user_id"]
+        },
+        "efa_police_coordination_owner_creation_key_unique": {
+          "name": "efa_police_coordination_owner_creation_key_unique",
+          "nullsNotDistinct": false,
+          "columns": ["owner_user_id", "client_creation_key"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "efa_police_coordination_initiator_allowed": {
+          "name": "efa_police_coordination_initiator_allowed",
+          "value": "\"efa_police_coordination\".\"initiator\" in ('central','ambulance')"
+        },
+        "efa_police_coordination_place_allowed": {
+          "name": "efa_police_coordination_place_allowed",
+          "value": "\"efa_police_coordination\".\"place_type\" in ('incident','meeting_point')"
+        },
+        "efa_police_coordination_state_allowed": {
+          "name": "efa_police_coordination_state_allowed",
+          "value": "\"efa_police_coordination\".\"state\" in ('draft','finalized')"
+        },
+        "efa_police_coordination_version_positive": {
+          "name": "efa_police_coordination_version_positive",
+          "value": "\"efa_police_coordination\".\"version\" > 0"
+        },
+        "efa_police_coordination_reference_lengths": {
+          "name": "efa_police_coordination_reference_lengths",
+          "value": "(\"efa_police_coordination\".\"meeting_reference\" is null or char_length(\"efa_police_coordination\".\"meeting_reference\") <= 500) and (\"efa_police_coordination\".\"notes\" is null or char_length(\"efa_police_coordination\".\"notes\") <= 2000)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.efa_police_coordination_audit": {
+      "name": "efa_police_coordination_audit",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "coordination_id": {
+          "name": "coordination_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "owner_user_id": {
+          "name": "owner_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actor_user_id": {
+          "name": "actor_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "operation_id": {
+          "name": "operation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version_before": {
+          "name": "version_before",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "version_after": {
+          "name": "version_after",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "before_state": {
+          "name": "before_state",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "after_state": {
+          "name": "after_state",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "efa_police_coordination_audit_actor_user_id_user_id_fk": {
+          "name": "efa_police_coordination_audit_actor_user_id_user_id_fk",
+          "tableFrom": "efa_police_coordination_audit",
+          "tableTo": "user",
+          "columnsFrom": ["actor_user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "efa_police_coordination_audit_fk": {
+          "name": "efa_police_coordination_audit_fk",
+          "tableFrom": "efa_police_coordination_audit",
+          "tableTo": "efa_police_coordination",
+          "columnsFrom": ["coordination_id", "owner_user_id"],
+          "columnsTo": ["id", "owner_user_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "efa_police_coordination_audit_version_unique": {
+          "name": "efa_police_coordination_audit_version_unique",
+          "nullsNotDistinct": false,
+          "columns": ["coordination_id", "version_after"]
+        },
+        "efa_police_coordination_audit_operation_unique": {
+          "name": "efa_police_coordination_audit_operation_unique",
+          "nullsNotDistinct": false,
+          "columns": ["coordination_id", "operation_id"]
+        },
+        "efa_police_coordination_audit_id_scope_unique": {
+          "name": "efa_police_coordination_audit_id_scope_unique",
+          "nullsNotDistinct": false,
+          "columns": ["id", "coordination_id"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "efa_police_coordination_audit_action_allowed": {
+          "name": "efa_police_coordination_audit_action_allowed",
+          "value": "\"efa_police_coordination_audit\".\"action\" in ('created','updated','event_created','event_updated','dispatches_set')"
+        },
+        "efa_police_coordination_audit_version_transition_valid": {
+          "name": "efa_police_coordination_audit_version_transition_valid",
+          "value": "(\"efa_police_coordination_audit\".\"version_before\" is null and \"efa_police_coordination_audit\".\"version_after\" = 1) or (\"efa_police_coordination_audit\".\"version_before\" > 0 and \"efa_police_coordination_audit\".\"version_after\" = \"efa_police_coordination_audit\".\"version_before\" + 1)"
+        },
+        "efa_police_coordination_audit_state_object": {
+          "name": "efa_police_coordination_audit_state_object",
+          "value": "jsonb_typeof(\"efa_police_coordination_audit\".\"after_state\") = 'object' and (\"efa_police_coordination_audit\".\"before_state\" is null or jsonb_typeof(\"efa_police_coordination_audit\".\"before_state\") = 'object')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.efa_police_coordination_dispatch": {
+      "name": "efa_police_coordination_dispatch",
+      "schema": "",
+      "columns": {
+        "coordination_id": {
+          "name": "coordination_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "episode_id": {
+          "name": "episode_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "owner_user_id": {
+          "name": "owner_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "dispatch_id": {
+          "name": "dispatch_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "efa_police_coordination_dispatch_coordination_fk": {
+          "name": "efa_police_coordination_dispatch_coordination_fk",
+          "tableFrom": "efa_police_coordination_dispatch",
+          "tableTo": "efa_police_coordination",
+          "columnsFrom": ["coordination_id", "episode_id", "owner_user_id"],
+          "columnsTo": ["id", "episode_id", "owner_user_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "efa_police_coordination_dispatch_dispatch_fk": {
+          "name": "efa_police_coordination_dispatch_dispatch_fk",
+          "tableFrom": "efa_police_coordination_dispatch",
+          "tableTo": "efa_dispatch",
+          "columnsFrom": ["dispatch_id", "episode_id", "owner_user_id"],
+          "columnsTo": ["id", "episode_id", "owner_user_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "efa_police_coordination_dispatch_coordination_id_dispatch_id_pk": {
+          "name": "efa_police_coordination_dispatch_coordination_id_dispatch_id_pk",
+          "columns": ["coordination_id", "dispatch_id"]
+        }
+      },
+      "uniqueConstraints": {
+        "efa_police_coordination_dispatch_scope_unique": {
+          "name": "efa_police_coordination_dispatch_scope_unique",
+          "nullsNotDistinct": false,
+          "columns": ["coordination_id", "dispatch_id", "episode_id", "owner_user_id"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.efa_police_coordination_event": {
+      "name": "efa_police_coordination_event",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "coordination_id": {
+          "name": "coordination_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "episode_id": {
+          "name": "episode_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "owner_user_id": {
+          "name": "owner_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "dispatch_id": {
+          "name": "dispatch_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "actor_user_id": {
+          "name": "actor_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "client_event_id": {
+          "name": "client_event_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "time_status": {
+          "name": "time_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'not_observed'"
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "efa_police_coordination_event_actor_user_id_user_id_fk": {
+          "name": "efa_police_coordination_event_actor_user_id_user_id_fk",
+          "tableFrom": "efa_police_coordination_event",
+          "tableTo": "user",
+          "columnsFrom": ["actor_user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "efa_police_coordination_event_coordination_fk": {
+          "name": "efa_police_coordination_event_coordination_fk",
+          "tableFrom": "efa_police_coordination_event",
+          "tableTo": "efa_police_coordination",
+          "columnsFrom": ["coordination_id", "episode_id", "owner_user_id"],
+          "columnsTo": ["id", "episode_id", "owner_user_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "efa_police_coordination_event_linked_dispatch_fk": {
+          "name": "efa_police_coordination_event_linked_dispatch_fk",
+          "tableFrom": "efa_police_coordination_event",
+          "tableTo": "efa_police_coordination_dispatch",
+          "columnsFrom": ["coordination_id", "dispatch_id", "episode_id", "owner_user_id"],
+          "columnsTo": ["coordination_id", "dispatch_id", "episode_id", "owner_user_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "efa_police_coordination_event_id_scope_unique": {
+          "name": "efa_police_coordination_event_id_scope_unique",
+          "nullsNotDistinct": false,
+          "columns": ["id", "coordination_id", "owner_user_id"]
+        },
+        "efa_police_coordination_event_client_unique": {
+          "name": "efa_police_coordination_event_client_unique",
+          "nullsNotDistinct": false,
+          "columns": ["coordination_id", "client_event_id"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "efa_police_coordination_event_kind_allowed": {
+          "name": "efa_police_coordination_event_kind_allowed",
+          "value": "\"efa_police_coordination_event\".\"kind\" in ('request','response','reiteration','arrival_meeting_point','waiting','actual_meeting')"
+        },
+        "efa_police_coordination_event_dispatch_scope": {
+          "name": "efa_police_coordination_event_dispatch_scope",
+          "value": "(\"efa_police_coordination_event\".\"kind\" in ('request','response','reiteration') and \"efa_police_coordination_event\".\"dispatch_id\" is null) or (\"efa_police_coordination_event\".\"kind\" in ('arrival_meeting_point','waiting','actual_meeting') and \"efa_police_coordination_event\".\"dispatch_id\" is not null)"
+        },
+        "efa_police_coordination_event_time_status_valid": {
+          "name": "efa_police_coordination_event_time_status_valid",
+          "value": "\"efa_police_coordination_event\".\"time_status\" in ('observed','not_observed','not_informed','not_applicable') and ((\"efa_police_coordination_event\".\"time_status\" = 'observed') = (\"efa_police_coordination_event\".\"occurred_at\" is not null))"
+        },
+        "efa_police_coordination_event_version_positive": {
+          "name": "efa_police_coordination_event_version_positive",
+          "value": "\"efa_police_coordination_event\".\"version\" > 0"
+        },
+        "efa_police_coordination_event_note_length": {
+          "name": "efa_police_coordination_event_note_length",
+          "value": "\"efa_police_coordination_event\".\"note\" is null or char_length(\"efa_police_coordination_event\".\"note\") <= 2000"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.efa_police_coordination_notice": {
+      "name": "efa_police_coordination_notice",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "coordination_id": {
+          "name": "coordination_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "owner_user_id": {
+          "name": "owner_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "audit_id": {
+          "name": "audit_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "recipient_user_id": {
+          "name": "recipient_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "read_at": {
+          "name": "read_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "efa_police_coordination_notice_recipient_user_id_user_id_fk": {
+          "name": "efa_police_coordination_notice_recipient_user_id_user_id_fk",
+          "tableFrom": "efa_police_coordination_notice",
+          "tableTo": "user",
+          "columnsFrom": ["recipient_user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "efa_police_coordination_notice_owner_fk": {
+          "name": "efa_police_coordination_notice_owner_fk",
+          "tableFrom": "efa_police_coordination_notice",
+          "tableTo": "efa_police_coordination",
+          "columnsFrom": ["coordination_id", "owner_user_id"],
+          "columnsTo": ["id", "owner_user_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "efa_police_coordination_notice_audit_fk": {
+          "name": "efa_police_coordination_notice_audit_fk",
+          "tableFrom": "efa_police_coordination_notice",
+          "tableTo": "efa_police_coordination_audit",
+          "columnsFrom": ["audit_id", "coordination_id"],
+          "columnsTo": ["id", "coordination_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "efa_police_coordination_notice_audit_recipient_unique": {
+          "name": "efa_police_coordination_notice_audit_recipient_unique",
+          "nullsNotDistinct": false,
+          "columns": ["audit_id", "recipient_user_id"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "efa_police_coordination_notice_recipient_is_owner": {
+          "name": "efa_police_coordination_notice_recipient_is_owner",
+          "value": "\"efa_police_coordination_notice\".\"recipient_user_id\" = \"efa_police_coordination_notice\".\"owner_user_id\""
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.efa_police_coordination_operation": {
+      "name": "efa_police_coordination_operation",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "coordination_id": {
+          "name": "coordination_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "owner_user_id": {
+          "name": "owner_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actor_user_id": {
+          "name": "actor_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "client_operation_id": {
+          "name": "client_operation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "request_hash": {
+          "name": "request_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "applied_version": {
+          "name": "applied_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "changed": {
+          "name": "changed",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "efa_police_coordination_operation_actor_user_id_user_id_fk": {
+          "name": "efa_police_coordination_operation_actor_user_id_user_id_fk",
+          "tableFrom": "efa_police_coordination_operation",
+          "tableTo": "user",
+          "columnsFrom": ["actor_user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "efa_police_coordination_operation_fk": {
+          "name": "efa_police_coordination_operation_fk",
+          "tableFrom": "efa_police_coordination_operation",
+          "tableTo": "efa_police_coordination",
+          "columnsFrom": ["coordination_id", "owner_user_id"],
+          "columnsTo": ["id", "owner_user_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "efa_police_coordination_operation_client_unique": {
+          "name": "efa_police_coordination_operation_client_unique",
+          "nullsNotDistinct": false,
+          "columns": ["coordination_id", "client_operation_id"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "efa_police_coordination_operation_action_allowed": {
+          "name": "efa_police_coordination_operation_action_allowed",
+          "value": "\"efa_police_coordination_operation\".\"action\" in ('created','updated','event_created','event_updated','dispatches_set')"
+        },
+        "efa_police_coordination_operation_hash_sha256": {
+          "name": "efa_police_coordination_operation_hash_sha256",
+          "value": "\"efa_police_coordination_operation\".\"request_hash\" ~ '^[0-9a-f]{64}$'"
+        },
+        "efa_police_coordination_operation_version_positive": {
+          "name": "efa_police_coordination_operation_version_positive",
+          "value": "\"efa_police_coordination_operation\".\"applied_version\" > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.efa_support_request": {
+      "name": "efa_support_request",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "owner_user_id": {
+          "name": "owner_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "episode_id": {
+          "name": "episode_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source_dispatch_id": {
+          "name": "source_dispatch_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "response_dispatch_id": {
+          "name": "response_dispatch_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "client_creation_key": {
+          "name": "client_creation_key",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "requested_at": {
+          "name": "requested_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reason": {
+          "name": "reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "efa_support_request_episode_owner_fk": {
+          "name": "efa_support_request_episode_owner_fk",
+          "tableFrom": "efa_support_request",
+          "tableTo": "efa_episode",
+          "columnsFrom": ["episode_id", "owner_user_id"],
+          "columnsTo": ["id", "owner_user_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "efa_support_request_source_dispatch_fk": {
+          "name": "efa_support_request_source_dispatch_fk",
+          "tableFrom": "efa_support_request",
+          "tableTo": "efa_dispatch",
+          "columnsFrom": ["source_dispatch_id", "episode_id", "owner_user_id"],
+          "columnsTo": ["id", "episode_id", "owner_user_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "efa_support_request_response_dispatch_fk": {
+          "name": "efa_support_request_response_dispatch_fk",
+          "tableFrom": "efa_support_request",
+          "tableTo": "efa_dispatch",
+          "columnsFrom": ["response_dispatch_id", "episode_id", "owner_user_id"],
+          "columnsTo": ["id", "episode_id", "owner_user_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "efa_support_request_id_owner_unique": {
+          "name": "efa_support_request_id_owner_unique",
+          "nullsNotDistinct": false,
+          "columns": ["id", "owner_user_id"]
+        },
+        "efa_support_request_owner_creation_key_unique": {
+          "name": "efa_support_request_owner_creation_key_unique",
+          "nullsNotDistinct": false,
+          "columns": ["owner_user_id", "client_creation_key"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "efa_support_request_reason_length": {
+          "name": "efa_support_request_reason_length",
+          "value": "char_length(btrim(\"efa_support_request\".\"reason\")) between 1 and 1000"
+        },
+        "efa_support_request_version_positive": {
+          "name": "efa_support_request_version_positive",
+          "value": "\"efa_support_request\".\"version\" > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.efa_support_request_audit": {
+      "name": "efa_support_request_audit",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "support_request_id": {
+          "name": "support_request_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "owner_user_id": {
+          "name": "owner_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actor_user_id": {
+          "name": "actor_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "operation_id": {
+          "name": "operation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version_before": {
+          "name": "version_before",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "version_after": {
+          "name": "version_after",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "before_state": {
+          "name": "before_state",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "after_state": {
+          "name": "after_state",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "efa_support_request_audit_actor_user_id_user_id_fk": {
+          "name": "efa_support_request_audit_actor_user_id_user_id_fk",
+          "tableFrom": "efa_support_request_audit",
+          "tableTo": "user",
+          "columnsFrom": ["actor_user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "efa_support_request_audit_request_fk": {
+          "name": "efa_support_request_audit_request_fk",
+          "tableFrom": "efa_support_request_audit",
+          "tableTo": "efa_support_request",
+          "columnsFrom": ["support_request_id", "owner_user_id"],
+          "columnsTo": ["id", "owner_user_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "efa_support_request_audit_version_unique": {
+          "name": "efa_support_request_audit_version_unique",
+          "nullsNotDistinct": false,
+          "columns": ["support_request_id", "version_after"]
+        },
+        "efa_support_request_audit_operation_unique": {
+          "name": "efa_support_request_audit_operation_unique",
+          "nullsNotDistinct": false,
+          "columns": ["support_request_id", "operation_id"]
+        },
+        "efa_support_request_audit_id_request_unique": {
+          "name": "efa_support_request_audit_id_request_unique",
+          "nullsNotDistinct": false,
+          "columns": ["id", "support_request_id"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "efa_support_request_audit_action_allowed": {
+          "name": "efa_support_request_audit_action_allowed",
+          "value": "\"efa_support_request_audit\".\"action\" in ('created','updated')"
+        },
+        "efa_support_request_audit_transition_valid": {
+          "name": "efa_support_request_audit_transition_valid",
+          "value": "(\"efa_support_request_audit\".\"version_before\" is null and \"efa_support_request_audit\".\"version_after\" = 1) or (\"efa_support_request_audit\".\"version_before\" > 0 and \"efa_support_request_audit\".\"version_after\" = \"efa_support_request_audit\".\"version_before\" + 1)"
+        },
+        "efa_support_request_audit_state_object": {
+          "name": "efa_support_request_audit_state_object",
+          "value": "jsonb_typeof(\"efa_support_request_audit\".\"after_state\") = 'object' and (\"efa_support_request_audit\".\"before_state\" is null or jsonb_typeof(\"efa_support_request_audit\".\"before_state\") = 'object')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.efa_support_request_notice": {
+      "name": "efa_support_request_notice",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "support_request_id": {
+          "name": "support_request_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "owner_user_id": {
+          "name": "owner_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "audit_id": {
+          "name": "audit_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "recipient_user_id": {
+          "name": "recipient_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "read_at": {
+          "name": "read_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "efa_support_request_notice_recipient_user_id_user_id_fk": {
+          "name": "efa_support_request_notice_recipient_user_id_user_id_fk",
+          "tableFrom": "efa_support_request_notice",
+          "tableTo": "user",
+          "columnsFrom": ["recipient_user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "efa_support_request_notice_owner_fk": {
+          "name": "efa_support_request_notice_owner_fk",
+          "tableFrom": "efa_support_request_notice",
+          "tableTo": "efa_support_request",
+          "columnsFrom": ["support_request_id", "owner_user_id"],
+          "columnsTo": ["id", "owner_user_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "efa_support_request_notice_audit_fk": {
+          "name": "efa_support_request_notice_audit_fk",
+          "tableFrom": "efa_support_request_notice",
+          "tableTo": "efa_support_request_audit",
+          "columnsFrom": ["audit_id", "support_request_id"],
+          "columnsTo": ["id", "support_request_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "efa_support_request_notice_audit_recipient_unique": {
+          "name": "efa_support_request_notice_audit_recipient_unique",
+          "nullsNotDistinct": false,
+          "columns": ["audit_id", "recipient_user_id"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "efa_support_request_notice_recipient_is_owner": {
+          "name": "efa_support_request_notice_recipient_is_owner",
+          "value": "\"efa_support_request_notice\".\"recipient_user_id\" = \"efa_support_request_notice\".\"owner_user_id\""
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.efa_support_request_operation": {
+      "name": "efa_support_request_operation",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "support_request_id": {
+          "name": "support_request_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "owner_user_id": {
+          "name": "owner_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actor_user_id": {
+          "name": "actor_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "client_operation_id": {
+          "name": "client_operation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "request_hash": {
+          "name": "request_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "applied_version": {
+          "name": "applied_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "changed": {
+          "name": "changed",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "efa_support_request_operation_actor_user_id_user_id_fk": {
+          "name": "efa_support_request_operation_actor_user_id_user_id_fk",
+          "tableFrom": "efa_support_request_operation",
+          "tableTo": "user",
+          "columnsFrom": ["actor_user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "efa_support_request_operation_request_fk": {
+          "name": "efa_support_request_operation_request_fk",
+          "tableFrom": "efa_support_request_operation",
+          "tableTo": "efa_support_request",
+          "columnsFrom": ["support_request_id", "owner_user_id"],
+          "columnsTo": ["id", "owner_user_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "efa_support_request_operation_client_unique": {
+          "name": "efa_support_request_operation_client_unique",
+          "nullsNotDistinct": false,
+          "columns": ["support_request_id", "client_operation_id"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "efa_support_request_operation_action_allowed": {
+          "name": "efa_support_request_operation_action_allowed",
+          "value": "\"efa_support_request_operation\".\"action\" in ('created','updated')"
+        },
+        "efa_support_request_operation_create_result_valid": {
+          "name": "efa_support_request_operation_create_result_valid",
+          "value": "\"efa_support_request_operation\".\"action\" <> 'created' or (\"efa_support_request_operation\".\"applied_version\" = 1 and \"efa_support_request_operation\".\"changed\")"
+        },
+        "efa_support_request_operation_hash_sha256": {
+          "name": "efa_support_request_operation_hash_sha256",
+          "value": "\"efa_support_request_operation\".\"request_hash\" ~ '^[0-9a-f]{64}$'"
+        },
+        "efa_support_request_operation_version_positive": {
+          "name": "efa_support_request_operation_version_positive",
+          "value": "\"efa_support_request_operation\".\"applied_version\" > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.session": {
+      "name": "session",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "token": {
+          "name": "token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "ip_address": {
+          "name": "ip_address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "user_agent": {
+          "name": "user_agent",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "session_user_id_user_id_fk": {
+          "name": "session_user_id_user_id_fk",
+          "tableFrom": "session",
+          "tableTo": "user",
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "session_token_unique": {
+          "name": "session_token_unique",
+          "nullsNotDistinct": false,
+          "columns": ["token"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.user": {
+      "name": "user",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "email_verified": {
+          "name": "email_verified",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "image": {
+          "name": "image",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "user_email_unique": {
+          "name": "user_email_unique",
+          "nullsNotDistinct": false,
+          "columns": ["email"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.verification": {
+      "name": "verification",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "identifier": {
+          "name": "identifier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "value": {
+          "name": "value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {
+    "public.account_role": {
+      "name": "account_role",
+      "schema": "public",
+      "values": ["efa", "admin"]
+    }
+  },
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

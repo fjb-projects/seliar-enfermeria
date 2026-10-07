@@ -42,6 +42,11 @@ import {
   efaPoliceCoordinationAudit,
   efaPoliceCoordinationOperation,
   efaPoliceCoordinationNotice,
+  efaObservationCatalog,
+  efaObservation,
+  efaObservationAudit,
+  efaObservationOperation,
+  efaObservationNotice,
 } from "./schema";
 
 describe("ambulance dispatch persistence", () => {
@@ -139,6 +144,43 @@ describe("EFA police coordination persistence", () => {
     );
     expect(migration).toContain("efa_police_coordination_audit_append_only");
     expect(migration).toContain("efa_police_coordination_operation_append_only");
+  });
+});
+
+describe("EFA conduct observation persistence", () => {
+  it("models an anonymous classified observation with one typed parent and immutable history", () => {
+    expect(getTableName(efaObservationCatalog)).toBe("efa_observation_catalog");
+    expect(getTableName(efaObservation)).toBe("efa_observation");
+    expect(getTableName(efaObservationAudit)).toBe("efa_observation_audit");
+    expect(getTableName(efaObservationOperation)).toBe("efa_observation_operation");
+    expect(getTableName(efaObservationNotice)).toBe("efa_observation_notice");
+    expect(getTableConfig(efaObservation).checks.map((check) => check.name)).toEqual(
+      expect.arrayContaining([
+        "efa_observation_exactly_one_context",
+        "efa_observation_classification_allowed",
+        "efa_observation_other_description_required",
+      ]),
+    );
+    expect(getTableConfig(efaObservation).foreignKeys.length).toBeGreaterThanOrEqual(7);
+    expect(
+      getTableConfig(efaObservationAudit).uniqueConstraints.map((item) => item.name),
+    ).toContain("efa_observation_audit_version_unique");
+    expect(getTableConfig(efaObservationNotice).checks.map((check) => check.name)).toContain(
+      "efa_observation_notice_recipient_is_owner",
+    );
+  });
+
+  it("orders ancestry uniqueness before cross-context foreign keys and installs append-only guards", () => {
+    const migration = readFileSync(
+      resolve(process.cwd(), "drizzle/0010_efa_observations.sql"),
+      "utf8",
+    );
+    expect(migration.indexOf("efa_episode_id_guard_owner_unique")).toBeLessThan(
+      migration.indexOf('ADD CONSTRAINT "efa_observation_episode_guard_owner_fk"'),
+    );
+    expect(migration).toContain("efa_observation_audit_append_only");
+    expect(migration).toContain("efa_observation_operation_append_only");
+    expect(migration).toContain("ON CONFLICT (key) DO NOTHING");
   });
 });
 

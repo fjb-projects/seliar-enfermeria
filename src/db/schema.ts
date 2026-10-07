@@ -315,6 +315,11 @@ export const efaEpisode = pgTable(
     }).onDelete("restrict"),
     unique("efa_episode_owner_creation_key_unique").on(table.ownerUserId, table.clientCreationKey),
     unique("efa_episode_id_owner_unique").on(table.id, table.ownerUserId),
+    unique("efa_episode_id_guard_owner_unique").on(
+      table.id,
+      table.originGuardId,
+      table.ownerUserId,
+    ),
     check("efa_episode_version_positive", sql`${table.version} > 0`),
     check("efa_episode_draft_only", sql`${table.state} = 'draft'`),
     check(
@@ -1256,6 +1261,239 @@ export const efaPoliceCoordinationNotice = pgTable(
     ),
     check(
       "efa_police_coordination_notice_recipient_is_owner",
+      sql`${table.recipientUserId} = ${table.ownerUserId}`,
+    ),
+  ],
+);
+
+export const efaObservationCatalog = pgTable(
+  "efa_observation_catalog",
+  {
+    key: text("key").primaryKey(),
+    label: text("label").notNull(),
+    group: text("group").notNull(),
+    competencyReference: text("competency_reference"),
+    isActive: boolean("is_active").notNull().default(true),
+  },
+  (table) => [
+    check(
+      "efa_observation_catalog_group_allowed",
+      sql`${table.group} in ('phone','radio','coordination','duty','record')`,
+    ),
+    check(
+      "efa_observation_catalog_key_label_nonempty",
+      sql`char_length(${table.key}) > 0 and char_length(${table.label}) > 0`,
+    ),
+  ],
+);
+
+export const efaObservation = pgTable(
+  "efa_observation",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    ownerUserId: text("owner_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    guardId: uuid("guard_id").notNull(),
+    episodeId: uuid("episode_id"),
+    contextType: text("context_type").notNull(),
+    communicationId: uuid("communication_id"),
+    dispatchId: uuid("dispatch_id"),
+    coordinationId: uuid("coordination_id"),
+    policeEventId: uuid("police_event_id"),
+    catalogItemKey: text("catalog_item_key"),
+    catalogKeySnapshot: text("catalog_key_snapshot").notNull(),
+    catalogLabelSnapshot: text("catalog_label_snapshot").notNull(),
+    catalogGroupSnapshot: text("catalog_group_snapshot").notNull(),
+    otherDescription: text("other_description"),
+    classification: text("classification").notNull(),
+    comment: text("comment"),
+    observedAt: timestamp("observed_at"),
+    clientCreationKey: uuid("client_creation_key").notNull(),
+    version: integer("version").notNull().default(1),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: "efa_observation_guard_owner_fk",
+      columns: [table.guardId, table.ownerUserId],
+      foreignColumns: [efaGuard.id, efaGuard.ownerUserId],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "efa_observation_episode_guard_owner_fk",
+      columns: [table.episodeId, table.guardId, table.ownerUserId],
+      foreignColumns: [efaEpisode.id, efaEpisode.originGuardId, efaEpisode.ownerUserId],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "efa_observation_communication_scope_fk",
+      columns: [table.communicationId, table.episodeId, table.ownerUserId],
+      foreignColumns: [
+        efaCommunication.id,
+        efaCommunication.episodeId,
+        efaCommunication.ownerUserId,
+      ],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "efa_observation_dispatch_scope_fk",
+      columns: [table.dispatchId, table.episodeId, table.ownerUserId],
+      foreignColumns: [efaDispatch.id, efaDispatch.episodeId, efaDispatch.ownerUserId],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "efa_observation_coordination_scope_fk",
+      columns: [table.coordinationId, table.episodeId, table.ownerUserId],
+      foreignColumns: [
+        efaPoliceCoordination.id,
+        efaPoliceCoordination.episodeId,
+        efaPoliceCoordination.ownerUserId,
+      ],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "efa_observation_police_event_scope_fk",
+      columns: [table.policeEventId, table.coordinationId, table.ownerUserId],
+      foreignColumns: [
+        efaPoliceCoordinationEvent.id,
+        efaPoliceCoordinationEvent.coordinationId,
+        efaPoliceCoordinationEvent.ownerUserId,
+      ],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "efa_observation_catalog_item_fk",
+      columns: [table.catalogItemKey],
+      foreignColumns: [efaObservationCatalog.key],
+    }).onDelete("restrict"),
+    unique("efa_observation_id_owner_unique").on(table.id, table.ownerUserId),
+    unique("efa_observation_owner_creation_key_unique").on(
+      table.ownerUserId,
+      table.clientCreationKey,
+    ),
+    check(
+      "efa_observation_context_allowed",
+      sql`${table.contextType} in ('guard','episode','communication','dispatch','coordination','police_event')`,
+    ),
+    check(
+      "efa_observation_exactly_one_context",
+      sql`(${table.contextType} = 'guard' and ${table.episodeId} is null and ${table.communicationId} is null and ${table.dispatchId} is null and ${table.coordinationId} is null and ${table.policeEventId} is null) or (${table.contextType} = 'episode' and ${table.episodeId} is not null and ${table.communicationId} is null and ${table.dispatchId} is null and ${table.coordinationId} is null and ${table.policeEventId} is null) or (${table.contextType} = 'communication' and ${table.episodeId} is not null and ${table.communicationId} is not null and ${table.dispatchId} is null and ${table.coordinationId} is null and ${table.policeEventId} is null) or (${table.contextType} = 'dispatch' and ${table.episodeId} is not null and ${table.communicationId} is null and ${table.dispatchId} is not null and ${table.coordinationId} is null and ${table.policeEventId} is null) or (${table.contextType} = 'coordination' and ${table.episodeId} is not null and ${table.communicationId} is null and ${table.dispatchId} is null and ${table.coordinationId} is not null and ${table.policeEventId} is null) or (${table.contextType} = 'police_event' and ${table.episodeId} is not null and ${table.communicationId} is null and ${table.dispatchId} is null and ${table.coordinationId} is not null and ${table.policeEventId} is not null)`,
+    ),
+    check(
+      "efa_observation_classification_allowed",
+      sql`${table.classification} in ('adequate','needs_improvement')`,
+    ),
+    check(
+      "efa_observation_other_description_required",
+      sql`(${table.catalogItemKey} is not null and ${table.otherDescription} is null) or (${table.catalogItemKey} is null and ${table.catalogKeySnapshot} = 'other' and ${table.otherDescription} is not null and char_length(trim(${table.otherDescription})) > 0)`,
+    ),
+    check(
+      "efa_observation_text_bounds",
+      sql`char_length(${table.catalogKeySnapshot}) <= 100 and char_length(${table.catalogLabelSnapshot}) <= 200 and char_length(${table.catalogGroupSnapshot}) <= 30 and (${table.otherDescription} is null or char_length(${table.otherDescription}) <= 1000) and (${table.comment} is null or char_length(${table.comment}) <= 1000)`,
+    ),
+    check("efa_observation_version_positive", sql`${table.version} > 0`),
+  ],
+);
+
+export const efaObservationAudit = pgTable(
+  "efa_observation_audit",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    observationId: uuid("observation_id").notNull(),
+    ownerUserId: text("owner_user_id").notNull(),
+    actorUserId: text("actor_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    operationId: uuid("operation_id").notNull(),
+    action: text("action").notNull(),
+    versionBefore: integer("version_before"),
+    versionAfter: integer("version_after").notNull(),
+    beforeState: jsonb("before_state").$type<Record<string, unknown> | null>(),
+    afterState: jsonb("after_state").$type<Record<string, unknown>>().notNull(),
+    occurredAt: timestamp("occurred_at").notNull().defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: "efa_observation_audit_owner_fk",
+      columns: [table.observationId, table.ownerUserId],
+      foreignColumns: [efaObservation.id, efaObservation.ownerUserId],
+    }).onDelete("restrict"),
+    unique("efa_observation_audit_version_unique").on(table.observationId, table.versionAfter),
+    unique("efa_observation_audit_operation_unique").on(table.observationId, table.operationId),
+    unique("efa_observation_audit_id_scope_unique").on(table.id, table.observationId),
+    check("efa_observation_audit_action_allowed", sql`${table.action} in ('created','updated')`),
+    check(
+      "efa_observation_audit_version_transition_valid",
+      sql`(${table.versionBefore} is null and ${table.versionAfter} = 1) or (${table.versionBefore} > 0 and ${table.versionAfter} = ${table.versionBefore} + 1)`,
+    ),
+    check(
+      "efa_observation_audit_state_objects",
+      sql`jsonb_typeof(${table.afterState}) = 'object' and (${table.beforeState} is null or jsonb_typeof(${table.beforeState}) = 'object')`,
+    ),
+  ],
+);
+
+export const efaObservationOperation = pgTable(
+  "efa_observation_operation",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    observationId: uuid("observation_id").notNull(),
+    ownerUserId: text("owner_user_id").notNull(),
+    actorUserId: text("actor_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    clientOperationId: uuid("client_operation_id").notNull(),
+    action: text("action").notNull(),
+    requestHash: text("request_hash").notNull(),
+    appliedVersion: integer("applied_version").notNull(),
+    changed: boolean("changed").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: "efa_observation_operation_owner_fk",
+      columns: [table.observationId, table.ownerUserId],
+      foreignColumns: [efaObservation.id, efaObservation.ownerUserId],
+    }).onDelete("restrict"),
+    unique("efa_observation_operation_client_unique").on(
+      table.observationId,
+      table.clientOperationId,
+    ),
+    check(
+      "efa_observation_operation_action_allowed",
+      sql`${table.action} in ('created','updated')`,
+    ),
+    check("efa_observation_operation_hash_sha256", sql`${table.requestHash} ~ '^[0-9a-f]{64}$'`),
+    check("efa_observation_operation_version_positive", sql`${table.appliedVersion} > 0`),
+  ],
+);
+
+export const efaObservationNotice = pgTable(
+  "efa_observation_notice",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    observationId: uuid("observation_id").notNull(),
+    ownerUserId: text("owner_user_id").notNull(),
+    auditId: uuid("audit_id").notNull(),
+    recipientUserId: text("recipient_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    readAt: timestamp("read_at"),
+  },
+  (table) => [
+    foreignKey({
+      name: "efa_observation_notice_owner_fk",
+      columns: [table.observationId, table.ownerUserId],
+      foreignColumns: [efaObservation.id, efaObservation.ownerUserId],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "efa_observation_notice_audit_fk",
+      columns: [table.auditId, table.observationId],
+      foreignColumns: [efaObservationAudit.id, efaObservationAudit.observationId],
+    }).onDelete("restrict"),
+    unique("efa_observation_notice_audit_recipient_unique").on(
+      table.auditId,
+      table.recipientUserId,
+    ),
+    check(
+      "efa_observation_notice_recipient_is_owner",
       sql`${table.recipientUserId} = ${table.ownerUserId}`,
     ),
   ],
