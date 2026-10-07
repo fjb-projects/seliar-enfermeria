@@ -141,7 +141,7 @@ The admin account route uses a catalog-ID selector for all plan targets, with ef
 
 **Scope decision (2026-10-07):** The first implementation is limited to episodes, communications, and dispatches. Work is split into 13A communications, 13B dispatches, and 13C episodes. Police coordination/events, support requests, observations, and staffing are explicitly excluded from task 13.
 
-#### 13A — Communication cancellation and reactivation (current work unit)
+#### 13A — Communication cancellation and reactivation (complete locally)
 
 **Route:** delegated direct. Trigger: coordinated schema/migration, server lifecycle, UI, and deterministic test changes across multiple non-trivial files.
 **Authorized surfaces:** `src/db/schema.ts`, `src/db/schema.test.ts`, `drizzle/0018_*.sql`, `drizzle/meta/0018_snapshot.json`, `drizzle/meta/_journal.json`, `src/lib/efa-communications.server.ts`, `src/lib/efa-communications.server.test.ts`, `src/lib/efa-communications.functions.ts`, `src/lib/efa-communications.functions.test.ts`, `src/lib/efa-communications.client.ts`, `src/lib/efa-communications.client.test.ts`, `src/lib/efa-communications.queue.ts`, `src/lib/efa-communications.queue.test.ts`, `src/components/EfaCommunicationStepper.tsx`, `src/components/EfaCommunicationStepper.test.tsx`, `src/components/EfaEpisodePanel.tsx`, `src/components/EfaEpisodePanel.test.tsx`, `src/routes/episodios-efa.tsx`, `src/routes/episodios-efa.test.tsx`.
@@ -159,7 +159,7 @@ The admin account route uses a catalog-ID selector for all plan targets, with ef
 - `npm run db:generate`: exit 0; generated `drizzle/0018_clammy_mystique.sql`, snapshot 0018, and journal entry 18. Migration is forward-only, remains unapplied, and no remote DB was accessed.
 - `npm run test -- src/lib/efa-communications.server.test.ts src/lib/efa-communications.functions.test.ts src/lib/efa-communications.client.test.ts src/lib/efa-communications.queue.test.ts src/components/EfaCommunicationStepper.test.tsx src/db/schema.test.ts`: exit 0; 6 files, 58 tests.
 - `npm run typecheck`: exit 0. `npm run build`: exit 0, with existing Vite path plugin, test-route file, and unrelated deprecated `inputValidator()` warnings. `git diff --check`: exit 0. Prettier check/write on changed TS, JSON, and Markdown sources completed successfully.
-- No changes to dispatch/episode lifecycle, police coordination/events, support requests, observations, staffing, public Forms/Drive, or queue records. Lifecycle writes intentionally use online server operations; transient retries within the active screen are idempotent. No commit was created per the explicit task instruction; parent review and commit/delivery remain separate.
+- No changes to dispatch/episode lifecycle, police coordination/events, support requests, observations, staffing, public Forms/Drive, or queue records. Lifecycle writes intentionally use online server operations; transient retries within the active screen are idempotent. Work-unit commit: `37e18a0`. Independent code review and a focused parent spot check passed; real PostgreSQL migration/locking and browser behavior remain unverified. The 13B task must prevent new dispatches from selecting cancelled communications while preserving preexisting historical links.
 
 #### 13B — Dispatch cancellation and reactivation (pending)
 
