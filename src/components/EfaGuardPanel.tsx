@@ -21,6 +21,9 @@ import {
   setEfaGuardBases,
   startEfaGuard,
 } from "@/lib/efa-guards.functions";
+import { previewEfaStaffingPlan } from "@/lib/efa-staffing-plan.functions";
+import { getOperationalDateRange } from "@/lib/efa-staffing-plan.date";
+import type { DatedSlot } from "@/lib/efa-staffing-plan.server";
 
 export type GuardBase = { id: string; name: string; isActive: boolean };
 export type GuardEvent = {
@@ -85,6 +88,110 @@ const staffingCauseLabels: Record<StaffingCause, string> = {
   temporary: "Salida temporal",
   other: "Otra",
 };
+
+function PlannedCoverageReadOnly({ bases }: { bases: GuardBase[] }) {
+  const previewPlan = useServerFn(previewEfaStaffingPlan);
+  const [baseId, setBaseId] = useState(bases[0]?.id ?? "");
+  const defaultRange = getOperationalDateRange(new Date(), 6);
+  const [from, setFrom] = useState(defaultRange.from);
+  const [to, setTo] = useState(defaultRange.to);
+  const [slots, setSlots] = useState<DatedSlot[] | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  if (bases.length === 0) return null;
+  return (
+    <section
+      className="space-y-3 rounded-lg border p-4"
+      aria-label="Planificación futura de cobertura"
+    >
+      <div>
+        <h3 className="font-medium">Planificación futura (solo lectura)</h3>
+        <p className="text-sm text-muted-foreground">
+          La planificación no confirma la dotación observada ni la disponibilidad del móvil.
+        </p>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <label className="grid gap-1 text-sm">
+          Base
+          <select
+            className="min-h-11 rounded-md border bg-background px-3"
+            value={baseId}
+            onChange={(event) => setBaseId(event.target.value)}
+          >
+            {bases.map((base) => (
+              <option key={base.id} value={base.id}>
+                {base.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="grid gap-1 text-sm">
+          Desde
+          <input
+            className="min-h-11 rounded-md border bg-background px-3"
+            type="date"
+            value={from}
+            onChange={(event) => setFrom(event.target.value)}
+          />
+        </label>
+        <label className="grid gap-1 text-sm">
+          Hasta
+          <input
+            className="min-h-11 rounded-md border bg-background px-3"
+            type="date"
+            value={to}
+            onChange={(event) => setTo(event.target.value)}
+          />
+        </label>
+      </div>
+      <Button
+        type="button"
+        variant="outline"
+        className="min-h-11"
+        disabled={busy || !baseId || !from || !to}
+        onClick={() => {
+          setBusy(true);
+          setError("");
+          const selectedBase = bases.find((base) => base.id === baseId);
+          if (!selectedBase) return;
+          void previewPlan({
+            data: {
+              target: { kind: "base", baseId: selectedBase.id, name: selectedBase.name },
+              from,
+              to,
+            },
+          })
+            .then((result) => setSlots((result as { slots: DatedSlot[] }).slots))
+            .catch(() => setError("No se pudo consultar la planificación disponible."))
+            .finally(() => setBusy(false));
+        }}
+      >
+        {busy ? "Consultando…" : "Consultar planificación"}
+      </Button>
+      {error && (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      )}
+      {slots &&
+        (slots.length ? (
+          <ul className="space-y-1 text-sm">
+            {slots.map((item, index) => (
+              <li key={`${item.date}-${item.role}-${index}`}>
+                {item.date} {item.start}–{item.endDate === item.date ? "" : `${item.endDate} `}
+                {item.end} · {staffingRoleLabels[item.role]}
+                {item.label ? ` · ${item.label}` : ""}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            No hay cobertura planificada en esas fechas. Esto no demuestra falta de dotación real.
+          </p>
+        ))}
+    </section>
+  );
+}
 
 function ObservedStaffingPanel({
   guardId,
@@ -798,6 +905,7 @@ export function EfaGuardPanel({
                   </div>
                 </div>
               )}
+              {canWrite && <PlannedCoverageReadOnly bases={guard.bases} />}
               <ObservedStaffingPanel
                 guardId={guard.id}
                 periods={staffingByGuard[guard.id] ?? []}

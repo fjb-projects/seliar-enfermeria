@@ -62,8 +62,23 @@ The guard UI now separates `canCreate` (which is false for a closed guard) from 
 
 ### 10B — Planned patterns and exceptions
 
-- [ ] Model planned coverage separately from observed periods, including reusable patterns and dated exceptions.
-- [ ] Preserve the distinction in UI, persistence, and tests.
+- [x] Model planned coverage separately from observed periods, including reusable configurable cycles and dated replacement exceptions.
+- [x] Keep plan versions append-only and effective-dated; reject backdated exception revisions and reuse-safe idempotent writes.
+- [x] Provide administrator-maintained plan editing and preview plus read-only EFA coverage preview for selected guard bases.
+- [x] Preserve the distinction in persistence, UI, and deterministic tests; do not infer missing or overnight coverage.
+
+**10B implementation and verification evidence (commit pending):** Added immutable cycle-plan versions and dated exceptions, with an explicit cycle anchor, 1–366-day cycle length, role-specific day slots, optional labels (including A/B/C/D), and arbitrary same-day multiple slots/handovers. Base targets are keyed by immutable `efa_base.id` with a restrictive foreign key; display-name changes preserve plan and exception identity, and reusing an old name for another base does not match prior records. Mobile targets remain separately keyed by normalized mobile name. Buenos Aires operational local dates (`America/Argentina/Buenos_Aires`) govern future effective dates and exception revisions; mutations now require a date strictly after the current operational day, preserving elapsed-day history, while exact idempotent replays remain safe. Admin date inputs enforce the next operational date as their minimum, and the EFA preview initializes its range from the Buenos Aires day rather than UTC. Slots explicitly store whether the end occurs the same or next day, supporting overnight and 24-hour coverage; preview includes explicit slots started on the preceding date when they overlap the selected range, including date-specific overnight exceptions, without duplicating them or inventing gaps. Preview returns and renders both calendar boundaries and still does not add an automatic 22:00–06:00 segment. Dated exceptions replace the full day's planned slots; an empty exception deliberately means no planned coverage. Plan and exception writes are append-only/audited, and reused operation IDs with different payloads are rejected. Anonymous role categories (`nurse`, `driver`, `doctor`) remain separate from actual observed staffing, with no roster/person identifiers. RED/GREEN evidence: the new strict-date and D+1 exception-overlap tests failed against prior behavior, then passed after correction. Verification: focused tests pass (18/18); `npm run typecheck`, `npm run build`, `git diff --check`, and `npx prettier --check` all pass. Build retains existing Vite route-file and deprecated inputValidator warnings. No migration/schema change was needed for this correction; existing 0013/0014 files were not applied or modified.
+
+The admin account route now includes a catalog-ID base selector, mobile editor, effective-version history, dated exception slots, and preview. EFA guard users query a read-only preview by selected base ID; copy explicitly distinguishes planned coverage from observed staffing and mobile availability. Unchanged retries reuse the pending operation ID for plan and exception writes after uncertain responses.
+
+- Test-first evidence: the correction's focused test run initially failed on missing immutable target identity, Buenos Aires date enforcement, overnight end boundaries, and retry-ID behavior (6 failing tests). After correction, the focused command passed: 3 files, 15 tests (plan service, admin editor, and guard panel).
+- `npm run db:generate`: exit 0; the original forward-only `drizzle/0013_keen_risque.sql` remains unchanged, and the follow-up `drizzle/0014_condemned_the_spike.sql`, snapshot 0014, and journal entry 14 add the immutable base FK/identity constraints. Neither migration was applied.
+- `npm run typecheck`: exit 0.
+- `npm run test -- src/lib/efa-staffing-plan.server.test.ts src/components/AdminStaffingPlan.test.tsx src/components/EfaGuardPanel.test.tsx`: exit 0; 3 files, 10 tests.
+- `npm run build`: exit 0. Existing warnings remain for vite-tsconfig-paths, the `episodios-efa.test.tsx` route filename, and legacy `inputValidator()` calls in unrelated modules.
+- `npx prettier --check src/lib/efa-staffing-plan.server.db.ts`: exit 0.
+- `git diff --check`: exit 0.
+- No remote database access or migration application; no changes to migration 0012 or unrelated pre-existing work. Work-unit commit remains pending; parent owns commit and delivery.
 
 ### 11 — EFA catalogs
 

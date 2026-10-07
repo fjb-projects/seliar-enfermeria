@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ComponentProps } from "react";
 import { describe, expect, it, vi } from "vitest";
+import { getOperationalDateRange } from "@/lib/efa-staffing-plan.date";
 import {
   clearConfirmedStaffingOperation,
   EfaGuardPanel,
@@ -35,6 +36,7 @@ vi.mock("@/lib/efa-staffing.functions", () => ({
   exitEfaStaffing: vi.fn(),
   listEfaStaffing: vi.fn(),
 }));
+vi.mock("@/lib/efa-staffing-plan.functions", () => ({ previewEfaStaffingPlan: vi.fn() }));
 vi.mock("@/lib/efa-observations.functions", () => ({
   createEfaObservation: vi.fn(),
   getEfaObservation: vi.fn(),
@@ -46,6 +48,15 @@ vi.mock("@/lib/efa-observations.functions", () => ({
   markEfaObservationNoticeRead: vi.fn(),
   updateEfaObservation: vi.fn(),
 }));
+
+describe("planned coverage date defaults", () => {
+  it("uses the Buenos Aires operational day when UTC is already on the next date", () => {
+    expect(getOperationalDateRange(new Date("2026-10-07T02:00:00.000Z"), 6)).toEqual({
+      from: "2026-10-06",
+      to: "2026-10-12",
+    });
+  });
+});
 vi.mock("@/lib/efa-episodes.functions", () => ({ listEfaEpisodes: vi.fn() }));
 vi.mock("@/lib/efa-communications.functions", () => ({ listEfaCommunicationsForEpisode: vi.fn() }));
 vi.mock("@/lib/efa-dispatches.functions", () => ({ listEfaDispatchesForEpisode: vi.fn() }));
@@ -103,6 +114,8 @@ describe("EfaGuardPanel", () => {
     expect(html).toContain("Oeste");
     expect(html).toContain("/episodios-efa");
     expect(html).toContain("Ver conductas observadas");
+    expect(html).toContain("Planificación futura (solo lectura)");
+    expect(html).toContain("La planificación no confirma la dotación observada");
   });
 
   it("keeps guard history visible without exposing write controls to revoked EFA", () => {

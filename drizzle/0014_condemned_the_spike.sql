@@ -1,0 +1,6 @@
+ALTER TABLE "efa_staffing_plan" ADD COLUMN "base_id" uuid;--> statement-breakpoint
+ALTER TABLE "efa_staffing_plan_exception" ADD COLUMN "base_id" uuid;--> statement-breakpoint
+ALTER TABLE "efa_staffing_plan" ADD CONSTRAINT "efa_staffing_plan_base_id_efa_base_id_fk" FOREIGN KEY ("base_id") REFERENCES "public"."efa_base"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "efa_staffing_plan_exception" ADD CONSTRAINT "efa_staffing_plan_exception_base_id_efa_base_id_fk" FOREIGN KEY ("base_id") REFERENCES "public"."efa_base"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "efa_staffing_plan" ADD CONSTRAINT "efa_staffing_plan_target_identity_valid" CHECK (("efa_staffing_plan"."target_kind" = 'base' and "efa_staffing_plan"."base_id" is not null) or ("efa_staffing_plan"."target_kind" = 'mobile' and "efa_staffing_plan"."base_id" is null));--> statement-breakpoint
+ALTER TABLE "efa_staffing_plan_exception" ADD CONSTRAINT "efa_staffing_plan_exception_target_identity_valid" CHECK (("efa_staffing_plan_exception"."target_kind" = 'base' and "efa_staffing_plan_exception"."base_id" is not null) or ("efa_staffing_plan_exception"."target_kind" = 'mobile' and "efa_staffing_plan_exception"."base_id" is null));

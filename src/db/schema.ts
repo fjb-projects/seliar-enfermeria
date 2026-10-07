@@ -410,6 +410,153 @@ export const efaStaffingAudit = pgTable(
   ],
 );
 
+export const efaStaffingPlan = pgTable(
+  "efa_staffing_plan",
+  {
+    id: uuid("id").primaryKey(),
+    targetKind: text("target_kind").notNull(),
+    baseId: uuid("base_id").references(() => efaBase.id, { onDelete: "restrict" }),
+    targetName: text("target_name").notNull(),
+    targetKey: text("target_key").notNull(),
+    effectiveFrom: text("effective_from").notNull(),
+    cycleAnchor: text("cycle_anchor").notNull(),
+    cycleLengthDays: integer("cycle_length_days").notNull(),
+    slots: jsonb("slots")
+      .$type<
+        Array<{
+          dayOffset: number;
+          role: string;
+          start: string;
+          end: string;
+          endDayOffset: number;
+          label: string | null;
+        }>
+      >()
+      .notNull(),
+    version: integer("version").notNull(),
+    clientOperationId: uuid("client_operation_id").notNull(),
+    createdByUserId: text("created_by_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    unique("efa_staffing_plan_target_effective_unique").on(table.targetKey, table.effectiveFrom),
+    unique("efa_staffing_plan_target_operation_unique").on(
+      table.targetKey,
+      table.clientOperationId,
+    ),
+    check("efa_staffing_plan_target_kind_allowed", sql`${table.targetKind} in ('base', 'mobile')`),
+    check(
+      "efa_staffing_plan_target_identity_valid",
+      sql`(${table.targetKind} = 'base' and ${table.baseId} is not null) or (${table.targetKind} = 'mobile' and ${table.baseId} is null)`,
+    ),
+    check(
+      "efa_staffing_plan_dates_valid",
+      sql`${table.effectiveFrom} ~ '^\\d{4}-\\d{2}-\\d{2}$' and ${table.cycleAnchor} ~ '^\\d{4}-\\d{2}-\\d{2}$'`,
+    ),
+    check("efa_staffing_plan_cycle_length_valid", sql`${table.cycleLengthDays} between 1 and 366`),
+    check("efa_staffing_plan_version_positive", sql`${table.version} > 0`),
+    check("efa_staffing_plan_slots_array", sql`jsonb_typeof(${table.slots}) = 'array'`),
+  ],
+);
+
+export const efaStaffingPlanException = pgTable(
+  "efa_staffing_plan_exception",
+  {
+    id: uuid("id").primaryKey(),
+    targetKind: text("target_kind").notNull(),
+    baseId: uuid("base_id").references(() => efaBase.id, { onDelete: "restrict" }),
+    targetName: text("target_name").notNull(),
+    targetKey: text("target_key").notNull(),
+    date: text("date").notNull(),
+    slots: jsonb("slots")
+      .$type<
+        Array<{
+          role: string;
+          start: string;
+          end: string;
+          endDayOffset: number;
+          label: string | null;
+        }>
+      >()
+      .notNull(),
+    version: integer("version").notNull(),
+    clientOperationId: uuid("client_operation_id").notNull(),
+    createdByUserId: text("created_by_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    unique("efa_staffing_plan_exception_version_unique").on(
+      table.targetKey,
+      table.date,
+      table.version,
+    ),
+    unique("efa_staffing_plan_exception_operation_unique").on(
+      table.targetKey,
+      table.clientOperationId,
+    ),
+    check(
+      "efa_staffing_plan_exception_target_kind_allowed",
+      sql`${table.targetKind} in ('base', 'mobile')`,
+    ),
+    check(
+      "efa_staffing_plan_exception_target_identity_valid",
+      sql`(${table.targetKind} = 'base' and ${table.baseId} is not null) or (${table.targetKind} = 'mobile' and ${table.baseId} is null)`,
+    ),
+    check("efa_staffing_plan_exception_date_valid", sql`${table.date} ~ '^\\d{4}-\\d{2}-\\d{2}$'`),
+    check("efa_staffing_plan_exception_version_positive", sql`${table.version} > 0`),
+    check("efa_staffing_plan_exception_slots_array", sql`jsonb_typeof(${table.slots}) = 'array'`),
+  ],
+);
+
+export const efaStaffingPlanAudit = pgTable(
+  "efa_staffing_plan_audit",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    planId: uuid("plan_id")
+      .notNull()
+      .references(() => efaStaffingPlan.id, { onDelete: "restrict" }),
+    actorUserId: text("actor_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    version: integer("version").notNull(),
+    state: jsonb("state").$type<Record<string, unknown>>().notNull(),
+    occurredAt: timestamp("occurred_at").notNull().defaultNow(),
+  },
+  (table) => [
+    unique("efa_staffing_plan_audit_plan_version_unique").on(table.planId, table.version),
+    check("efa_staffing_plan_audit_version_positive", sql`${table.version} > 0`),
+    check("efa_staffing_plan_audit_state_object", sql`jsonb_typeof(${table.state}) = 'object'`),
+  ],
+);
+
+export const efaStaffingPlanExceptionAudit = pgTable(
+  "efa_staffing_plan_exception_audit",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    exceptionId: uuid("exception_id")
+      .notNull()
+      .references(() => efaStaffingPlanException.id, { onDelete: "restrict" }),
+    actorUserId: text("actor_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    version: integer("version").notNull(),
+    state: jsonb("state").$type<Record<string, unknown>>().notNull(),
+    occurredAt: timestamp("occurred_at").notNull().defaultNow(),
+  },
+  (table) => [
+    unique("efa_staffing_plan_exception_audit_version_unique").on(table.exceptionId, table.version),
+    check("efa_staffing_plan_exception_audit_version_positive", sql`${table.version} > 0`),
+    check(
+      "efa_staffing_plan_exception_audit_state_object",
+      sql`jsonb_typeof(${table.state}) = 'object'`,
+    ),
+  ],
+);
+
 export const efaEpisode = pgTable(
   "efa_episode",
   {

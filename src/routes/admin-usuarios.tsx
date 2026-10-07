@@ -3,6 +3,7 @@ import { useState } from "react";
 import { AccountAdminForm } from "@/components/AccountAdminForm";
 import { AccountAdminList, type AccountView } from "@/components/AccountAdminList";
 import { AdminBaseCatalog, type AdminBaseView } from "@/components/AdminBaseCatalog";
+import { AdminStaffingPlan } from "@/components/AdminStaffingPlan";
 import { PrivateAccountShell, type PrivateSession } from "@/components/PrivateAccountShell";
 import { Button } from "@/components/ui/button";
 import { listAccounts } from "@/lib/accounts.functions";
@@ -65,6 +66,7 @@ function AdminAccountsPage() {
         />
         <AccountAdminList accounts={accounts} onReload={reload} actorId={session.user.id} />
         <AdminBaseCatalog initialBases={data.bases} />
+        <AdminStaffingPlan bases={data.bases} />
         <Button asChild variant="outline" className="min-h-11">
           <a href="/panel">Volver al panel</a>
         </Button>
