@@ -122,7 +122,7 @@ export type SupportOperation = {
   changed: boolean;
 };
 type Actor = { isActive: boolean; roles: AccountRole[] };
-type Episode = { id: string; ownerUserId: string };
+type Episode = { id: string; ownerUserId: string; cancelledAt?: Date | null };
 type Base = { id: string; isActive: boolean };
 type Institution = { id: string; name: string; isActive: boolean };
 type Communication = {
@@ -530,6 +530,8 @@ export function createEfaDispatchesService(
         const episode = await tx.findEpisode(input.episodeId, true);
         if (!episode || !visible(episode.ownerUserId, userId, access.roles))
           throw new Error("No se encontró el episodio.");
+        if (episode.cancelledAt)
+          throw new Error("No se puede agregar un despacho a un episodio anulado.");
         const prior = await tx.findDispatchByKey(episode.ownerUserId, input.clientCreationKey);
         if (prior) {
           const operation = await tx.findDispatchOperation(prior.id, input.clientCreationKey);
@@ -1081,7 +1083,15 @@ export function createEfaDispatchesService(
     const requestHash = hash({ action, userId, ...input });
     return store.transaction(async (tx) => {
       const access = await actor(tx, userId, true);
-      const current = await tx.findDispatch(input.dispatchId, true);
+      let current = await tx.findDispatch(input.dispatchId, false);
+      if (!current || !visible(current.ownerUserId, userId, access.roles))
+        throw new Error("No se encontró el despacho.");
+      if (kind === "reactivate") {
+        const episode = await tx.findEpisode(current.episodeId, true);
+        if (!episode || episode.cancelledAt)
+          throw new Error("Reactiva primero el episodio cancelado.");
+      }
+      current = await tx.findDispatch(input.dispatchId, true);
       if (!current || !visible(current.ownerUserId, userId, access.roles))
         throw new Error("No se encontró el despacho.");
       const existing = await tx.findDispatchOperation(current.id, input.operationId);
@@ -1327,7 +1337,11 @@ const drizzleStore: DispatchStore = {
         },
         async findEpisode(episodeId, lock = false) {
           let query = db
-            .select({ id: efaEpisode.id, ownerUserId: efaEpisode.ownerUserId })
+            .select({
+              id: efaEpisode.id,
+              ownerUserId: efaEpisode.ownerUserId,
+              cancelledAt: efaEpisode.cancelledAt,
+            })
             .from(efaEpisode)
             .where(eq(efaEpisode.id, episodeId))
             .limit(1);

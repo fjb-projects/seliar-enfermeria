@@ -14,6 +14,8 @@ import { readSession } from "@/lib/auth.functions";
 import {
   createEfaEpisode,
   closeEfaEpisode,
+  cancelEfaEpisode,
+  reactivateEfaEpisode,
   getEfaEpisode,
   getEfaEpisodeHistory,
   listEfaEpisodes,
@@ -72,10 +74,13 @@ export type EpisodeView = {
   interventionNumber: string | null;
   state: "draft" | "closed";
   closedAt?: string | null;
+  cancelledAt?: string | null;
+  cancelledFromState?: "draft" | "closed" | null;
   version: number;
   createdAt: string;
   updatedAt: string;
   canEdit: boolean;
+  canManage?: boolean;
 };
 type ActiveEpisodeConflict = {
   ownerUserId: string;
@@ -86,7 +91,7 @@ export type EpisodeAuditView = {
   id: string;
   episodeId: string;
   actorUserId: string;
-  action: "created" | "updated" | "closed";
+  action: "created" | "updated" | "closed" | "cancelled" | "reactivated";
   versionBefore: number | null;
   versionAfter: number;
   beforeState: Record<string, unknown> | null;
@@ -103,7 +108,7 @@ type EpisodeMutationResult = {
   episode: EpisodeView;
   operation: {
     id: string;
-    action: "created" | "updated" | "closed";
+    action: "created" | "updated" | "closed" | "cancelled" | "reactivated";
     appliedVersion: number;
     changed: boolean;
     replayed: boolean;
@@ -147,6 +152,8 @@ export function EfaEpisodePanel({
 }) {
   const createEpisode = useServerFn(createEfaEpisode);
   const closeEpisodeFn = useServerFn(closeEfaEpisode);
+  const cancelEpisodeFn = useServerFn(cancelEfaEpisode);
+  const reactivateEpisodeFn = useServerFn(reactivateEfaEpisode);
   const readSessionFn = useServerFn(readSession);
   const updateEpisode = useServerFn(updateEfaEpisode);
   const listEpisodes = useServerFn(listEfaEpisodes);
@@ -172,6 +179,7 @@ export function EfaEpisodePanel({
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [refreshWarning, setRefreshWarning] = useState("");
+  const lifecycleOperationRef = useRef<{ key: string; operationId: string } | null>(null);
   const submissionGate = useRef(createEpisodeSubmissionGate());
   const [queueEntries, setQueueEntries] = useState<EpisodeQueueEntry[]>([]);
   const [queueReady, setQueueReady] = useState(false);
@@ -972,6 +980,51 @@ export function EfaEpisodePanel({
       });
   }
 
+  async function changeEpisodeCancellation(episode: EpisodeView, action: "cancel" | "reactivate") {
+    if (!canWrite || !episode.canManage || busy || pending || conflict) return;
+    const confirmation =
+      action === "cancel"
+        ? "¿Anular este episodio? No se eliminarán sus llamadas ni despachos. Primero deben estar anulados todos los hijos."
+        : "¿Reactivar este episodio y restaurar su estado anterior? Sus llamadas y despachos no cambiarán.";
+    if (!window.confirm(confirmation)) return;
+    const key = `${episode.id}:${episode.version}:${action}`;
+    if (lifecycleOperationRef.current?.key !== key)
+      lifecycleOperationRef.current = { key, operationId: crypto.randomUUID() };
+    const operationId = lifecycleOperationRef.current.operationId;
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const input = { episodeId: episode.id, expectedVersion: episode.version, operationId };
+      const result = (
+        action === "cancel"
+          ? await cancelEpisodeFn({ data: input })
+          : await reactivateEpisodeFn({ data: input })
+      ) as EpisodeMutationResult;
+      lifecycleOperationRef.current = null;
+      setEpisodes((current) =>
+        current.map((item) =>
+          item.id === result.episode.id && result.episode.version >= item.version
+            ? result.episode
+            : item,
+        ),
+      );
+      setMessage(
+        action === "cancel"
+          ? "Episodio anulado; su historial permanece disponible."
+          : "Episodio reactivado con su estado anterior.",
+      );
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "No se pudo confirmar el cambio. Reintentar conservará el mismo identificador de operación.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function retryPending() {
     if (!pending) return;
     const ticket = ownerTicketRef.current;
@@ -1493,9 +1546,11 @@ export function EfaEpisodePanel({
             <article
               key={episode.id}
               className={`space-y-2.5 rounded-lg border p-3 sm:p-4 ${
-                episode.state === "closed"
-                  ? "border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950/40"
-                  : "border-sky-200 bg-sky-50/60 dark:border-sky-900 dark:bg-sky-950/20"
+                episode.cancelledAt
+                  ? "border-rose-200 bg-rose-50/70 dark:border-rose-900 dark:bg-rose-950/20"
+                  : episode.state === "closed"
+                    ? "border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950/40"
+                    : "border-sky-200 bg-sky-50/60 dark:border-sky-900 dark:bg-sky-950/20"
               }`}
             >
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -1503,12 +1558,18 @@ export function EfaEpisodePanel({
                   <h3 className="font-semibold leading-5">{displayName(episode)}</h3>
                   <p
                     className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${
-                      episode.state === "closed"
-                        ? "bg-muted text-muted-foreground"
-                        : "bg-sky-50 text-sky-800"
+                      episode.cancelledAt
+                        ? "bg-rose-100 text-rose-900 dark:bg-rose-950 dark:text-rose-100"
+                        : episode.state === "closed"
+                          ? "bg-muted text-muted-foreground"
+                          : "bg-sky-50 text-sky-800"
                     }`}
                   >
-                    {episode.state === "closed" ? "Cerrado" : "Activo"}
+                    {episode.cancelledAt
+                      ? `Anulado · ${episode.cancelledFromState === "closed" ? "Cerrado" : "Activo"}`
+                      : episode.state === "closed"
+                        ? "Cerrado"
+                        : "Activo"}
                   </p>
                   <p className="text-sm text-muted-foreground">
                     Hecho {formatEpisodeDate(episode.eventAt)}
@@ -1539,6 +1600,29 @@ export function EfaEpisodePanel({
                     <History aria-hidden="true" className="size-4" />
                     Ver historial
                   </Button>
+                  {canWrite &&
+                    episode.canManage &&
+                    (episode.cancelledAt ? (
+                      <Button
+                        variant="outline"
+                        className="min-h-11 border-emerald-200 bg-emerald-50 px-3 text-emerald-950 hover:bg-emerald-100"
+                        disabled={busy || Boolean(pending) || Boolean(conflict)}
+                        aria-label={`Reactivar episodio ${displayName(episode)}`}
+                        onClick={() => void changeEpisodeCancellation(episode, "reactivate")}
+                      >
+                        Reactivar
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        className="min-h-11 border-rose-200 bg-rose-50 px-3 text-rose-950 hover:bg-rose-100"
+                        disabled={busy || Boolean(pending) || Boolean(conflict)}
+                        aria-label={`Anular episodio ${displayName(episode)}`}
+                        onClick={() => void changeEpisodeCancellation(episode, "cancel")}
+                      >
+                        Anular
+                      </Button>
+                    ))}
                   {canWrite && episode.canEdit && (
                     <Button
                       variant="outline"

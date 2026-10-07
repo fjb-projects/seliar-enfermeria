@@ -2,7 +2,7 @@
 
 Implement the next EFA operational workflows without changing public forms or external integrations. The first work unit records observed staffing-period facts, distinct from planned coverage, using anonymous roles rather than personal identities.
 
-**Status:** Tasks 10A, 10B, 11A, 11B, 12, 13A, and 13B complete locally; task 13C and final integration remain.
+**Status:** Tasks 10A, 10B, 11A, 11B, 12, 13A, 13B, and 13C complete locally; final integration remains.
 **Engram mirror:** Pending; the runtime did not provide an authorized registered session identity, so no memory write is attempted.
 **Delivery strategy:** `ask-on-risk`; the user selected a feature-branch chain on 2026-10-07. Keep each work unit as a reviewable block; do not publish a PR or push without separate authorization.
 **Forecast:** More than 400 authored changed lines across the expanded feature; generated migration artifacts are excluded. Slicing is by behavior, not by code compression.
@@ -181,9 +181,21 @@ The admin account route uses a catalog-ID selector for all plan targets, with ef
 - Concurrency regression evidence: RED without the lock request failed because the fake store observed no locked origin read; GREEN after adding the transaction-scoped lock passed `npm run test -- src/lib/efa-dispatches.server.test.ts` (1 file, 17 tests). `npm run typecheck`, `git diff --check`, and `npx prettier --check src/lib/efa-dispatches.server.ts src/lib/efa-dispatches.server.test.ts` passed after the correction. No migration was applied.
 - No support request, police coordination/event, observation, staffing, episode, or public Forms/Drive lifecycle behavior was changed. No migration or remote database operation was performed. Work-unit commit: `1ac9999`. Independent code review and focused parent spot check passed; live PostgreSQL locking and browser behavior remain unverified.
 
-#### 13C — Episode cancellation and reactivation (pending)
+#### 13C — Episode cancellation and reactivation (complete locally)
 
-- [ ] Implement episode lifecycle transitions only after 13A/13B, preventing cancellation while non-cancelled child communications or dispatches remain and restoring the previous episode state without duplicating or changing children.
+- [x] Add episode cancellation/reactivation as lifecycle metadata distinct from normal closure, preserving the prior `draft|closed` state and `closedAt`.
+- [x] Keep cancelled episodes visible but uneditable/unclosable; explicitly reactivate to restore the exact previous state without changing or deleting children.
+- [x] Block cancellation while any non-cancelled call or dispatch remains; serialize parent cancellation against call/dispatch creation and child reactivation with parent-row locks.
+- [x] Recheck active owner/admin authorization server-side; enforce expected-version CAS, replay-safe operation receipts, actor/DB-time audit, and admin-only notices to the original owner.
+- [x] Add accessible confirmation/status controls with an operation ID retained across uncertain retries; generate but do not apply forward-only migration 0020.
+
+**13C implementation and verification evidence:** Episodes now have separate nullable cancellation timestamp/prior-state metadata; normal closure and cancellation retain distinct values, and reactivation clears only lifecycle metadata. Server-side cancellation locks the episode row before checking non-cancelled child records, performs versioned audit/operation writes, and sends an administrator notice only to the original owner. Child communication/dispatch creation checks the locked parent and rejects cancelled episodes; their reactivation locks parent before child, preventing a child from becoming active after the cancellation check. Existing children and historical links remain untouched. Cancelled episodes remain readable with a distinct status and cannot be edited or normally closed until reactivated. UI lifecycle retries retain the same operation ID for the same episode/version/action after an uncertain response.
+
+- Test-first RED: new service tests failed because `service.cancel` did not exist. GREEN: focused cancellation, child gate/lock-order, dispatch/communication, and UI regression tests passed.
+- `npm run db:generate`: exit 0; generated `drizzle/0020_ancient_kabuki.sql`, snapshot 0020, and journal entry 20. Migration is forward-only and unapplied; no remote DB was accessed.
+- `npm run test -- src/lib/efa-episodes.server.test.ts src/lib/efa-episodes.functions.test.ts src/lib/efa-communications.server.test.ts src/lib/efa-dispatches.server.test.ts src/components/EfaEpisodePanel.test.tsx`: exit 0; 5 files, 59 tests. The broader schema-inclusive focused run passed 6 files, 80 tests.
+- `npm run typecheck`: exit 0. `npm run build`: exit 0, retaining existing Vite path-plugin, route-test-file, and unrelated deprecated `inputValidator()` warnings. `git diff --check`: exit 0.
+- No migration was applied, no live PostgreSQL locking was tested, and no commit was created. The deterministic fakes assert parent-before-child lock requests; they do not prove PostgreSQL runtime behavior.
 
 **Excluded from task 13:** Police coordination/events, support requests, observations, and staffing lifecycle changes.
 
@@ -194,4 +206,4 @@ The admin account route uses a catalog-ID selector for all plan targets, with ef
 
 ## Next step
 
-Parent review/commit of 13A and 13B is pending; next implement task 13C episode cancellation/reactivation, without expanding into police coordination/events, support requests, observations, or staffing.
+Parent review/commit of 13C is pending; then complete the explicitly scoped final integration checks without expanding task 13 into police coordination/events, support requests, observations, or staffing.

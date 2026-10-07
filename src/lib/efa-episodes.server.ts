@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, ne, sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import { getDatabase } from "../db/index.server";
 import {
@@ -8,6 +8,8 @@ import {
   efaEpisodeAudit,
   efaEpisodeNotice,
   efaEpisodeOperation,
+  efaCommunication,
+  efaDispatch,
   efaGuard,
 } from "../db/schema";
 import { effectiveRoles, type AccountRole } from "./access";
@@ -19,6 +21,8 @@ export type EfaEpisodeState = {
   interventionNumber: string | null;
   state: "draft" | "closed";
   closedAt: string | null;
+  cancelledAt: string | null;
+  cancelledFromState: "draft" | "closed" | null;
 };
 export type EfaEpisodeRecord = {
   id: string;
@@ -31,6 +35,8 @@ export type EfaEpisodeRecord = {
   interventionNumber: string | null;
   state: "draft" | "closed";
   closedAt: Date | null;
+  cancelledAt: Date | null;
+  cancelledFromState: "draft" | "closed" | null;
   version: number;
   createdAt: Date;
   updatedAt: Date;
@@ -42,7 +48,7 @@ export type EfaEpisodeOperationRecord = {
   episodeId: string;
   actorUserId: string;
   clientOperationId: string;
-  action: "created" | "updated" | "closed";
+  action: "created" | "updated" | "closed" | "cancelled" | "reactivated";
   requestHash: string;
   appliedVersion: number;
   changed: boolean;
@@ -51,7 +57,7 @@ export type EfaEpisodeAuditRecord = {
   id: string;
   episodeId: string;
   actorUserId: string;
-  action: "created" | "updated" | "closed";
+  action: "created" | "updated" | "closed" | "cancelled" | "reactivated";
   versionBefore: number | null;
   versionAfter: number;
   beforeState: EfaEpisodeState | null;
@@ -72,6 +78,9 @@ export interface EfaEpisodeTransaction {
   findGuard(guardId: string, lock?: boolean): Promise<EfaEpisodeGuard | null>;
   listEpisodes(ownerUserId: string | null): Promise<EfaEpisodeRecord[]>;
   findEpisode(episodeId: string, lock?: boolean): Promise<EfaEpisodeRecord | null>;
+  hasNonCancelledCommunication(episodeId: string): Promise<boolean>;
+  hasNonCancelledDispatch(episodeId: string): Promise<boolean>;
+  currentTimestamp(): Promise<Date>;
   findEpisodeByCreationKey(userId: string, key: string): Promise<EfaEpisodeRecord | null>;
   findOperation(
     episodeId: string,
@@ -85,14 +94,22 @@ export interface EfaEpisodeTransaction {
     expectedVersion: number,
     next: Pick<
       EfaEpisodeRecord,
-      "eventAt" | "motive" | "address" | "interventionNumber" | "state" | "closedAt" | "version"
+      | "eventAt"
+      | "motive"
+      | "address"
+      | "interventionNumber"
+      | "state"
+      | "closedAt"
+      | "cancelledAt"
+      | "cancelledFromState"
+      | "version"
     >,
   ): Promise<void>;
   appendAudit(input: {
     episodeId: string;
     actorUserId: string;
     operationId: string;
-    action: "created" | "updated" | "closed";
+    action: "created" | "updated" | "closed" | "cancelled" | "reactivated";
     versionBefore: number | null;
     versionAfter: number;
     beforeState: EfaEpisodeState | null;
@@ -114,19 +131,21 @@ export interface EfaEpisodeStore {
 
 export type EfaEpisodeView = Omit<
   EfaEpisodeRecord,
-  "eventAt" | "closedAt" | "createdAt" | "updatedAt"
+  "eventAt" | "closedAt" | "cancelledAt" | "createdAt" | "updatedAt"
 > & {
   eventAt: string;
   closedAt: string | null;
+  cancelledAt: string | null;
   createdAt: string;
   updatedAt: string;
   canEdit: boolean;
+  canManage: boolean;
 };
 export type EfaEpisodeMutationResult = {
   episode: EfaEpisodeView;
   operation: {
     id: string;
-    action: "created" | "updated" | "closed";
+    action: "created" | "updated" | "closed" | "cancelled" | "reactivated";
     appliedVersion: number;
     changed: boolean;
     replayed: boolean;
@@ -137,7 +156,14 @@ const randomId = () => crypto.randomUUID();
 const toState = (
   record: Pick<
     EfaEpisodeRecord,
-    "eventAt" | "motive" | "address" | "interventionNumber" | "state" | "closedAt"
+    | "eventAt"
+    | "motive"
+    | "address"
+    | "interventionNumber"
+    | "state"
+    | "closedAt"
+    | "cancelledAt"
+    | "cancelledFromState"
   >,
 ): EfaEpisodeState => ({
   eventAt: record.eventAt.toISOString(),
@@ -146,8 +172,13 @@ const toState = (
   interventionNumber: record.interventionNumber,
   state: record.state,
   closedAt: record.closedAt?.toISOString() ?? null,
+  cancelledAt: record.cancelledAt?.toISOString() ?? null,
+  cancelledFromState: record.cancelledFromState,
 });
-const requestHash = (action: "created" | "updated" | "closed", values: Record<string, unknown>) =>
+const requestHash = (
+  action: "created" | "updated" | "closed" | "cancelled" | "reactivated",
+  values: Record<string, unknown>,
+) =>
   createHash("sha256")
     .update(JSON.stringify({ action, ...values }))
     .digest("hex");
@@ -166,9 +197,11 @@ function view(record: EfaEpisodeRecord, canEdit: boolean): EfaEpisodeView {
     ...record,
     eventAt: record.eventAt.toISOString(),
     closedAt: record.closedAt?.toISOString() ?? null,
+    cancelledAt: record.cancelledAt?.toISOString() ?? null,
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
-    canEdit,
+    canEdit: canEdit && record.cancelledAt === null,
+    canManage: canEdit,
   };
 }
 
@@ -205,7 +238,7 @@ export function createEfaEpisodesService(
   function assertOperation(
     operation: EfaEpisodeOperationRecord | null,
     actorUserId: string,
-    action: "created" | "updated" | "closed",
+    action: "created" | "updated" | "closed" | "cancelled" | "reactivated",
     hash: string,
   ): asserts operation is EfaEpisodeOperationRecord {
     if (
@@ -338,6 +371,8 @@ export function createEfaEpisodesService(
           interventionNumber,
           state: "draft" as const,
           closedAt: null,
+          cancelledAt: null,
+          cancelledFromState: null,
         };
         await tx.insertEpisode(record);
         await tx.appendAudit({
@@ -416,6 +451,7 @@ export function createEfaEpisodesService(
         if (current.version !== input.expectedVersion) {
           throw new Error("El episodio cambió; actualiza el historial antes de continuar.");
         }
+        if (current.cancelledAt) throw new Error("Reactiva el episodio antes de modificarlo.");
         const beforeState = toState(current);
         const next = {
           eventAt: eventAt.toISOString(),
@@ -424,6 +460,8 @@ export function createEfaEpisodesService(
           interventionNumber: nextValues.interventionNumber,
           state: current.state,
           closedAt: current.closedAt?.toISOString() ?? null,
+          cancelledAt: null,
+          cancelledFromState: null,
         };
         const noChange =
           beforeState.eventAt === next.eventAt &&
@@ -459,6 +497,8 @@ export function createEfaEpisodesService(
           interventionNumber: next.interventionNumber,
           state: current.state,
           closedAt: current.closedAt,
+          cancelledAt: null,
+          cancelledFromState: null,
           version,
         });
         const auditId = await tx.appendAudit({
@@ -525,6 +565,7 @@ export function createEfaEpisodesService(
         if (current.version !== input.expectedVersion) {
           throw new Error("El episodio cambió; actualiza el historial antes de continuar.");
         }
+        if (current.cancelledAt) throw new Error("Reactiva el episodio antes de cerrarlo.");
 
         if (current.state === "closed") {
           await tx.insertOperation({
@@ -557,6 +598,8 @@ export function createEfaEpisodesService(
           interventionNumber: current.interventionNumber,
           state: "closed",
           closedAt,
+          cancelledAt: null,
+          cancelledFromState: null,
           version,
         });
         const auditId = await tx.appendAudit({
@@ -599,7 +642,128 @@ export function createEfaEpisodesService(
         };
       });
     },
+
+    cancel(
+      userId: string,
+      input: { episodeId: string; expectedVersion: number; operationId: string },
+    ) {
+      return transitionCancellation(userId, input, "cancelled");
+    },
+    reactivate(
+      userId: string,
+      input: { episodeId: string; expectedVersion: number; operationId: string },
+    ) {
+      return transitionCancellation(userId, input, "reactivated");
+    },
   };
+
+  async function transitionCancellation(
+    userId: string,
+    input: { episodeId: string; expectedVersion: number; operationId: string },
+    action: "cancelled" | "reactivated",
+  ): Promise<EfaEpisodeMutationResult> {
+    const hash = requestHash(action, {
+      actorUserId: userId,
+      episodeId: input.episodeId,
+      expectedVersion: input.expectedVersion,
+    });
+    return store.transaction(async (tx) => {
+      const { roles } = await actor(tx, userId, true);
+      const current = await tx.findEpisode(input.episodeId, true);
+      if (!current || (current.ownerUserId !== userId && !roles.includes("admin")))
+        throw new Error("No se encontró el episodio.");
+      const existing = await tx.findOperation(current.id, input.operationId);
+      if (existing) {
+        assertOperation(existing, userId, action, hash);
+        return replayResult(current, existing);
+      }
+      if (current.version !== input.expectedVersion)
+        throw new Error("El episodio cambió; actualiza el historial antes de continuar.");
+      const isCancelled = current.cancelledAt !== null;
+      if (action === "cancelled" && !isCancelled) {
+        if (await tx.hasNonCancelledCommunication(current.id))
+          throw new Error("No se puede anular el episodio mientras tenga llamadas no anuladas.");
+        if (await tx.hasNonCancelledDispatch(current.id))
+          throw new Error("No se puede anular el episodio mientras tenga despachos no anulados.");
+      }
+      if ((action === "cancelled") === isCancelled) {
+        await tx.insertOperation({
+          episodeId: current.id,
+          actorUserId: userId,
+          clientOperationId: input.operationId,
+          action,
+          requestHash: hash,
+          appliedVersion: current.version,
+          changed: false,
+        });
+        return {
+          episode: view(current, true),
+          operation: {
+            id: input.operationId,
+            action,
+            appliedVersion: current.version,
+            changed: false,
+            replayed: false,
+          },
+        };
+      }
+      const cancelledAt = action === "cancelled" ? await tx.currentTimestamp() : null;
+      const next = {
+        ...current,
+        cancelledAt,
+        cancelledFromState: action === "cancelled" ? current.state : null,
+      };
+      const version = current.version + 1;
+      await tx.updateEpisode(current.id, current.version, {
+        eventAt: current.eventAt,
+        motive: current.motive,
+        address: current.address,
+        interventionNumber: current.interventionNumber,
+        state: current.state,
+        closedAt: current.closedAt,
+        cancelledAt: next.cancelledAt,
+        cancelledFromState: next.cancelledFromState,
+        version,
+      });
+      const auditId = await tx.appendAudit({
+        episodeId: current.id,
+        actorUserId: userId,
+        operationId: input.operationId,
+        action,
+        versionBefore: current.version,
+        versionAfter: version,
+        beforeState: toState(current),
+        afterState: toState(next),
+      });
+      if (current.ownerUserId !== userId)
+        await tx.appendNotice({
+          episodeId: current.id,
+          auditId,
+          recipientUserId: current.ownerUserId,
+        });
+      await tx.insertOperation({
+        episodeId: current.id,
+        actorUserId: userId,
+        clientOperationId: input.operationId,
+        action,
+        requestHash: hash,
+        appliedVersion: version,
+        changed: true,
+      });
+      const updated = await tx.findEpisode(current.id);
+      if (!updated) throw new Error("No se pudo confirmar la anulación del episodio.");
+      return {
+        episode: view(updated, true),
+        operation: {
+          id: input.operationId,
+          action,
+          appliedVersion: version,
+          changed: true,
+          replayed: false,
+        },
+      };
+    });
+  }
 }
 
 const drizzleStore: EfaEpisodeStore = {
@@ -646,6 +810,33 @@ const drizzleStore: EfaEpisodeStore = {
           if (lock) query = query.for("update") as typeof query;
           const rows = await query;
           return (rows[0] as EfaEpisodeRecord | undefined) ?? null;
+        },
+        async hasNonCancelledCommunication(episodeId) {
+          const rows = await db
+            .select({ id: efaCommunication.id })
+            .from(efaCommunication)
+            .where(
+              and(
+                eq(efaCommunication.episodeId, episodeId),
+                ne(efaCommunication.state, "cancelled"),
+              ),
+            )
+            .limit(1);
+          return rows.length > 0;
+        },
+        async hasNonCancelledDispatch(episodeId) {
+          const rows = await db
+            .select({ id: efaDispatch.id })
+            .from(efaDispatch)
+            .where(and(eq(efaDispatch.episodeId, episodeId), ne(efaDispatch.state, "cancelled")))
+            .limit(1);
+          return rows.length > 0;
+        },
+        async currentTimestamp() {
+          const result = await db.execute<{ now: Date | string }>(sql`select now() as now`);
+          const value = result.rows[0]?.now;
+          if (!value) throw new Error("No se pudo obtener la hora de base de datos.");
+          return value instanceof Date ? value : new Date(value);
         },
         async findEpisodeByCreationKey(userId, key) {
           const rows = await db

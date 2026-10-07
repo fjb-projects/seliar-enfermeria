@@ -43,7 +43,11 @@ export type EfaCommunicationRecord = {
   updatedAt: Date;
 };
 type Actor = { isActive: boolean; roles: AccountRole[] };
-export type EfaCommunicationEpisode = { id: string; ownerUserId: string };
+export type EfaCommunicationEpisode = {
+  id: string;
+  ownerUserId: string;
+  cancelledAt?: Date | null;
+};
 export type EfaCommunicationOperationRecord = {
   id: string;
   communicationId: string;
@@ -278,7 +282,15 @@ export function createEfaCommunicationsService(
     const hash = requestHash({ action, actorUserId: userId, ...input });
     return store.transaction(async (tx) => {
       const { roles } = await actor(tx, userId, true);
-      const current = await tx.findCommunication(input.communicationId, true);
+      let current = await tx.findCommunication(input.communicationId, false);
+      if (!current || !visible(current, userId, roles))
+        throw new Error("No se encontró la comunicación.");
+      if (kind === "reactivate") {
+        const episode = await tx.findEpisode(current.episodeId, true);
+        if (!episode || episode.cancelledAt)
+          throw new Error("Reactiva primero el episodio cancelado.");
+      }
+      current = await tx.findCommunication(input.communicationId, true);
       if (!current || !visible(current, userId, roles)) {
         throw new Error("No se encontró la comunicación.");
       }
@@ -504,6 +516,8 @@ export function createEfaCommunicationsService(
         if (!episode || (episode.ownerUserId !== userId && !roles.includes("admin"))) {
           throw new Error("No se encontró el episodio.");
         }
+        if (episode.cancelledAt)
+          throw new Error("No se puede agregar una comunicación a un episodio anulado.");
         const replayExisting = async (existing: EfaCommunicationRecord | null) => {
           if (!existing) return null;
           const operation = await tx.findOperation(existing.id, input.clientCreationKey);
@@ -854,7 +868,11 @@ const drizzleStore: EfaCommunicationStore = {
         },
         async findEpisode(episodeId, lock = false) {
           let query = db
-            .select({ id: efaEpisode.id, ownerUserId: efaEpisode.ownerUserId })
+            .select({
+              id: efaEpisode.id,
+              ownerUserId: efaEpisode.ownerUserId,
+              cancelledAt: efaEpisode.cancelledAt,
+            })
             .from(efaEpisode)
             .where(eq(efaEpisode.id, episodeId))
             .limit(1);

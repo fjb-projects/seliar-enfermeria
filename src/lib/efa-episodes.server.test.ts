@@ -41,12 +41,14 @@ function createStore() {
     episodeId: string;
     actorUserId: string;
     clientOperationId: string;
-    action: "created" | "updated" | "closed";
+    action: "created" | "updated" | "closed" | "cancelled" | "reactivated";
     requestHash: string;
     appliedVersion: number;
     changed: boolean;
   }> = [];
   let forcedCreationMisses = 0;
+  let activeCommunication = false;
+  let activeDispatch = false;
   let transactionTail = Promise.resolve();
   const guardLocks: string[] = [];
   const episodeLocks: string[] = [];
@@ -56,6 +58,7 @@ function createStore() {
     ...episode,
     eventAt: new Date(episode.eventAt),
     closedAt: episode.closedAt ? new Date(episode.closedAt) : null,
+    cancelledAt: episode.cancelledAt ? new Date(episode.cancelledAt) : null,
     createdAt: new Date(episode.createdAt),
     updatedAt: new Date(episode.updatedAt),
   });
@@ -76,6 +79,15 @@ function createStore() {
       if (lock) episodeLocks.push(id);
       const episode = episodes.find((item) => item.id === id);
       return episode ? detachEpisode(episode) : null;
+    },
+    async hasNonCancelledCommunication() {
+      return activeCommunication;
+    },
+    async hasNonCancelledDispatch() {
+      return activeDispatch;
+    },
+    async currentTimestamp() {
+      return new Date("2026-10-07T11:00:00.000Z");
     },
     async findEpisodeByCreationKey(userId: string, key: string) {
       if (forcedCreationMisses > 0) {
@@ -104,7 +116,15 @@ function createStore() {
       expectedVersion: number,
       next: Pick<
         EfaEpisodeRecord,
-        "eventAt" | "motive" | "address" | "interventionNumber" | "state" | "closedAt" | "version"
+        | "eventAt"
+        | "motive"
+        | "address"
+        | "interventionNumber"
+        | "state"
+        | "closedAt"
+        | "cancelledAt"
+        | "cancelledFromState"
+        | "version"
       >,
     ) {
       const episode = episodes.find((item) => item.id === id);
@@ -170,6 +190,10 @@ function createStore() {
     guards,
     setForcedCreationMisses(value: number) {
       forcedCreationMisses = value;
+    },
+    setActiveChildren(communication: boolean, dispatch: boolean) {
+      activeCommunication = communication;
+      activeDispatch = dispatch;
     },
     setRoles(userId: string, roles: Array<"efa" | "admin">) {
       const actor = actors.get(userId)!;
@@ -593,6 +617,77 @@ describe("EFA episode draft persistence", () => {
     expect(db.episodes[0]?.state).toBe("draft");
     expect(db.audits).toHaveLength(1);
     expect(db.notices).toHaveLength(0);
+  });
+
+  it("cancels an episode without erasing closure state and restores it on reactivation", async () => {
+    const db = createStore();
+    const service = createEfaEpisodesService(db.store, { newId: () => "episode-1" });
+    await service.create(owner, createInput());
+    const closed = await service.close(owner, {
+      episodeId: "episode-1",
+      expectedVersion: 1,
+      operationId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+    });
+    const closedAt = closed.episode.closedAt;
+    const cancelled = await service.cancel(admin, {
+      episodeId: "episode-1",
+      expectedVersion: 2,
+      operationId: "11111111-2222-4222-8222-222222222222",
+    });
+    expect(cancelled.episode).toMatchObject({
+      state: "closed",
+      closedAt,
+      cancelledAt: expect.any(String),
+      cancelledFromState: "closed",
+      canEdit: false,
+      canManage: true,
+      version: 3,
+    });
+    expect(db.audits[2]).toMatchObject({
+      actorUserId: admin,
+      action: "cancelled",
+      versionBefore: 2,
+      versionAfter: 3,
+      beforeState: { state: "closed", closedAt, cancelledAt: null },
+      afterState: { state: "closed", closedAt, cancelledFromState: "closed" },
+    });
+    expect(db.notices.at(-1)).toMatchObject({ recipientUserId: owner });
+    const reactivated = await service.reactivate(admin, {
+      episodeId: "episode-1",
+      expectedVersion: 3,
+      operationId: "22222222-3333-4333-8333-333333333333",
+    });
+    expect(reactivated.episode).toMatchObject({
+      state: "closed",
+      closedAt,
+      cancelledAt: null,
+      cancelledFromState: null,
+      version: 4,
+    });
+    expect(db.audits[3]).toMatchObject({ action: "reactivated", actorUserId: admin });
+  });
+
+  it("rejects episode cancellation when any non-cancelled call or dispatch remains", async () => {
+    const db = createStore();
+    const service = createEfaEpisodesService(db.store, { newId: () => "episode-1" });
+    await service.create(owner, createInput());
+    db.setActiveChildren(true, false);
+    await expect(
+      service.cancel(owner, {
+        episodeId: "episode-1",
+        expectedVersion: 1,
+        operationId: "33333333-4444-4444-8444-444444444444",
+      }),
+    ).rejects.toThrow(/comunicación|llamada/i);
+    db.setActiveChildren(false, true);
+    await expect(
+      service.cancel(owner, {
+        episodeId: "episode-1",
+        expectedVersion: 1,
+        operationId: "44444444-5555-4555-8555-555555555555",
+      }),
+    ).rejects.toThrow(/despachos/i);
+    expect(db.episodeLocks).toContain("episode-1");
   });
 
   it("returns append-only history only to the owner or an administrator", async () => {

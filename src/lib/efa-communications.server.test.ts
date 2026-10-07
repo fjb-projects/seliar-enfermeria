@@ -26,8 +26,24 @@ function createStore() {
     ["disabled", { isActive: false, roles: ["efa"] as Array<"efa" | "admin"> }],
   ]);
   const episodes = new Map([
-    [episodeId, { id: episodeId, ownerUserId: owner, originGuardClosed: true }],
-    ["episode-other", { id: "episode-other", ownerUserId: "other", originGuardClosed: false }],
+    [
+      episodeId,
+      {
+        id: episodeId,
+        ownerUserId: owner,
+        originGuardClosed: true,
+        cancelledAt: null as Date | null,
+      },
+    ],
+    [
+      "episode-other",
+      {
+        id: "episode-other",
+        ownerUserId: "other",
+        originGuardClosed: false,
+        cancelledAt: null as Date | null,
+      },
+    ],
   ]);
   const communications: EfaCommunicationRecord[] = [];
   const audits: EfaCommunicationAuditRecord[] = [];
@@ -196,6 +212,7 @@ function createStore() {
       },
     },
     communications,
+    episodes,
     audits,
     operations,
     notices,
@@ -273,6 +290,7 @@ describe("EFA phone communication persistence", () => {
     const replay = await service.cancel(owner, input);
     expect(replay.operation.replayed).toBe(true);
     expect(db.audits.filter((audit) => audit.action === "cancelled")).toHaveLength(1);
+    const lockStart = db.lockOrder.length;
     const reactivated = await service.reactivate(owner, {
       ...input,
       expectedVersion: 2,
@@ -283,6 +301,21 @@ describe("EFA phone communication persistence", () => {
       cancelledFromState: null,
       version: 3,
     });
+    expect(db.lockOrder.slice(lockStart, lockStart + 2)).toEqual([
+      "episode-lock",
+      "communication-lock",
+    ]);
+  });
+
+  it("rejects new communications after the parent episode is cancelled", async () => {
+    const db = createStore();
+    let id = 0;
+    const service = createEfaCommunicationsService(db.store, {
+      newId: () => `communication-${++id}`,
+    });
+    db.episodes.get(episodeId)!.cancelledAt = new Date("2026-10-07T11:00:00.000Z");
+    await expect(service.create(owner, createInput())).rejects.toThrow(/episodio anulado/i);
+    expect(db.lockOrder[0]).toBe("episode-lock");
   });
 
   it("preserves finalized state on cancellation and sends admin corrections only to the original owner", async () => {

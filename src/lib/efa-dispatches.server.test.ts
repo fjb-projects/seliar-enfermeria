@@ -26,7 +26,10 @@ function makeStore() {
     [revoked, { isActive: true, roles: [] as Array<"efa" | "admin"> }],
     ["disabled", { isActive: false, roles: ["efa"] as Array<"efa" | "admin"> }],
   ]);
-  const episodes = new Map([[episodeId, { id: episodeId, ownerUserId: owner }]]);
+  const episodes = new Map([
+    [episodeId, { id: episodeId, ownerUserId: owner, cancelledAt: null as Date | null }],
+  ]);
+  const lockOrder: string[] = [];
   const bases = new Map([[baseId, { id: baseId, isActive: true }]]);
   const institutions = new Map([
     ["institution-active", { id: "institution-active", name: "Hospital Central", isActive: true }],
@@ -109,7 +112,8 @@ function makeStore() {
     async findActor(userId) {
       return actors.get(userId) ?? null;
     },
-    async findEpisode(id) {
+    async findEpisode(id, lock = false) {
+      if (lock) lockOrder.push("episode-lock");
       return episodes.get(id) ?? null;
     },
     async findBase(id) {
@@ -124,7 +128,8 @@ function makeStore() {
     async listDispatches(id) {
       return dispatches.filter((record) => record.episodeId === id).map(detach);
     },
-    async findDispatch(id) {
+    async findDispatch(id, lock = false) {
+      if (lock) lockOrder.push("dispatch-lock");
       const item = dispatches.find((record) => record.id === id);
       return item ? detach(item) : null;
     },
@@ -340,6 +345,8 @@ function makeStore() {
     contactAttempts,
     dispatchNotices,
     supportNotices,
+    episodes,
+    lockOrder,
     service: createEfaDispatchesService(store, { newId: () => `id-${++id}` }),
   };
 }
@@ -401,6 +408,7 @@ describe("EFA dispatch service", () => {
       operationId: "dispatch-cancel-1",
     });
     expect(replay.operation.replayed).toBe(true);
+    const lockStart = fixture.lockOrder.length;
     const restored = await fixture.service.reactivate(owner, {
       dispatchId: created.dispatch.id,
       expectedVersion: 3,
@@ -416,10 +424,29 @@ describe("EFA dispatch service", () => {
       institutionId: "institution-active",
       version: 4,
     });
+    expect(fixture.lockOrder.slice(lockStart, lockStart + 2)).toEqual([
+      "episode-lock",
+      "dispatch-lock",
+    ]);
     expect(fixture.audits.slice(-2).map((item) => item.action)).toEqual([
       "cancelled",
       "reactivated",
     ]);
+  });
+
+  it("rejects new dispatches when the parent episode is cancelled", async () => {
+    const fixture = makeStore();
+    fixture.episodes.get(episodeId)!.cancelledAt = new Date("2026-10-07T11:00:00.000Z");
+    await expect(
+      fixture.service.create(owner, {
+        clientCreationKey: "cancelled-parent-dispatch",
+        episodeId,
+        baseId,
+        communicationId: null,
+        institutionId: null,
+      }),
+    ).rejects.toThrow(/episodio anulado/i);
+    expect(fixture.lockOrder[0]).toBe("episode-lock");
   });
 
   it("rejects a cancelled communication as a new dispatch origin but preserves an existing link for edits", async () => {

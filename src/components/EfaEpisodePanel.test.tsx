@@ -14,6 +14,8 @@ vi.mock("@tanstack/react-start", () => ({
 vi.mock("@/lib/auth.functions", () => ({ readSession: vi.fn() }));
 vi.mock("@/lib/efa-episodes.functions", () => ({
   closeEfaEpisode: vi.fn(),
+  cancelEfaEpisode: vi.fn(),
+  reactivateEfaEpisode: vi.fn(),
   createEfaEpisode: vi.fn(),
   getEfaEpisode: vi.fn(),
   getEfaEpisodeHistory: vi.fn(),
@@ -160,7 +162,7 @@ describe("EfaEpisodePanel", () => {
             readAt: null,
           },
         ]}
-        openOwnGuard={null}
+        openOwnGuard={{ id: "guard-1", startedAt: "2026-10-06T09:00:00.000Z", endedAt: null }}
         currentUserId="owner"
         canWrite={true}
         isAdmin={false}
@@ -225,5 +227,29 @@ describe("EfaEpisodePanel", () => {
     expect(html.indexOf("Activo")).toBeLessThan(html.indexOf("Cerrado"));
     expect(html).toContain("Guardar borrador");
     expect(html).not.toContain("Dejar de editar");
+  });
+
+  it("keeps a cancelled episode visible and read-only while offering reactivation", () => {
+    const cancelled = {
+      ...episode,
+      cancelledAt: "2026-10-07T11:00:00.000Z",
+      cancelledFromState: "closed" as const,
+      state: "closed" as const,
+      canEdit: false,
+      canManage: true,
+    };
+    const html = renderToStaticMarkup(
+      <EfaEpisodePanel
+        initialEpisodes={[cancelled]}
+        initialNotices={[]}
+        openOwnGuard={{ id: "guard-1", startedAt: "2026-10-06T09:00:00.000Z", endedAt: null }}
+        currentUserId="owner"
+        canWrite={true}
+        isAdmin={false}
+      />,
+    );
+    expect(html).toContain("Anulado · Cerrado");
+    expect(html).toContain("Reactivar episodio");
+    expect(html).not.toContain("Editar episodio");
   });
 });

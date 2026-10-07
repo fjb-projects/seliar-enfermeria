@@ -38,6 +38,7 @@ export const episodeCloseSchema = z
     operationId: z.string().uuid(),
   })
   .strict();
+export const episodeCancellationSchema = episodeCloseSchema;
 
 const getService = createServerOnlyFn(async () => {
   const { efaEpisodes } = await import("./efa-episodes.server");
@@ -101,4 +102,18 @@ export const closeEfaEpisode = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const access = requireEfa(await currentAccessSession());
     return getService().then((service) => service.close(access.userId, data));
+  });
+
+export const cancelEfaEpisode = createServerFn({ method: "POST" })
+  .validator((data: unknown) => episodeCancellationSchema.parse(data))
+  .handler(async ({ data }) => {
+    const access = requireEfa(await currentAccessSession());
+    return getService().then((service) => service.cancel(access.userId, data));
+  });
+
+export const reactivateEfaEpisode = createServerFn({ method: "POST" })
+  .validator((data: unknown) => episodeCancellationSchema.parse(data))
+  .handler(async ({ data }) => {
+    const access = requireEfa(await currentAccessSession());
+    return getService().then((service) => service.reactivate(access.userId, data));
   });

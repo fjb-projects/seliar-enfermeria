@@ -631,6 +631,8 @@ export const efaEpisode = pgTable(
     interventionNumber: text("intervention_number"),
     state: text("state").notNull().default("draft"),
     closedAt: timestamp("closed_at"),
+    cancelledAt: timestamp("cancelled_at"),
+    cancelledFromState: text("cancelled_from_state"),
     version: integer("version").notNull().default(1),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -653,6 +655,10 @@ export const efaEpisode = pgTable(
     check(
       "efa_episode_closure_state_valid",
       sql`(${table.state} = 'draft' and ${table.closedAt} is null) or (${table.state} = 'closed' and ${table.closedAt} is not null)`,
+    ),
+    check(
+      "efa_episode_cancelled_from_state_valid",
+      sql`(${table.cancelledAt} is null and ${table.cancelledFromState} is null) or (${table.cancelledAt} is not null and ${table.cancelledFromState} = ${table.state} and ${table.cancelledFromState} in ('draft', 'closed'))`,
     ),
     check(
       "efa_episode_optional_text_bounds",
@@ -685,7 +691,7 @@ export const efaEpisodeAudit = pgTable(
     unique("efa_episode_audit_id_episode_unique").on(table.id, table.episodeId),
     check(
       "efa_episode_audit_action_allowed",
-      sql`${table.action} in ('created', 'updated', 'closed')`,
+      sql`${table.action} in ('created', 'updated', 'closed', 'cancelled', 'reactivated')`,
     ),
     check(
       "efa_episode_audit_version_transition_valid",
@@ -693,7 +699,7 @@ export const efaEpisodeAudit = pgTable(
     ),
     check(
       "efa_episode_audit_action_version_valid",
-      sql`(${table.action} = 'created' and ${table.versionBefore} is null and ${table.versionAfter} = 1) or (${table.action} in ('updated', 'closed') and ${table.versionBefore} is not null and ${table.versionAfter} = ${table.versionBefore} + 1)`,
+      sql`(${table.action} = 'created' and ${table.versionBefore} is null and ${table.versionAfter} = 1) or (${table.action} in ('updated', 'closed', 'cancelled', 'reactivated') and ${table.versionBefore} is not null and ${table.versionAfter} = ${table.versionBefore} + 1)`,
     ),
     check(
       "efa_episode_audit_state_is_object",
@@ -701,7 +707,7 @@ export const efaEpisodeAudit = pgTable(
     ),
     check(
       "efa_episode_audit_state_keys_allowlisted",
-      sql`(${table.afterState} - 'eventAt' - 'motive' - 'address' - 'interventionNumber' - 'state' - 'closedAt') = '{}'::jsonb and (${table.beforeState} is null or (${table.beforeState} - 'eventAt' - 'motive' - 'address' - 'interventionNumber' - 'state' - 'closedAt') = '{}'::jsonb)`,
+      sql`(${table.afterState} - 'eventAt' - 'motive' - 'address' - 'interventionNumber' - 'state' - 'closedAt' - 'cancelledAt' - 'cancelledFromState') = '{}'::jsonb and (${table.beforeState} is null or (${table.beforeState} - 'eventAt' - 'motive' - 'address' - 'interventionNumber' - 'state' - 'closedAt' - 'cancelledAt' - 'cancelledFromState') = '{}'::jsonb)`,
     ),
   ],
 );
@@ -757,7 +763,7 @@ export const efaEpisodeOperation = pgTable(
     ),
     check(
       "efa_episode_operation_action_allowed",
-      sql`${table.action} in ('created', 'updated', 'closed')`,
+      sql`${table.action} in ('created', 'updated', 'closed', 'cancelled', 'reactivated')`,
     ),
     check(
       "efa_episode_operation_create_result_valid",
