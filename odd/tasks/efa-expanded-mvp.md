@@ -2,7 +2,7 @@
 
 Implement the next EFA operational workflows without changing public forms or external integrations. The first work unit records observed staffing-period facts, distinct from planned coverage, using anonymous roles rather than personal identities.
 
-**Status:** Tasks 10A and 10B complete locally; tasks 11, 12, 13, and final integration remain.
+**Status:** Tasks 10A and 10B complete locally; task 11A implementation and checks complete locally pending parent commit; task 11B, 12, 13, and final integration remain.
 **Engram mirror:** Pending; the runtime did not provide an authorized registered session identity, so no memory write is attempted.
 **Delivery strategy:** `ask-on-risk`; the user selected a feature-branch chain on 2026-10-07. Keep each work unit as a reviewable block; do not publish a PR or push without separate authorization.
 **Forecast:** More than 400 authored changed lines across the expanded feature; generated migration artifacts are excluded. Slicing is by behavior, not by code compression.
@@ -85,9 +85,29 @@ The admin account route uses a catalog-ID selector for all plan targets, with ef
 - `npm run test -- src/lib/efa-staffing-plan.server.test.ts src/components/AdminStaffingPlan.test.tsx src/components/EfaGuardPanel.test.tsx`: exit 0; 3 files, 20 tests. `npm run typecheck`: exit 0. `npm run build`: exit 0 with existing route-file and `inputValidator()` warnings. `git diff --check`: exit 0. Prettier check on changed TS/JSON/Markdown files: exit 0.
 - No remote database work or public Forms changes. No push or pull request was created.
 
-### 11 — EFA catalogs
+### 11A — Shared institutional destination catalog
 
-- [ ] Add the required operational catalogs with role-gated maintenance, validation, audit, and focused checks.
+- [x] Add a normalized, versioned institutional destination catalog with administrator correction/deactivation/reactivation and EFA inline creation/listing.
+- [x] Preserve catalog history through append-only, actor-attributed before/after audit; never delete catalog entries.
+- [x] Expose only active choices to EFA and revalidate EFA/admin access on the server; catalog access must not grant access to another user's episodes.
+- [x] Add focused service, server-function, admin UI, and schema/migration checks; keep the existing base catalog unchanged and do not add private-address or free-text mobile/fleet catalogs.
+- [x] Generate a forward migration after 0015 and do not apply it to any database.
+- [ ] Parent review and commit of 11A; task remains open until the parent records the commit identity.
+
+**11A implementation and verification evidence:** Added `efa_institution` with stable UUID identity, NFKC/whitespace/case-normalized unique name, active state, optimistic version, and DB-managed create/update timestamps. `efa_institution_audit` records actor ID, DB timestamp, action, before/after state and version transition; the forward migration prohibits audit update/delete and catalog delete. Server-only service and server functions revalidate active EFA/admin roles against current account state; EFA callers list active choices and may create inline, while only administrators list all entries, inspect audit history, correct names, deactivate, or reactivate. `EfaInstitutionPicker` supplies the active-list/inline-create UI for the subsequent dispatch integration; `/admin-usuarios` now hosts the administrator catalog and visible history. The existing `efa_base` catalog was not modified. No episode query or private-address catalog was introduced.
+
+- Test-first evidence: `src/lib/efa-institutions.server.test.ts` initially failed because the implementation module did not exist (one failed suite, zero tests); after implementation, the focused set passed: 6 files, 29 tests.
+- `npm run db:generate`: exit 0; generated forward-only `drizzle/0016_efa_institutions.sql`, snapshot 0016, and journal entry 16. The migration was not applied.
+- `npm run typecheck`: first run exposed a test-store audit result type mismatch and database text-action typing mismatch; both were corrected. Final run: exit 0.
+- `npm run test -- src/lib/efa-institutions.server.test.ts src/lib/efa-institutions.functions.test.ts src/lib/efa-institutions.client.test.tsx src/components/AdminInstitutionCatalog.test.tsx src/routes/admin-usuarios.test.tsx src/db/schema.test.ts`: exit 0; 6 files, 29 tests.
+- `npm run build`: exit 0. Existing warnings remain for `vite-tsconfig-paths`, deprecated `inputValidator()` calls, and route test files not exporting a route (the new `admin-usuarios.test.tsx` matches the repository's existing `episodios-efa.test.tsx` pattern).
+- `git diff --check`: exit 0. No remote database was accessed, and no migration was applied.
+- Independent verification correction: the EFA inline picker now explicitly states that its shared catalog is only for institutions/institutional destinations and that private addresses belong in the episode and must not be created here, matching the administrator guidance. Test-first evidence: the focused picker test failed before the copy existed and passed after the change. `src/lib/efa-institutions.server.ts` was formatted with Prettier without behavior changes.
+
+### 11B — Per-dispatch institutional association
+
+- [ ] Use the shared active destination catalog for dispatch association; preserve historical references when a destination is later inactive.
+- [ ] Add dispatch association UI and validation without exposing another user's episode data or permitting arbitrary mobile/fleet free text.
 
 ### 12 — Correction notices and offline conflict handling
 
