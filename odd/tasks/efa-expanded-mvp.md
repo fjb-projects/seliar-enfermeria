@@ -2,7 +2,7 @@
 
 Implement the next EFA operational workflows without changing public forms or external integrations. The first work unit records observed staffing-period facts, distinct from planned coverage, using anonymous roles rather than personal identities.
 
-**Status:** Task 10A implementation in progress; no task is complete until its work-unit commit and applicable checks are recorded.
+**Status:** Task 10A complete locally; tasks 10B, 11, 12, 13, and final integration remain.
 **Engram mirror:** Pending; the runtime did not provide an authorized registered session identity, so no memory write is attempted.
 **Delivery strategy:** `ask-on-risk`; the user selected a feature-branch chain on 2026-10-07. Keep each work unit as a reviewable block; do not publish a PR or push without separate authorization.
 **Forecast:** More than 400 authored changed lines across the expanded feature; generated migration artifacts are excluded. Slicing is by behavior, not by code compression.
@@ -45,7 +45,7 @@ Record actual, time-bounded EFA staffing and handovers so the operational histor
 - `npm run build`: exit 0. Existing warnings remain for `vite-tsconfig-paths`, the `episodios-efa.test.tsx` route filename, and legacy `inputValidator()` usage in unrelated public form modules.
 - `git diff --check`: exit 0.
 - Formatting: Prettier passed on all TypeScript/JSON/Markdown files. The first combined invocation could not infer a parser for the generated `.sql`; SQL remains the unmodified Drizzle-generated output.
-- No remote database was accessed, and no migration was applied. Commit/work-unit identity and any native review are pending parent ownership; 10A remains in progress until that boundary is recorded.
+- No remote database was accessed, and no migration was applied. Work-unit commit: `8f28bae` (`feat(efa): record anonymous observed staffing periods`). The clone-local review switch is off; native review is disabled/unmanaged. The high-risk/unassessable assessment of the dirty worktree did not replace the independent read-only verification described below.
 
 **Independent-verifier follow-up:** The operational plan allows completing a record started during a guard after that guard closes. New staffing periods are now rejected once the guard is closed, while an existing period can still be completed under the existing owner/admin authorization. The service also requires each new departure to be at or after the previous completed arrival/return, and the period exit to be at or after the last completed arrival/return. In the UI, pending request IDs and payload fingerprints are retained across failed/uncertain actions and cleared only after the write and refresh succeed; changing the payload obtains a new ID.
 
@@ -57,6 +57,8 @@ The guard UI now separates `canCreate` (which is false for a closed guard) from 
 - `git diff --check`: exit 0.
 - Closed-guard UI test-first evidence: the focused component test initially failed because the existing active period's exit action was hidden; after splitting create/edit capabilities, `npm run test -- src/components/EfaGuardPanel.test.tsx` passed (1 file, 5 tests). `npm run typecheck` and `git diff --check` also passed (exit 0).
 - This follow-up did not change the migration or access unrelated files.
+- Independent verification ran the full local suite (47 files, 281 tests), typecheck, and build before the scoped corrections. After the corrections, the parent reran the focused staffing and guard UI tests (2 files, 13 tests; exit 0). The earlier three consistency findings were corrected; the final UI completion gate was covered by the fifth component test.
+- Commit `8f28bae` contains approximately 1,842 authored changed lines excluding generated SQL and snapshot. The user selected a feature-branch chain; this cohesive first work unit exceeds the approximately 400-line review slice heuristic and may require an explicit size exception or finer PR slicing before any PR is created. No PR or push was authorized.
 
 ### 10B — Planned patterns and exceptions
 
@@ -86,4 +88,4 @@ The guard UI now separates `canCreate` (which is false for a closed guard) from 
 
 ## Next step
 
-Complete 10A as one cohesive behavior unit, observe its focused checks, and hand off without committing or changing the parent-owned access-foundation plan.
+Implement 10B: future planned coverage patterns and dated exceptions, separate from the actual staffing periods completed in 10A. Keep existing user changes and public forms untouched.
