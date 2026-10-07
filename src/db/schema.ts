@@ -303,6 +303,7 @@ export const efaEpisode = pgTable(
     address: text("address"),
     interventionNumber: text("intervention_number"),
     state: text("state").notNull().default("draft"),
+    closedAt: timestamp("closed_at"),
     version: integer("version").notNull().default(1),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -321,7 +322,11 @@ export const efaEpisode = pgTable(
       table.ownerUserId,
     ),
     check("efa_episode_version_positive", sql`${table.version} > 0`),
-    check("efa_episode_draft_only", sql`${table.state} = 'draft'`),
+    check("efa_episode_state_allowed", sql`${table.state} in ('draft', 'closed')`),
+    check(
+      "efa_episode_closure_state_valid",
+      sql`(${table.state} = 'draft' and ${table.closedAt} is null) or (${table.state} = 'closed' and ${table.closedAt} is not null)`,
+    ),
     check(
       "efa_episode_optional_text_bounds",
       sql`(${table.motive} is null or char_length(${table.motive}) <= 2000) and (${table.address} is null or char_length(${table.address}) <= 1000) and (${table.interventionNumber} is null or char_length(${table.interventionNumber}) <= 100)`,
@@ -351,14 +356,17 @@ export const efaEpisodeAudit = pgTable(
     unique("efa_episode_audit_episode_version_unique").on(table.episodeId, table.versionAfter),
     unique("efa_episode_audit_operation_unique").on(table.episodeId, table.operationId),
     unique("efa_episode_audit_id_episode_unique").on(table.id, table.episodeId),
-    check("efa_episode_audit_action_allowed", sql`${table.action} in ('created', 'updated')`),
+    check(
+      "efa_episode_audit_action_allowed",
+      sql`${table.action} in ('created', 'updated', 'closed')`,
+    ),
     check(
       "efa_episode_audit_version_transition_valid",
       sql`(${table.versionBefore} is null and ${table.versionAfter} = 1) or (${table.versionBefore} is not null and ${table.versionBefore} > 0 and ${table.versionAfter} = ${table.versionBefore} + 1)`,
     ),
     check(
       "efa_episode_audit_action_version_valid",
-      sql`(${table.action} = 'created' and ${table.versionBefore} is null and ${table.versionAfter} = 1) or (${table.action} = 'updated' and ${table.versionBefore} is not null and ${table.versionAfter} = ${table.versionBefore} + 1)`,
+      sql`(${table.action} = 'created' and ${table.versionBefore} is null and ${table.versionAfter} = 1) or (${table.action} in ('updated', 'closed') and ${table.versionBefore} is not null and ${table.versionAfter} = ${table.versionBefore} + 1)`,
     ),
     check(
       "efa_episode_audit_state_is_object",
@@ -366,7 +374,7 @@ export const efaEpisodeAudit = pgTable(
     ),
     check(
       "efa_episode_audit_state_keys_allowlisted",
-      sql`(${table.afterState} - 'eventAt' - 'motive' - 'address' - 'interventionNumber' - 'state') = '{}'::jsonb and (${table.beforeState} is null or (${table.beforeState} - 'eventAt' - 'motive' - 'address' - 'interventionNumber' - 'state') = '{}'::jsonb)`,
+      sql`(${table.afterState} - 'eventAt' - 'motive' - 'address' - 'interventionNumber' - 'state' - 'closedAt') = '{}'::jsonb and (${table.beforeState} is null or (${table.beforeState} - 'eventAt' - 'motive' - 'address' - 'interventionNumber' - 'state' - 'closedAt') = '{}'::jsonb)`,
     ),
   ],
 );
@@ -420,7 +428,10 @@ export const efaEpisodeOperation = pgTable(
       table.episodeId,
       table.clientOperationId,
     ),
-    check("efa_episode_operation_action_allowed", sql`${table.action} in ('created', 'updated')`),
+    check(
+      "efa_episode_operation_action_allowed",
+      sql`${table.action} in ('created', 'updated', 'closed')`,
+    ),
     check(
       "efa_episode_operation_create_result_valid",
       sql`${table.action} <> 'created' or (${table.appliedVersion} = 1 and ${table.changed})`,

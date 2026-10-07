@@ -59,7 +59,8 @@ export type EpisodeView = {
   motive: string | null;
   address: string | null;
   interventionNumber: string | null;
-  state: "draft";
+  state: "draft" | "closed";
+  closedAt?: string | null;
   version: number;
   createdAt: string;
   updatedAt: string;

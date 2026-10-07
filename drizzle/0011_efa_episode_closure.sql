@@ -1,0 +1,12 @@
+ALTER TABLE "efa_episode" DROP CONSTRAINT "efa_episode_draft_only";--> statement-breakpoint
+ALTER TABLE "efa_episode_audit" DROP CONSTRAINT "efa_episode_audit_action_allowed";--> statement-breakpoint
+ALTER TABLE "efa_episode_audit" DROP CONSTRAINT "efa_episode_audit_action_version_valid";--> statement-breakpoint
+ALTER TABLE "efa_episode_audit" DROP CONSTRAINT "efa_episode_audit_state_keys_allowlisted";--> statement-breakpoint
+ALTER TABLE "efa_episode_operation" DROP CONSTRAINT "efa_episode_operation_action_allowed";--> statement-breakpoint
+ALTER TABLE "efa_episode" ADD COLUMN "closed_at" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "efa_episode" ADD CONSTRAINT "efa_episode_state_allowed" CHECK ("efa_episode"."state" in ('draft', 'closed'));--> statement-breakpoint
+ALTER TABLE "efa_episode" ADD CONSTRAINT "efa_episode_closure_state_valid" CHECK (("efa_episode"."state" = 'draft' and "efa_episode"."closed_at" is null) or ("efa_episode"."state" = 'closed' and "efa_episode"."closed_at" is not null));--> statement-breakpoint
+ALTER TABLE "efa_episode_audit" ADD CONSTRAINT "efa_episode_audit_action_allowed" CHECK ("efa_episode_audit"."action" in ('created', 'updated', 'closed'));--> statement-breakpoint
+ALTER TABLE "efa_episode_audit" ADD CONSTRAINT "efa_episode_audit_action_version_valid" CHECK (("efa_episode_audit"."action" = 'created' and "efa_episode_audit"."version_before" is null and "efa_episode_audit"."version_after" = 1) or ("efa_episode_audit"."action" in ('updated', 'closed') and "efa_episode_audit"."version_before" is not null and "efa_episode_audit"."version_after" = "efa_episode_audit"."version_before" + 1));--> statement-breakpoint
+ALTER TABLE "efa_episode_audit" ADD CONSTRAINT "efa_episode_audit_state_keys_allowlisted" CHECK (("efa_episode_audit"."after_state" - 'eventAt' - 'motive' - 'address' - 'interventionNumber' - 'state' - 'closedAt') = '{}'::jsonb and ("efa_episode_audit"."before_state" is null or ("efa_episode_audit"."before_state" - 'eventAt' - 'motive' - 'address' - 'interventionNumber' - 'state' - 'closedAt') = '{}'::jsonb));--> statement-breakpoint
+ALTER TABLE "efa_episode_operation" ADD CONSTRAINT "efa_episode_operation_action_allowed" CHECK ("efa_episode_operation"."action" in ('created', 'updated', 'closed'));

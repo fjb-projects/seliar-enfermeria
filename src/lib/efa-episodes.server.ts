@@ -17,7 +17,8 @@ export type EfaEpisodeState = {
   motive: string | null;
   address: string | null;
   interventionNumber: string | null;
-  state: "draft";
+  state: "draft" | "closed";
+  closedAt: string | null;
 };
 export type EfaEpisodeRecord = {
   id: string;
@@ -28,7 +29,8 @@ export type EfaEpisodeRecord = {
   motive: string | null;
   address: string | null;
   interventionNumber: string | null;
-  state: "draft";
+  state: "draft" | "closed";
+  closedAt: Date | null;
   version: number;
   createdAt: Date;
   updatedAt: Date;
@@ -40,7 +42,7 @@ export type EfaEpisodeOperationRecord = {
   episodeId: string;
   actorUserId: string;
   clientOperationId: string;
-  action: "created" | "updated";
+  action: "created" | "updated" | "closed";
   requestHash: string;
   appliedVersion: number;
   changed: boolean;
@@ -49,7 +51,7 @@ export type EfaEpisodeAuditRecord = {
   id: string;
   episodeId: string;
   actorUserId: string;
-  action: "created" | "updated";
+  action: "created" | "updated" | "closed";
   versionBefore: number | null;
   versionAfter: number;
   beforeState: EfaEpisodeState | null;
@@ -83,14 +85,14 @@ export interface EfaEpisodeTransaction {
     expectedVersion: number,
     next: Pick<
       EfaEpisodeRecord,
-      "eventAt" | "motive" | "address" | "interventionNumber" | "version"
+      "eventAt" | "motive" | "address" | "interventionNumber" | "state" | "closedAt" | "version"
     >,
   ): Promise<void>;
   appendAudit(input: {
     episodeId: string;
     actorUserId: string;
     operationId: string;
-    action: "created" | "updated";
+    action: "created" | "updated" | "closed";
     versionBefore: number | null;
     versionAfter: number;
     beforeState: EfaEpisodeState | null;
@@ -110,8 +112,12 @@ export interface EfaEpisodeStore {
   transaction<T>(work: (tx: EfaEpisodeTransaction) => Promise<T>): Promise<T>;
 }
 
-export type EfaEpisodeView = Omit<EfaEpisodeRecord, "eventAt" | "createdAt" | "updatedAt"> & {
+export type EfaEpisodeView = Omit<
+  EfaEpisodeRecord,
+  "eventAt" | "closedAt" | "createdAt" | "updatedAt"
+> & {
   eventAt: string;
+  closedAt: string | null;
   createdAt: string;
   updatedAt: string;
   canEdit: boolean;
@@ -120,7 +126,7 @@ export type EfaEpisodeMutationResult = {
   episode: EfaEpisodeView;
   operation: {
     id: string;
-    action: "created" | "updated";
+    action: "created" | "updated" | "closed";
     appliedVersion: number;
     changed: boolean;
     replayed: boolean;
@@ -129,15 +135,19 @@ export type EfaEpisodeMutationResult = {
 export type EfaEpisodesServiceDependencies = { newId?: () => string };
 const randomId = () => crypto.randomUUID();
 const toState = (
-  record: Pick<EfaEpisodeRecord, "eventAt" | "motive" | "address" | "interventionNumber">,
+  record: Pick<
+    EfaEpisodeRecord,
+    "eventAt" | "motive" | "address" | "interventionNumber" | "state" | "closedAt"
+  >,
 ): EfaEpisodeState => ({
   eventAt: record.eventAt.toISOString(),
   motive: record.motive,
   address: record.address,
   interventionNumber: record.interventionNumber,
-  state: "draft",
+  state: record.state,
+  closedAt: record.closedAt?.toISOString() ?? null,
 });
-const requestHash = (action: "created" | "updated", values: Record<string, unknown>) =>
+const requestHash = (action: "created" | "updated" | "closed", values: Record<string, unknown>) =>
   createHash("sha256")
     .update(JSON.stringify({ action, ...values }))
     .digest("hex");
@@ -155,6 +165,7 @@ function view(record: EfaEpisodeRecord, canEdit: boolean): EfaEpisodeView {
   return {
     ...record,
     eventAt: record.eventAt.toISOString(),
+    closedAt: record.closedAt?.toISOString() ?? null,
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
     canEdit,
@@ -194,7 +205,7 @@ export function createEfaEpisodesService(
   function assertOperation(
     operation: EfaEpisodeOperationRecord | null,
     actorUserId: string,
-    action: "created" | "updated",
+    action: "created" | "updated" | "closed",
     hash: string,
   ): asserts operation is EfaEpisodeOperationRecord {
     if (
@@ -326,6 +337,7 @@ export function createEfaEpisodesService(
           address,
           interventionNumber,
           state: "draft" as const,
+          closedAt: null,
         };
         await tx.insertEpisode(record);
         await tx.appendAudit({
@@ -375,21 +387,20 @@ export function createEfaEpisodesService(
       },
     ) {
       const eventAt = asDate(input.eventAt);
-      const next = {
-        eventAt: eventAt.toISOString(),
+      const nextValues = {
+        eventAt,
         motive: cleanOptional(input.motive),
         address: cleanOptional(input.address),
         interventionNumber: cleanOptional(input.interventionNumber),
-        state: "draft" as const,
       };
       const hash = requestHash("updated", {
         actorUserId: userId,
         episodeId: input.episodeId,
         expectedVersion: input.expectedVersion,
-        eventAt: next.eventAt,
-        motive: next.motive,
-        address: next.address,
-        interventionNumber: next.interventionNumber,
+        eventAt: eventAt.toISOString(),
+        motive: nextValues.motive,
+        address: nextValues.address,
+        interventionNumber: nextValues.interventionNumber,
       });
       return store.transaction(async (tx) => {
         const { roles } = await actor(tx, userId, true);
@@ -406,6 +417,14 @@ export function createEfaEpisodesService(
           throw new Error("El episodio cambió; actualiza el historial antes de continuar.");
         }
         const beforeState = toState(current);
+        const next = {
+          eventAt: eventAt.toISOString(),
+          motive: nextValues.motive,
+          address: nextValues.address,
+          interventionNumber: nextValues.interventionNumber,
+          state: current.state,
+          closedAt: current.closedAt?.toISOString() ?? null,
+        };
         const noChange =
           beforeState.eventAt === next.eventAt &&
           beforeState.motive === next.motive &&
@@ -434,10 +453,12 @@ export function createEfaEpisodesService(
         }
         const version = current.version + 1;
         await tx.updateEpisode(current.id, current.version, {
-          eventAt,
+          eventAt: nextValues.eventAt,
           motive: next.motive,
           address: next.address,
           interventionNumber: next.interventionNumber,
+          state: current.state,
+          closedAt: current.closedAt,
           version,
         });
         const auditId = await tx.appendAudit({
@@ -473,6 +494,104 @@ export function createEfaEpisodesService(
           operation: {
             id: input.operationId,
             action: "updated" as const,
+            appliedVersion: version,
+            changed: true,
+            replayed: false,
+          },
+        };
+      });
+    },
+
+    async close(
+      userId: string,
+      input: { episodeId: string; expectedVersion: number; operationId: string },
+    ) {
+      const hash = requestHash("closed", {
+        actorUserId: userId,
+        episodeId: input.episodeId,
+        expectedVersion: input.expectedVersion,
+      });
+      return store.transaction(async (tx) => {
+        const { roles } = await actor(tx, userId, true);
+        const current = await tx.findEpisode(input.episodeId, true);
+        if (!current || (current.ownerUserId !== userId && !roles.includes("admin"))) {
+          throw new Error("No se encontró el episodio.");
+        }
+        const existingOperation = await tx.findOperation(input.episodeId, input.operationId);
+        if (existingOperation) {
+          assertOperation(existingOperation, userId, "closed", hash);
+          return replayResult(current, existingOperation);
+        }
+        if (current.version !== input.expectedVersion) {
+          throw new Error("El episodio cambió; actualiza el historial antes de continuar.");
+        }
+
+        if (current.state === "closed") {
+          await tx.insertOperation({
+            episodeId: current.id,
+            actorUserId: userId,
+            clientOperationId: input.operationId,
+            action: "closed",
+            requestHash: hash,
+            appliedVersion: current.version,
+            changed: false,
+          });
+          return {
+            episode: view(current, true),
+            operation: {
+              id: input.operationId,
+              action: "closed" as const,
+              appliedVersion: current.version,
+              changed: false,
+              replayed: false,
+            },
+          };
+        }
+
+        const closedAt = new Date();
+        const version = current.version + 1;
+        await tx.updateEpisode(current.id, current.version, {
+          eventAt: current.eventAt,
+          motive: current.motive,
+          address: current.address,
+          interventionNumber: current.interventionNumber,
+          state: "closed",
+          closedAt,
+          version,
+        });
+        const auditId = await tx.appendAudit({
+          episodeId: current.id,
+          actorUserId: userId,
+          operationId: input.operationId,
+          action: "closed",
+          versionBefore: current.version,
+          versionAfter: version,
+          beforeState: toState(current),
+          afterState: toState({ ...current, state: "closed", closedAt }),
+        });
+        if (current.ownerUserId !== userId) {
+          await tx.appendNotice({
+            episodeId: current.id,
+            auditId,
+            recipientUserId: current.ownerUserId,
+          });
+        }
+        await tx.insertOperation({
+          episodeId: current.id,
+          actorUserId: userId,
+          clientOperationId: input.operationId,
+          action: "closed",
+          requestHash: hash,
+          appliedVersion: version,
+          changed: true,
+        });
+        const updated = await tx.findEpisode(current.id);
+        if (!updated) throw new Error("No se pudo confirmar el cierre del episodio.");
+        return {
+          episode: view(updated, true),
+          operation: {
+            id: input.operationId,
+            action: "closed" as const,
             appliedVersion: version,
             changed: true,
             replayed: false,

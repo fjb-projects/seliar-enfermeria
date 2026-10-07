@@ -31,6 +31,13 @@ export const episodeUpdateSchema = z
     interventionNumber: z.string().trim().max(100).nullable(),
   })
   .strict();
+export const episodeCloseSchema = z
+  .object({
+    episodeId: episodeIdSchema,
+    expectedVersion: positiveVersion,
+    operationId: z.string().uuid(),
+  })
+  .strict();
 
 const getService = createServerOnlyFn(async () => {
   const { efaEpisodes } = await import("./efa-episodes.server");
@@ -87,4 +94,11 @@ export const updateEfaEpisode = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const access = requireEfa(await currentAccessSession());
     return getService().then((service) => service.update(access.userId, data));
+  });
+
+export const closeEfaEpisode = createServerFn({ method: "POST" })
+  .validator((data: unknown) => episodeCloseSchema.parse(data))
+  .handler(async ({ data }) => {
+    const access = requireEfa(await currentAccessSession());
+    return getService().then((service) => service.close(access.userId, data));
   });

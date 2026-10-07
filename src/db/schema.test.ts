@@ -329,7 +329,7 @@ describe("database schema foundation", () => {
     );
   });
 
-  it("defines versioned draft episodes, append-only audit, and recipient-scoped notices", () => {
+  it("defines versioned episodes with audited closure and recipient-scoped notices", () => {
     expect(getTableName(efaEpisode)).toBe("efa_episode");
     expect(getTableName(efaEpisodeAudit)).toBe("efa_episode_audit");
     expect(getTableName(efaEpisodeNotice)).toBe("efa_episode_notice");
@@ -337,8 +337,13 @@ describe("database schema foundation", () => {
     expect(episode.uniqueConstraints.map((item) => item.name)).toContain(
       "efa_episode_owner_creation_key_unique",
     );
+    expect(episode.columns.map((column) => column.name)).toContain("closed_at");
     expect(episode.checks.map((item) => item.name)).toEqual(
-      expect.arrayContaining(["efa_episode_version_positive", "efa_episode_draft_only"]),
+      expect.arrayContaining([
+        "efa_episode_version_positive",
+        "efa_episode_state_allowed",
+        "efa_episode_closure_state_valid",
+      ]),
     );
     const audit = getTableConfig(efaEpisodeAudit);
     expect(audit.uniqueConstraints.map((item) => item.name)).toContain(
@@ -377,6 +382,18 @@ describe("database schema foundation", () => {
     );
     expect(migration).toContain("CREATE TRIGGER efa_episode_audit_append_only");
     expect(migration).toContain("CREATE TRIGGER efa_episode_operation_append_only");
+  });
+
+  it("generates additive closure constraints and preserves append-only guards", () => {
+    const migration = readFileSync(
+      resolve(process.cwd(), "drizzle/0011_efa_episode_closure.sql"),
+      "utf8",
+    );
+    expect(migration).toContain('ADD COLUMN "closed_at" timestamp');
+    expect(migration).toContain("efa_episode_state_allowed");
+    expect(migration).toContain("efa_episode_closure_state_valid");
+    expect(migration).not.toMatch(/DROP TABLE|TRUNCATE|DELETE FROM/i);
+    expect(migration).not.toContain("DROP TRIGGER");
   });
 });
 

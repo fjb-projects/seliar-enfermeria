@@ -41,7 +41,7 @@ function createStore() {
     episodeId: string;
     actorUserId: string;
     clientOperationId: string;
-    action: "created" | "updated";
+    action: "created" | "updated" | "closed";
     requestHash: string;
     appliedVersion: number;
     changed: boolean;
@@ -55,6 +55,7 @@ function createStore() {
   const detachEpisode = (episode: EfaEpisodeRecord): EfaEpisodeRecord => ({
     ...episode,
     eventAt: new Date(episode.eventAt),
+    closedAt: episode.closedAt ? new Date(episode.closedAt) : null,
     createdAt: new Date(episode.createdAt),
     updatedAt: new Date(episode.updatedAt),
   });
@@ -103,7 +104,7 @@ function createStore() {
       expectedVersion: number,
       next: Pick<
         EfaEpisodeRecord,
-        "eventAt" | "motive" | "address" | "interventionNumber" | "version"
+        "eventAt" | "motive" | "address" | "interventionNumber" | "state" | "closedAt" | "version"
       >,
     ) {
       const episode = episodes.find((item) => item.id === id);
@@ -166,6 +167,7 @@ function createStore() {
     operationLookup,
     guardLocks,
     episodeLocks,
+    guards,
     setForcedCreationMisses(value: number) {
       forcedCreationMisses = value;
     },
@@ -487,6 +489,110 @@ describe("EFA episode draft persistence", () => {
     expect(db.audits).toHaveLength(1);
     expect(db.operationLookup).toHaveLength(1);
     expect(db.guardLocks).toEqual([guardId, guardId]);
+  });
+
+  it("closes the episode independently and replays without changing guard state", async () => {
+    const db = createStore();
+    const service = createEfaEpisodesService(db.store, { newId: () => "episode-1" });
+    await service.create(owner, createInput());
+    const request = {
+      episodeId: "episode-1",
+      expectedVersion: 1,
+      operationId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    };
+
+    const first = await service.close(owner, request);
+
+    expect(first).toMatchObject({
+      episode: { state: "closed", version: 2, canEdit: true },
+      operation: { id: request.operationId, action: "closed", appliedVersion: 2, changed: true },
+    });
+    expect(first.episode.closedAt).toBeTruthy();
+    expect(db.audits[1]).toMatchObject({
+      actorUserId: owner,
+      action: "closed",
+      versionBefore: 1,
+      versionAfter: 2,
+      beforeState: { state: "draft", closedAt: null },
+      afterState: { state: "closed", closedAt: first.episode.closedAt },
+    });
+    expect(db.guards.get(guardId)?.endedAt).toBeNull();
+
+    const replay = await service.close(owner, request);
+    expect(replay).toMatchObject({
+      episode: { state: "closed", version: 2, closedAt: first.episode.closedAt },
+      operation: { appliedVersion: 2, changed: true, replayed: true },
+    });
+    const noChange = await service.close(owner, {
+      ...request,
+      expectedVersion: 2,
+      operationId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    });
+    expect(noChange).toMatchObject({
+      episode: { state: "closed", version: 2, closedAt: first.episode.closedAt },
+      operation: { appliedVersion: 2, changed: false, replayed: false },
+    });
+    expect(db.audits).toHaveLength(2);
+    expect(db.notices).toHaveLength(0);
+    await expect(service.close(owner, { ...request, expectedVersion: 2 })).rejects.toThrow(
+      /identidad/i,
+    );
+  });
+
+  it("keeps closure state and server timestamp through administrator corrections", async () => {
+    const db = createStore();
+    const service = createEfaEpisodesService(db.store, { newId: () => "episode-1" });
+    await service.create(owner, createInput());
+    const closure = await service.close(admin, {
+      episodeId: "episode-1",
+      expectedVersion: 1,
+      operationId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+    });
+    const closedAt = closure.episode.closedAt;
+    expect(closure).toMatchObject({ episode: { ownerUserId: owner, state: "closed", version: 2 } });
+    expect(db.audits[1]).toMatchObject({ actorUserId: admin, action: "closed" });
+    expect(db.notices).toEqual([
+      expect.objectContaining({ recipientUserId: owner, auditId: db.audits[1]!.id }),
+    ]);
+
+    const correction = await service.update(admin, {
+      episodeId: "episode-1",
+      expectedVersion: 2,
+      operationId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+      eventAt: "2026-10-06T12:15:00.000Z",
+      motive: "Corrección posterior al cierre",
+      address: "Calle 123, piso 2",
+      interventionNumber: "00073",
+    });
+    expect(correction.episode).toMatchObject({
+      ownerUserId: owner,
+      state: "closed",
+      closedAt,
+      version: 3,
+    });
+    expect(db.audits[2]).toMatchObject({
+      action: "updated",
+      beforeState: { state: "closed", closedAt },
+      afterState: { state: "closed", closedAt },
+    });
+    expect(db.notices).toHaveLength(2);
+    expect(db.guards.get(guardId)?.endedAt).toBeNull();
+  });
+
+  it("rejects revoked editors and stale close versions without audit or notices", async () => {
+    const db = createStore();
+    const service = createEfaEpisodesService(db.store, { newId: () => "episode-1" });
+    await service.create(owner, createInput());
+    const input = {
+      episodeId: "episode-1",
+      expectedVersion: 1,
+      operationId: "ffffffff-ffff-4fff-8fff-ffffffffffff",
+    };
+    await expect(service.close("revoked", input)).rejects.toThrow(/EFA/i);
+    await expect(service.close(admin, { ...input, expectedVersion: 2 })).rejects.toThrow(/cambió/i);
+    expect(db.episodes[0]?.state).toBe("draft");
+    expect(db.audits).toHaveLength(1);
+    expect(db.notices).toHaveLength(0);
   });
 
   it("returns append-only history only to the owner or an administrator", async () => {

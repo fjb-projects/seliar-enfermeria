@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   episodeCreateSchema,
+  episodeCloseSchema,
   episodeIdSchema,
   episodeUpdateSchema,
   noticeIdSchema,
@@ -51,6 +52,18 @@ describe("EFA episode server function inputs", () => {
     expect(episodeUpdateSchema.safeParse({ ...input, actorUserId: "attacker" }).success).toBe(
       false,
     );
+  });
+
+  it("requires a stable operation UUID and expected version to close an episode", () => {
+    const input = {
+      episodeId,
+      expectedVersion: 2,
+      operationId: "33333333-3333-4333-8333-333333333333",
+    };
+    expect(episodeCloseSchema.safeParse(input).success).toBe(true);
+    expect(episodeCloseSchema.safeParse({ ...input, expectedVersion: 0 }).success).toBe(false);
+    expect(episodeCloseSchema.safeParse({ ...input, operationId: "retry" }).success).toBe(false);
+    expect(episodeCloseSchema.safeParse({ ...input, state: "closed" }).success).toBe(false);
   });
 
   it("accepts only a notice UUID for a recipient-scoped read acknowledgement", () => {
