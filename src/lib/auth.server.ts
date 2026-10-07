@@ -5,6 +5,7 @@ import * as schema from "../db/schema";
 import { accountAccess } from "../db/schema";
 import { eq } from "drizzle-orm";
 import { getDatabase } from "../db/index.server";
+import { reportAuthFailure } from "./auth-diagnostics.server";
 
 type AuthEnvironment = Record<string, string | undefined>;
 
@@ -33,6 +34,14 @@ export function authConfiguration(env: AuthEnvironment, database?: ReturnType<ty
       disableSignUp: true,
       minPasswordLength: 12,
       maxPasswordLength: 128,
+    },
+    onAPIError: {
+      onError: (error: unknown) => reportAuthFailure(error, "better-auth-api"),
+    },
+    logger: {
+      level: "error" as const,
+      log: (_level: string, _message: string, ...details: unknown[]) =>
+        reportAuthFailure(details, "better-auth-logger"),
     },
     plugins: [tanstackStartCookies()],
   };

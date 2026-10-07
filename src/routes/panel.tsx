@@ -3,15 +3,12 @@ import { PrivateAccountShell, type PrivateSession } from "@/components/PrivateAc
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { readSession } from "@/lib/auth.functions";
+import { SessionLoadError } from "@/components/SessionLoadError";
 
 export const Route = createFileRoute("/panel")({
+  errorComponent: SessionLoadError,
   beforeLoad: async () => {
-    let session;
-    try {
-      session = await readSession();
-    } catch {
-      throw redirect({ href: "/login?returnTo=%2Fpanel" });
-    }
+    const session = await readSession();
     if (!session) throw redirect({ href: "/login?returnTo=%2Fpanel" });
     return { session: session as PrivateSession };
   },

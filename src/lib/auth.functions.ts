@@ -10,6 +10,8 @@ import {
   type AccountRole,
 } from "./access";
 import { getAuth, isAccountActive } from "./auth.server";
+import { readSessionSnapshot } from "./auth-session.server";
+import { createSessionLoadError, reportAuthFailure } from "./auth-diagnostics.server";
 
 const signInSchema = z
   .object({ email: z.string().trim().email().max(255), password: z.string().min(1).max(1024) })
@@ -59,29 +61,39 @@ export const signOut = createServerFn({ method: "POST" }).handler(async () => {
 });
 
 export const currentAccessSession = createServerOnlyFn(async (): Promise<AccessSession | null> => {
-  const { getRequest } = await import("@tanstack/react-start/server");
-  const current = await getAuth().api.getSession({ headers: getRequest().headers });
-  if (!current?.user?.id || !current.session?.expiresAt) return null;
+  try {
+    const { getRequest } = await import("@tanstack/react-start/server");
+    const current = await getAuth().api.getSession({ headers: getRequest().headers });
+    if (!current?.user?.id || !current.session?.expiresAt) return null;
+    return await loadAccessSession(current.user.id, new Date(current.session.expiresAt));
+  } catch (error) {
+    reportAuthFailure(error, "access-session-read");
+    throw createSessionLoadError();
+  }
+});
+
+async function loadAccountAccess(userId: string) {
   const db = getDatabase();
   const rows = await db
     .select({ isActive: accountAccess.isActive, role: accountRoleGrant.role })
     .from(accountAccess)
     .leftJoin(accountRoleGrant, eq(accountRoleGrant.userId, accountAccess.userId))
-    .where(eq(accountAccess.userId, current.user.id));
+    .where(eq(accountAccess.userId, userId));
   if (!rows.length) return null;
   const grants = rows.flatMap((row) => (row.role ? [row.role as AccountRole] : []));
   return {
-    userId: current.user.id,
-    expiresAt: new Date(current.session.expiresAt),
     isActive: rows[0]!.isActive,
     roles: effectiveRoles(grants),
   };
-});
+}
+
+async function loadAccessSession(userId: string, expiresAt: Date): Promise<AccessSession | null> {
+  const access = await loadAccountAccess(userId);
+  return access ? { userId, expiresAt, ...access } : null;
+}
 
 export const readSession = createServerFn({ method: "GET" }).handler(async () => {
   const { getRequest } = await import("@tanstack/react-start/server");
-  const current = await getAuth().api.getSession({ headers: getRequest().headers });
-  if (!current?.user?.id) return null;
-  const access = requireActiveSession(await currentAccessSession());
-  return { ...publicSession(current), roles: [...access.roles] };
+  const headers = getRequest().headers;
+  return readSessionSnapshot(() => getAuth().api.getSession({ headers }), loadAccountAccess);
 });

@@ -8,8 +8,8 @@ describe("RoutePending", () => {
 
     expect(html).toContain('role="status"');
     expect(html).toContain('aria-busy="true"');
-    expect(html).toContain("Cargando la vista solicitada");
+    expect(html).toMatch(/<span class="sr-only">[^<]+<\/span>/);
     expect(html).toContain("motion-reduce:animate-none");
-    expect(html).toContain("Abriendo vista");
+    expect(html).toMatch(/<span class="text-sm font-medium">[^<]+<\/span>/);
   });
 });

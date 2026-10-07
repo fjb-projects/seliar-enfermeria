@@ -7,21 +7,17 @@ import {
   listEfaGuards,
 } from "@/lib/efa-guards.functions";
 import { readSession } from "@/lib/auth.functions";
+import { SessionLoadError } from "@/components/SessionLoadError";
 
 export const Route = createFileRoute("/guardia-efa")({
+  errorComponent: SessionLoadError,
   beforeLoad: async () => {
-    let session;
-    try {
-      session = await readSession();
-    } catch {
-      throw redirect({ href: "/login?returnTo=%2Fguardia-efa" });
-    }
+    const session = await readSession();
     if (!session) throw redirect({ href: "/login?returnTo=%2Fguardia-efa" });
     return { session: session as PrivateSession };
   },
-  loader: async () => {
-    const session = await readSession();
-    if (!session) throw redirect({ href: "/login?returnTo=%2Fguardia-efa" });
+  loader: async ({ context }) => {
+    const session = context.session as PrivateSession;
     const { canWrite, isAdmin } = getEfaGuardRouteAccess(session.roles);
     const [guards, bases] = await Promise.all([
       listEfaGuards(),
