@@ -58,7 +58,7 @@ Registrar llamadas entrantes y salientes como comunicaciones únicas de un episo
 
 ## Estado y siguiente paso
 
-Horas de inicio/fin confirmadas; C1 implementado localmente. C2 aún sin implementar y permanece fuera de esta entrega. Mirror Engram pendiente por falta de identidad runtime; conservar avances en este documento.
+Horas de inicio/fin confirmadas; C1 registrada y con revisión nativa aprobada/cerrada. C2 aún sin implementar: listado/formulario mobile-first, edición de ambos horarios y acción rápida independiente para inicio/fin. La migración real y prueba de navegador siguen pendientes. C1-A2 conserva una observación informativa de precisión superior al milisegundo. Mirror Engram pendiente por falta de identidad runtime; conservar avances en este documento.
 
 ### Evidencia C1
 
@@ -68,7 +68,7 @@ Horas de inicio/fin confirmadas; C1 implementado localmente. C2 aún sin impleme
 - `npm.cmd run db:generate -- --name=efa_communications`, ejecutado dos veces: ambas ejecuciones informaron que no hay cambios de esquema. Sin conexión ni aplicación de SQL; no demuestra ejecución PostgreSQL, locks, rollback o triggers en servidor real.
 - ESLint focalizado, Prettier focalizado y `git diff --check` sobre superficies C1 aprobados. No se ejecutó `db:migrate`.
 - La migración y snapshot generados se conservaron; un intento de retirar/recrear artefactos generados fue rechazado por el entorno, por lo que se ajustaron en su ubicación autorizada y luego se verificó convergencia de generación.
-- Estado de entrega: sin commit ni revisión nativa en este bloque; parent gestiona commit selectivo y evaluación. Siguiente paso: implementar C2 en una unidad separada; migración real queda pendiente de autorización y entorno con base de datos.
+- Estado de entrega: commit local `3bad1bb573ed991a7921e41ea905c95f9b491b24`, revisión nativa aprobada y reconocimiento exacto completado. Siguiente paso: implementar C2 en una unidad separada; migración real queda pendiente de autorización y entorno con base de datos.
 
 ### Corrección acotada C1-A1
 
@@ -76,3 +76,15 @@ Horas de inicio/fin confirmadas; C1 implementado localmente. C2 aún sin impleme
 - [x] Completar aserciones de auditoría con actor, acción, versiones y estado íntegro antes/después para correcciones propias y administrativas; probar que un CAS fallido no agrega auditoría ni aviso.
 - [x] Verificar el ajuste: RED observado en finalización CAS fallida (se agregó una segunda auditoría antes del rechazo); GREEN en `npm.cmd run test -- src/lib/efa-communications.server.test.ts` — 9 pruebas aprobadas. La suite focalizada de C1 pasó 22/22; suite completa 20 archivos/115 pruebas; typecheck, build, ESLint, Prettier y diff check aprobados.
 - El fake sólo valida el orden de invocación: no simula rollback transaccional ni acredita comportamiento concurrente real de PostgreSQL. Build conservó avisos existentes de Vite y `inputValidator()`; no se accedió a la base ni se aplicó migración.
+
+### C1 — Commit y revisión cerrada
+
+- Commit `3bad1bb573ed991a7921e41ea905c95f9b491b24`: 4.050 adiciones en diez archivos. Código, pruebas y documento: 1.913 líneas; SQL 96, snapshot generado 2.034 y journal 7. El crecimiento conserva permisos, recibos, restricciones y pruebas en una unidad funcional; no se comprimió por la previsión orientativa. Mantener `feature-branch-chain` para futura publicación; no se abrió PR ni se hizo push.
+- Verificador independiente posterior a C1-A1: 22/22 pruebas focales y typecheck aprobados, CAS antes de auditoría y snapshots completos comprobados. Spot check del padre: 9/9 pruebas del servicio. Suite completa final del escritor: 115/115; build, lint y formato aprobados. No PostgreSQL ni UI de llamadas ejecutados.
+- Evaluación `medium`, `review_due: true`, motivo `slice_budget_reached`, desde `e696501`. Con consentimiento explícito, la revisión `review-3861ec2c4c5fa968` evaluó `review-reliability` sobre el candidato `sha256:cd0e396dcbdca5d1f38f0397995a964235d9981a1a84945b2e3bb16461a8773f`.
+- Aprobada con una observación informativa no bloqueante. El reconocimiento exacto devolvió `gentle-ai.review-acknowledged/v1`, acción `acknowledged`, autoridad `burned`; límite revisado `3bad1bb573ed991a7921e41ea905c95f9b491b24`. No reabrir este candidato por su advisory; no se ofreció corrección nativa. La aprobación no valida ejecución SQL real ni autoriza publicación.
+
+### C1-A2 — Precisión temporal superior al milisegundo, pendiente
+
+- [ ] `R3-time-precision`, `src/lib/efa-communications.server.ts:161`: la validación admite fracciones de segundo sin límite, pero `Date` reduce a milisegundos antes de guardar, auditar y calcular hash. Las pruebas actuales conservan segundos/milisegundos, no precisión superior. Preservar toda la precisión aceptada o resolver explícitamente un contrato limitado de precisión; añadir regresiones con más de tres decimales y distinguir payloads que hoy se normalizan igual.
+- Seguimiento separado e informativo; no implementado ni autorizado automáticamente por el resultado de revisión. C2 debe comunicar los límites actuales sin prometer precisión arbitraria. E2-A/E3-A del bloque anterior siguen pendientes.
