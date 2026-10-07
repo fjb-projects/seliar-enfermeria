@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { normalizeConfirmedDispatch } from "./efa-dispatches.client";
 import {
   createEfaDispatchesService,
   type DispatchAudit,
@@ -491,6 +492,24 @@ describe("EFA dispatch service", () => {
     const replay = await fixture.service.addContactAttempt(owner, contact);
     expect(replay.id).toBe(first.id);
     expect(fixture.contactAttempts).toHaveLength(1);
+    const beforeUpdate = await fixture.service.get(owner, source.dispatch.id);
+    const updatedDispatch = await fixture.service.update(owner, {
+      dispatchId: source.dispatch.id,
+      expectedVersion: 1,
+      operationId: "update-with-contact-history",
+      baseId,
+      note: "Preservar la colección al recibir el acuse",
+    });
+    expect(updatedDispatch.dispatch).not.toHaveProperty("contactAttempts");
+    expect(
+      normalizeConfirmedDispatch(updatedDispatch.dispatch, beforeUpdate).contactAttempts,
+    ).toMatchObject([
+      {
+        id: first.id,
+        occurredAt: new Date(time).toISOString(),
+        note: "Sin respuesta",
+      },
+    ]);
     const request = await fixture.service.createSupportRequest(owner, {
       clientCreationKey: "support-2",
       sourceDispatchId: source.dispatch.id,

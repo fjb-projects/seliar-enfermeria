@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { EfaCommunicationPanel } from "@/components/EfaCommunicationStepper";
+import { EfaDispatchStepper } from "@/components/EfaDispatchStepper";
 import {
   createEfaEpisode,
   getEfaEpisode,
@@ -140,6 +141,7 @@ export function EfaEpisodePanel({
   const [selectedCommunicationEpisodeId, setSelectedCommunicationEpisodeId] = useState<
     string | null
   >(null);
+  const [selectedDispatchEpisodeId, setSelectedDispatchEpisodeId] = useState<string | null>(null);
   const [pending, setPending] = useState<PendingEpisodeCreate | PendingEpisodeUpdate | null>(null);
   const [conflict, setConflict] = useState<ActiveEpisodeConflict | null>(null);
   const [busy, setBusy] = useState(false);
@@ -1232,6 +1234,13 @@ export function EfaEpisodePanel({
                   <Button
                     variant="outline"
                     className="min-h-11"
+                    onClick={() => setSelectedDispatchEpisodeId(episode.id)}
+                  >
+                    Ver despachos
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="min-h-11"
                     disabled={busy}
                     onClick={() => void showHistory(episode.id)}
                   >
@@ -1303,6 +1312,32 @@ export function EfaEpisodePanel({
                 currentUserId={currentUserId}
                 canWrite={canWrite}
                 episodeCanEdit={communicationEpisode.canEdit}
+              />
+            </section>
+          ) : null;
+        })()}
+
+      {selectedDispatchEpisodeId &&
+        (() => {
+          const dispatchEpisode = episodes.find(
+            (episode) => episode.id === selectedDispatchEpisodeId,
+          );
+          return dispatchEpisode ? (
+            <section key={`${currentUserId}:${dispatchEpisode.id}`} className="space-y-3">
+              <Button
+                type="button"
+                variant="outline"
+                className="min-h-11"
+                onClick={() => setSelectedDispatchEpisodeId(null)}
+              >
+                Cerrar despachos
+              </Button>
+              <EfaDispatchStepper
+                episodeId={dispatchEpisode.id}
+                episodeLabel={displayName(dispatchEpisode)}
+                currentUserId={currentUserId}
+                canWrite={canWrite}
+                episodeCanEdit={dispatchEpisode.canEdit}
               />
             </section>
           ) : null;

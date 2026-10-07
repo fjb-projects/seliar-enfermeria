@@ -29,6 +29,20 @@ vi.mock("@/lib/efa-communications.functions", () => ({
   markEfaCommunicationNoticeRead: vi.fn(),
   updateEfaCommunication: vi.fn(),
 }));
+vi.mock("@/lib/efa-bases.functions", () => ({ listEfaBases: vi.fn() }));
+vi.mock("@/lib/efa-dispatches.functions", () => ({
+  addEfaDispatchContactAttempt: vi.fn(),
+  createEfaDispatch: vi.fn(),
+  createEfaSupportRequest: vi.fn(),
+  finalizeEfaDispatch: vi.fn(),
+  getEfaDispatch: vi.fn(),
+  getEfaDispatchHistory: vi.fn(),
+  listEfaDispatchNotices: vi.fn(),
+  listEfaDispatchesForEpisode: vi.fn(),
+  markEfaDispatchNoticeRead: vi.fn(),
+  updateEfaDispatch: vi.fn(),
+  updateEfaSupportRequest: vi.fn(),
+}));
 
 const episode: EpisodeView = {
   id: "episode-1",
@@ -99,6 +113,7 @@ describe("EfaEpisodePanel", () => {
     expect(html).toContain("Borrador");
     expect(html).toContain("Solo lectura");
     expect(html).toContain("Ver llamadas");
+    expect(html).toContain("Ver despachos");
     expect(html).not.toContain("Guardar borrador");
   });
 
