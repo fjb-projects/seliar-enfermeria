@@ -23,9 +23,69 @@ import {
   efaEpisodeAudit,
   efaEpisodeNotice,
   efaEpisodeOperation,
+  efaCommunication,
+  efaCommunicationAudit,
+  efaCommunicationNotice,
+  efaCommunicationOperation,
 } from "./schema";
 
 describe("database schema foundation", () => {
+  it("models owner-bound phone communications, append-only versions, receipts, and private notices", () => {
+    expect(getTableName(efaCommunication)).toBe("efa_communication");
+    expect(getTableName(efaCommunicationAudit)).toBe("efa_communication_audit");
+    expect(getTableName(efaCommunicationNotice)).toBe("efa_communication_notice");
+    expect(getTableName(efaCommunicationOperation)).toBe("efa_communication_operation");
+
+    const communication = getTableConfig(efaCommunication);
+    expect(communication.uniqueConstraints.map((item) => item.name)).toEqual(
+      expect.arrayContaining([
+        "efa_communication_id_owner_unique",
+        "efa_communication_owner_creation_key_unique",
+      ]),
+    );
+    expect(communication.checks.map((item) => item.name)).toEqual(
+      expect.arrayContaining([
+        "efa_communication_direction_allowed",
+        "efa_communication_priority_allowed",
+        "efa_communication_state_allowed",
+        "efa_communication_version_positive",
+      ]),
+    );
+    expect(getTableConfig(efaCommunicationAudit).checks.map((item) => item.name)).toEqual(
+      expect.arrayContaining([
+        "efa_communication_audit_action_allowed",
+        "efa_communication_audit_version_transition_valid",
+        "efa_communication_audit_action_version_valid",
+      ]),
+    );
+    expect(getTableConfig(efaCommunicationAudit).foreignKeys).toHaveLength(2);
+    expect(getTableConfig(efaCommunicationNotice).foreignKeys).toHaveLength(3);
+    expect(getTableConfig(efaCommunicationNotice).checks.map((item) => item.name)).toContain(
+      "efa_communication_notice_recipient_is_owner",
+    );
+    expect(getTableConfig(efaCommunicationOperation).foreignKeys).toHaveLength(2);
+    expect(
+      getTableConfig(efaCommunicationOperation).uniqueConstraints.map((item) => item.name),
+    ).toContain("efa_communication_operation_client_unique");
+  });
+
+  it("orders owner uniqueness before composite communication references and adds append-only guards", () => {
+    const migration = readFileSync(
+      resolve(process.cwd(), "drizzle/0007_efa_communications.sql"),
+      "utf8",
+    );
+    const communicationOwnerUnique = migration.indexOf(
+      'CONSTRAINT "efa_communication_id_owner_unique" UNIQUE',
+    );
+    const auditOwnerForeignKey = migration.indexOf(
+      'ADD CONSTRAINT "efa_communication_audit_communication_fk"',
+    );
+    expect(communicationOwnerUnique).toBeGreaterThanOrEqual(0);
+    expect(auditOwnerForeignKey).toBeGreaterThan(communicationOwnerUnique);
+    expect(migration).toContain("CREATE TRIGGER efa_communication_audit_append_only");
+    expect(migration).toContain("CREATE TRIGGER efa_communication_operation_append_only");
+  });
+
   it("exposes the singular model keys used by Better Auth's Drizzle adapter", () => {
     expect(Object.keys(schema)).toEqual(
       expect.arrayContaining(["user", "session", "account", "verification"]),
