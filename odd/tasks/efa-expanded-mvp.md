@@ -2,7 +2,7 @@
 
 Implement the next EFA operational workflows without changing public forms or external integrations. The first work unit records observed staffing-period facts, distinct from planned coverage, using anonymous roles rather than personal identities.
 
-**Status:** Tasks 10A, 10B, 11A, 11B, 12, 13A, 13B, and 13C complete locally; final integration remains.
+**Status:** Local implementation and final integration documentation complete; operational rollout remains pending database migration and live browser/database verification.
 **Engram mirror:** Pending; the runtime did not provide an authorized registered session identity, so no memory write is attempted.
 **Delivery strategy:** `ask-on-risk`; the user selected a feature-branch chain on 2026-10-07. Keep each work unit as a reviewable block; do not publish a PR or push without separate authorization.
 **Forecast:** More than 400 authored changed lines across the expanded feature; generated migration artifacts are excluded. Slicing is by behavior, not by code compression.
@@ -201,9 +201,16 @@ The admin account route uses a catalog-ID selector for all plan targets, with ef
 
 ### Final integration
 
-- [ ] Verify cross-workflow invariants and update the user-facing EFA workflow documentation as authorized.
-- [ ] Record checks, remaining operational/database limitations, work-unit boundaries, and parent-selected delivery decisions.
+- [x] Verify cross-workflow invariants and update the user-facing EFA workflow documentation as authorized. Evidence: reviewed lifecycle, queue/privacy, catalog, staffing-plan, and guard UI behavior; added `docs/efa-expanded-mvp-guide.md` without changing public Forms.
+- [x] Record checks, remaining operational/database limitations, work-unit boundaries, and parent-selected delivery decisions. Evidence: local verification and pending operational checks are recorded below; delivery remains user-selected feature-branch chain, with no push or PR.
+
+## Final integration evidence
+
+- Full local test suite: 54 files, 335 tests passed. Typecheck, production build, `npx drizzle-kit check`, scoped lint (0 errors; 6 Fast Refresh warnings), and `git diff --check` passed. Full lint remains unverified: it stalled for more than four minutes.
+- `npx prettier --check` and structural/link checks for the two edited Markdown files are recorded after readback.
+- This session did not apply migrations 0012–0020; their actual status in the configured database is unverified. Neon migration execution and real PostgreSQL locking remain unverified; actual browser/IndexedDB behavior also remains unverified.
+- Local implementation and documentation are complete. Operational rollout is pending the configured-environment migration and live browser/database verification. No push or PR was made. The user selected a feature-branch chain; Engram mirror remains pending because no registered session identity was available. Pre-existing dirty files were preserved.
 
 ## Next step
 
-Complete the explicitly scoped final integration checks without expanding task 13 into police coordination/events, support requests, observations, or staffing.
+After the responsible operator confirms the target environment and database configuration, apply pending migrations using `npm run db:migrate`, then verify live locking and browser/IndexedDB behavior before institutional use.
