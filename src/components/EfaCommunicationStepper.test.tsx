@@ -5,10 +5,32 @@ import {
   canEditCommunication,
   communicationSteps,
   createCommunicationSubmissionGate,
+  shouldShowCommunicationEditor,
   EfaCommunicationStepper,
 } from "./EfaCommunicationStepper";
 
 describe("EfaCommunicationStepper", () => {
+  it("keeps a frozen failed create visible for same-operation storage recovery", () => {
+    expect(
+      shouldShowCommunicationEditor({
+        hasSelectedCall: false,
+        canEditSelected: false,
+        dirty: true,
+        canCreateCall: false,
+        pendingCreateRecovery: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldShowCommunicationEditor({
+        hasSelectedCall: false,
+        canEditSelected: false,
+        dirty: true,
+        canCreateCall: false,
+        pendingCreateRecovery: false,
+      }),
+    ).toBe(false);
+  });
+
   it("requires both current EFA access and the latest record permission to edit", () => {
     const serverDenied = { canEdit: false };
     expect(canEditCommunication(true, serverDenied)).toBe(false);

@@ -157,6 +157,18 @@ export const canEditCommunication = (canWrite: boolean, communication: { canEdit
 // eslint-disable-next-line react-refresh/only-export-components -- Keep the tested permission gate beside its UI use.
 export const canCreateCommunication = (canWrite: boolean, episodeCanEdit: boolean) =>
   canWrite && episodeCanEdit;
+// eslint-disable-next-line react-refresh/only-export-components -- The recovery visibility predicate is tested and used by this render path.
+export function shouldShowCommunicationEditor(input: {
+  hasSelectedCall: boolean;
+  canEditSelected: boolean;
+  dirty: boolean;
+  canCreateCall: boolean;
+  pendingCreateRecovery: boolean;
+}) {
+  return input.hasSelectedCall
+    ? input.canEditSelected
+    : (input.dirty && input.canCreateCall) || input.pendingCreateRecovery;
+}
 const queueStatusLabel = (status: CommunicationQueueEntry["status"]) =>
   status === "pending"
     ? "pendiente"
@@ -973,6 +985,8 @@ export function EfaCommunicationPanel({
     !pendingEntry &&
     !busy;
   const canEditSelected = Boolean(selected && canEditCommunication(canWrite, selected));
+  const pendingCreateRecovery =
+    canWrite && episodeCanEdit && Boolean(queueError) && pendingEntry?.kind === "create";
   const selectedQueued =
     queueEntries.find((entry) => entry.operationId === selectedOperationId) ?? null;
   const formatState = (state: CommunicationHistory["afterState"]) => {
@@ -1198,7 +1212,13 @@ export function EfaCommunicationPanel({
         </CardContent>
       </Card>
 
-      {(selected ? canEditSelected : dirty && canCreateCall) && (
+      {shouldShowCommunicationEditor({
+        hasSelectedCall: Boolean(selected),
+        canEditSelected,
+        dirty,
+        canCreateCall,
+        pendingCreateRecovery,
+      }) && (
         <Card>
           <CardHeader>
             <CardTitle>
