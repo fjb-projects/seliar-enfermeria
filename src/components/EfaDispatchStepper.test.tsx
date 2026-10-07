@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import {
+  availableDispatchOrigins,
   canEditSupportAssociation,
   captureActionTimestamp,
   DispatchInstitutionField,
@@ -15,6 +16,7 @@ vi.mock("@tanstack/react-start", () => ({
 vi.mock("@/lib/efa-dispatches.functions", () => ({
   firstResponseRoleValues: ["driver", "nurse", "doctor", "other", "not_observed"],
   addEfaDispatchContactAttempt: vi.fn(),
+  cancelEfaDispatch: vi.fn(),
   createEfaDispatch: vi.fn(),
   createEfaSupportRequest: vi.fn(),
   finalizeEfaDispatch: vi.fn(),
@@ -23,6 +25,7 @@ vi.mock("@/lib/efa-dispatches.functions", () => ({
   listEfaDispatchNotices: vi.fn(),
   listEfaDispatchesForEpisode: vi.fn(),
   markEfaDispatchNoticeRead: vi.fn(),
+  reactivateEfaDispatch: vi.fn(),
   updateEfaDispatch: vi.fn(),
   updateEfaSupportRequest: vi.fn(),
 }));
@@ -35,6 +38,20 @@ vi.mock("@/lib/efa-institutions.functions", () => ({
 }));
 
 describe("EfaDispatchStepper", () => {
+  it("hides cancelled communication origins except an existing historical link", () => {
+    const communications = [
+      { id: "active", state: "finalized" },
+      { id: "cancelled", state: "cancelled" },
+    ];
+    expect(availableDispatchOrigins(communications, null).map((item) => item.id)).toEqual([
+      "active",
+    ]);
+    expect(availableDispatchOrigins(communications, "cancelled").map((item) => item.id)).toEqual([
+      "active",
+      "cancelled",
+    ]);
+  });
+
   it("disables response association when the request itself is not editable", () => {
     expect(canEditSupportAssociation(true, true, true, false)).toBe(false);
     expect(canEditSupportAssociation(true, true, true, true)).toBe(true);

@@ -7,6 +7,7 @@ import { listEfaInstitutions } from "@/lib/efa-institutions.functions";
 import type { EfaInstitutionChoice } from "@/lib/efa-institutions.client";
 import {
   addEfaDispatchContactAttempt,
+  cancelEfaDispatch,
   createEfaDispatch,
   createEfaSupportRequest,
   firstResponseRoleValues,
@@ -16,10 +17,11 @@ import {
   listEfaDispatchNotices,
   listEfaDispatchesForEpisode,
   markEfaDispatchNoticeRead,
+  reactivateEfaDispatch,
   updateEfaDispatch,
   updateEfaSupportRequest,
 } from "@/lib/efa-dispatches.functions";
-import type { DispatchForm } from "@/lib/efa-dispatches.client";
+import type { DispatchForm, DispatchLifecycleOperation } from "@/lib/efa-dispatches.client";
 import type { DispatchQueueEntry, DispatchQueueStore } from "@/lib/efa-dispatches.queue";
 
 const loadQueue = createClientOnlyFn(() => import("@/lib/efa-dispatches.queue"));
@@ -33,11 +35,14 @@ type DispatchView = DispatchForm & {
   episodeId: string;
   ownerUserId: string;
   version: number;
-  state: "draft" | "finalized";
+  state: "draft" | "finalized" | "cancelled";
   createdAt: string;
   updatedAt: string;
   finalizedAt: string | null;
+  cancelledAt: string | null;
+  cancelledFromState: "draft" | "finalized" | null;
   canEdit: boolean;
+  canManage: boolean;
   institutionName?: string | null;
   institutionIsActive?: boolean | null;
   contactAttempts: Array<{ id: string; occurredAt: string; note: string | null }>;
@@ -61,8 +66,12 @@ function isDispatchMutationDto(value: unknown): value is DispatchMutationDto {
     !requiredText.every((key) => typeof dto[key] === "string") ||
     typeof dto["version"] !== "number" ||
     typeof dto["canEdit"] !== "boolean" ||
-    (dto["state"] !== "draft" && dto["state"] !== "finalized") ||
-    (dto["finalizedAt"] !== null && typeof dto["finalizedAt"] !== "string")
+    !["draft", "finalized", "cancelled"].includes(String(dto["state"])) ||
+    (dto["finalizedAt"] !== null && typeof dto["finalizedAt"] !== "string") ||
+    (dto["cancelledAt"] !== null && typeof dto["cancelledAt"] !== "string") ||
+    (dto["cancelledFromState"] !== null &&
+      !["draft", "finalized"].includes(String(dto["cancelledFromState"]))) ||
+    typeof dto["canManage"] !== "boolean"
   )
     return false;
   const nullableText = [
@@ -270,6 +279,16 @@ export function canEditSupportAssociation(
   return canWrite && episodeCanEdit && dispatchCanEdit && requestCanEdit;
 }
 
+export function availableDispatchOrigins<T extends { id: string; state: string }>(
+  communications: T[],
+  currentCommunicationId: string | null,
+) {
+  return communications.filter(
+    (communication) =>
+      communication.state !== "cancelled" || communication.id === currentCommunicationId,
+  );
+}
+
 export function DispatchInstitutionField({
   institutions,
   institutionsLoaded,
@@ -346,6 +365,8 @@ export function EfaDispatchStepper({
   const createDispatch = useServerFn(createEfaDispatch);
   const updateDispatch = useServerFn(updateEfaDispatch);
   const finalizeDispatch = useServerFn(finalizeEfaDispatch);
+  const cancelDispatch = useServerFn(cancelEfaDispatch);
+  const reactivateDispatch = useServerFn(reactivateEfaDispatch);
   const addContact = useServerFn(addEfaDispatchContactAttempt);
   const createSupport = useServerFn(createEfaSupportRequest);
   const updateSupport = useServerFn(updateEfaSupportRequest);
@@ -360,7 +381,11 @@ export function EfaDispatchStepper({
   const [institutions, setInstitutions] = useState<EfaInstitutionChoice[]>([]);
   const [institutionsLoaded, setInstitutionsLoaded] = useState(false);
   const [calls, setCalls] = useState<
-    Array<{ id: string; priority: "red" | "yellow" | "green" | null }>
+    Array<{
+      id: string;
+      priority: "red" | "yellow" | "green" | null;
+      state: "draft" | "finalized" | "cancelled";
+    }>
   >([]);
   const [notices, setNotices] = useState<
     Array<{
@@ -423,6 +448,7 @@ export function EfaDispatchStepper({
   const [storageRetry, setStorageRetry] = useState<DispatchQueueEntry | null>(null);
   const [queueReady, setQueueReady] = useState(false);
   const queueStore = useRef<DispatchQueueStore | null>(null);
+  const lifecycleRetryRef = useRef<DispatchLifecycleOperation | null>(null);
   const busyRef = useRef(false);
   const mounted = useRef(true);
   const owner = useRef(currentUserId);
@@ -1322,6 +1348,54 @@ export function EfaDispatchStepper({
     });
   };
 
+  const transitionLifecycle = async (action: "cancel" | "reactivate") => {
+    if (!selected || !canWrite || !episodeCanEdit || !selected.canManage || busy || queueLocked)
+      return;
+    const prompt =
+      action === "cancel"
+        ? "¿Anular este despacho? Se conservarán sus datos, resultado y vínculos."
+        : "¿Reactivar este despacho y restaurar su estado anterior?";
+    if (!window.confirm(prompt)) return;
+    const helpers = await loadClient();
+    const pendingOperation = helpers.reuseDispatchLifecycleOperation(
+      lifecycleRetryRef.current,
+      action,
+      selected.id,
+      selected.version,
+      () => crypto.randomUUID(),
+    );
+    lifecycleRetryRef.current = pendingOperation;
+    setBusy(true);
+    setError("");
+    try {
+      const input = {
+        dispatchId: selected.id,
+        expectedVersion: selected.version,
+        operationId: pendingOperation.operationId,
+      };
+      const response = (action === "cancel"
+        ? await cancelDispatch({ data: input })
+        : await reactivateDispatch({ data: input })) as unknown as {
+        dispatch: DispatchMutationDto;
+      };
+      const helpers = await loadClient();
+      const current = rowsRef.current.find((row) => row.id === selected.id) ?? null;
+      const updated = helpers.normalizeConfirmedDispatch(response.dispatch, current);
+      setRows((existing) => existing.map((row) => (row.id === updated.id ? updated : row)));
+      setMessage(
+        action === "cancel" ? "El despacho quedó anulado." : "El despacho quedó reactivado.",
+      );
+      await refresh();
+      lifecycleRetryRef.current = null;
+    } catch (reason) {
+      setError(
+        reason instanceof Error ? reason.message : "No se pudo confirmar el cambio del despacho.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const quickTime = (key: keyof DispatchForm) => {
     const time = captureDispatchTime(new Date());
     const statusKey = `${String(key).slice(0, 2)}Status` as keyof DispatchForm;
@@ -1385,7 +1459,13 @@ export function EfaDispatchStepper({
               <span className="font-medium">
                 {bases.find((base) => base.id === row.baseId)?.name ?? "Base histórica"}
               </span>{" "}
-              · {row.state === "finalized" ? "Finalizado" : "Borrador"} · versión {row.version}
+              ·{" "}
+              {row.state === "cancelled"
+                ? "Anulado"
+                : row.state === "finalized"
+                  ? "Finalizado"
+                  : "Borrador"}{" "}
+              · versión {row.version}
               {row.t0At && (
                 <span className="block text-sm">Despacho: {formatDispatchDate(row.t0At)}</span>
               )}
@@ -1398,6 +1478,57 @@ export function EfaDispatchStepper({
             </button>
           ))}
         </div>
+        {selected?.canManage && canWrite && episodeCanEdit && (
+          <div className="flex flex-wrap gap-2" aria-label="Estado del despacho">
+            {selected.state === "cancelled" ? (
+              <button
+                type="button"
+                className="min-h-11 rounded border px-4"
+                disabled={busy || queueLocked}
+                onClick={() => void transitionLifecycle("reactivate")}
+              >
+                Reactivar despacho
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="min-h-11 rounded border border-amber-300 px-4"
+                disabled={busy || queueLocked}
+                onClick={() => void transitionLifecycle("cancel")}
+              >
+                Anular despacho
+              </button>
+            )}
+            {selected.state === "cancelled" && selected.cancelledAt && (
+              <p role="status" className="self-center text-sm">
+                Anulado el {formatDispatchDate(selected.cancelledAt)}; reactivá para editar o
+                finalizar.
+              </p>
+            )}
+          </div>
+        )}
+        {selected?.state === "cancelled" && (
+          <dl
+            className="grid gap-2 rounded border bg-muted/30 p-3 text-sm sm:grid-cols-2"
+            aria-label="Datos del despacho anulado, solo lectura"
+          >
+            {[
+              ["Prioridad", selected.priority],
+              ["Resultado", selected.result],
+              ["Llamada vinculada", selected.communicationId],
+              ["Destino", selected.institutionName ?? selected.institutionId],
+              ...timeSteps.map(([key, label]) => [label, selected[key]]),
+              ["Primera respuesta", selected.firstResponseAt],
+              ["Nota", selected.note],
+              ["Aclaración del resultado", selected.resultClarification],
+            ].map(([label, value]) => (
+              <div key={label}>
+                <dt className="font-medium">{label}</dt>
+                <dd>{value ? String(value) : "Sin dato"}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
         {editable && (
           <button
             type="button"
@@ -1519,11 +1650,15 @@ export function EfaDispatchStepper({
                     }}
                   >
                     <option value="">Sin llamada</option>
-                    {calls.map((call) => (
-                      <option key={call.id} value={call.id}>
-                        Llamada {call.id.slice(0, 8)} · prioridad {call.priority ?? "sin prioridad"}
-                      </option>
-                    ))}
+                    {availableDispatchOrigins(calls, selected?.communicationId ?? null).map(
+                      (call) => (
+                        <option key={call.id} value={call.id}>
+                          Llamada {call.id.slice(0, 8)}
+                          {call.state === "cancelled" ? " · anulada (vínculo histórico)" : ""} ·
+                          prioridad {call.priority ?? "sin prioridad"}
+                        </option>
+                      ),
+                    )}
                   </select>
                 </label>
                 <p className="text-sm">

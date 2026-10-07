@@ -42,8 +42,20 @@ function makeStore() {
       episodeId: string;
       ownerUserId: string;
       priority: "red" | "yellow" | "green" | null;
+      state: "draft" | "finalized" | "cancelled";
     }
-  >([[callId, { id: callId, episodeId, ownerUserId: owner, priority: "red" as const }]]);
+  >([
+    [
+      callId,
+      {
+        id: callId,
+        episodeId,
+        ownerUserId: owner,
+        priority: "red" as const,
+        state: "finalized" as const,
+      },
+    ],
+  ]);
   const dispatches: DispatchRecord[] = [];
   const audits: DispatchAudit[] = [];
   const operations: DispatchOperation[] = [];
@@ -77,8 +89,22 @@ function makeStore() {
   let id = 0;
   let failNextDispatchCas = false;
   let failNextSupportCas = false;
+  const communicationLockTails = new Map<string, Promise<void>>();
+  const communicationReads: Array<{ id: string; lock: boolean }> = [];
+  let beforeNextDispatchInsert: (() => Promise<void>) | null = null;
   const now = () => new Date("2026-10-06T10:00:00.000Z");
   const detach = <T extends { [key: string]: unknown }>(record: T): T => structuredClone(record);
+  const acquireCommunicationLock = async (communicationId: string) => {
+    const previous = communicationLockTails.get(communicationId) ?? Promise.resolve();
+    let release!: () => void;
+    const next = new Promise<void>((resolve) => (release = resolve));
+    communicationLockTails.set(
+      communicationId,
+      previous.then(() => next),
+    );
+    await previous;
+    return release;
+  };
   const tx: DispatchTransaction = {
     async findActor(userId) {
       return actors.get(userId) ?? null;
@@ -120,6 +146,8 @@ function makeStore() {
         ...input,
         version: 1,
         finalizedAt: null,
+        cancelledAt: null,
+        cancelledFromState: null,
         createdAt: now(),
         updatedAt: now(),
       });
@@ -248,7 +276,26 @@ function makeStore() {
   };
   const store: DispatchStore = {
     async transaction<T>(work: (value: DispatchTransaction) => Promise<T>) {
-      return work(tx);
+      const releases: Array<() => void> = [];
+      const transaction = {
+        ...tx,
+        async findCommunication(communicationId: string, lock = false) {
+          communicationReads.push({ id: communicationId, lock });
+          if (lock) releases.push(await acquireCommunicationLock(communicationId));
+          return calls.get(communicationId) ?? null;
+        },
+        async insertDispatch(input: Parameters<DispatchTransaction["insertDispatch"]>[0]) {
+          const pause = beforeNextDispatchInsert;
+          beforeNextDispatchInsert = null;
+          if (pause) await pause();
+          return tx.insertDispatch(input);
+        },
+      } satisfies DispatchTransaction;
+      try {
+        return await work(transaction);
+      } finally {
+        releases.reverse().forEach((release) => release());
+      }
     },
   };
   return {
@@ -263,6 +310,27 @@ function makeStore() {
     bases,
     institutions,
     calls,
+    communicationReads,
+    holdNextDispatchInsert() {
+      let entered!: () => void;
+      let continueInsert!: () => void;
+      const reached = new Promise<void>((resolve) => (entered = resolve));
+      const gate = new Promise<void>((resolve) => (continueInsert = resolve));
+      beforeNextDispatchInsert = async () => {
+        entered();
+        await gate;
+      };
+      return { reached, continue: continueInsert };
+    },
+    async cancelCommunication(id: string) {
+      const release = await acquireCommunicationLock(id);
+      try {
+        const communication = calls.get(id);
+        if (communication) calls.set(id, { ...communication, state: "cancelled" });
+      } finally {
+        release();
+      }
+    },
     dispatches,
     audits,
     operations,
@@ -277,6 +345,204 @@ function makeStore() {
 }
 
 describe("EFA dispatch service", () => {
+  it("cancels and restores a dispatch without changing its result, timestamps, or relationships", async () => {
+    const fixture = makeStore();
+    const created = await fixture.service.create(owner, {
+      clientCreationKey: "cancel-dispatch-create",
+      episodeId,
+      baseId,
+      communicationId: callId,
+      institutionId: "institution-active",
+      t0At: time,
+      t0Status: "observed",
+    });
+    const finalized = await fixture.service.finalize(owner, {
+      dispatchId: created.dispatch.id,
+      expectedVersion: 1,
+      operationId: "cancel-dispatch-finalize",
+      priority: "red",
+      result: "cancelled",
+    });
+    const operationBeforeCancel = "dispatch-cancel-1";
+    fixture.failDispatchCas();
+    await expect(
+      fixture.service.cancel(owner, {
+        dispatchId: created.dispatch.id,
+        expectedVersion: 2,
+        operationId: operationBeforeCancel,
+      }),
+    ).rejects.toThrow("version conflict");
+    expect(fixture.audits).toHaveLength(2);
+    const cancelled = await fixture.service.cancel(owner, {
+      dispatchId: created.dispatch.id,
+      expectedVersion: 2,
+      operationId: operationBeforeCancel,
+    });
+    expect(cancelled.dispatch).toMatchObject({
+      state: "cancelled",
+      cancelledFromState: "finalized",
+      finalizedAt: finalized.dispatch.finalizedAt,
+      result: "cancelled",
+      t0At: time,
+      communicationId: callId,
+      institutionId: "institution-active",
+      version: 3,
+      canEdit: false,
+      canManage: true,
+    });
+    expect((await fixture.service.listForEpisode(owner, episodeId))[0]).toMatchObject({
+      state: "cancelled",
+      communicationId: callId,
+      institutionId: "institution-active",
+    });
+    const replay = await fixture.service.cancel(owner, {
+      dispatchId: created.dispatch.id,
+      expectedVersion: 2,
+      operationId: "dispatch-cancel-1",
+    });
+    expect(replay.operation.replayed).toBe(true);
+    const restored = await fixture.service.reactivate(owner, {
+      dispatchId: created.dispatch.id,
+      expectedVersion: 3,
+      operationId: "dispatch-reactivate-1",
+    });
+    expect(restored.dispatch).toMatchObject({
+      state: "finalized",
+      cancelledAt: null,
+      cancelledFromState: null,
+      finalizedAt: finalized.dispatch.finalizedAt,
+      result: "cancelled",
+      communicationId: callId,
+      institutionId: "institution-active",
+      version: 4,
+    });
+    expect(fixture.audits.slice(-2).map((item) => item.action)).toEqual([
+      "cancelled",
+      "reactivated",
+    ]);
+  });
+
+  it("rejects a cancelled communication as a new dispatch origin but preserves an existing link for edits", async () => {
+    const fixture = makeStore();
+    const created = await fixture.service.create(owner, {
+      clientCreationKey: "dispatch-from-call-before-cancel",
+      episodeId,
+      baseId,
+      communicationId: callId,
+    });
+    fixture.calls.set(callId, {
+      id: callId,
+      episodeId,
+      ownerUserId: owner,
+      priority: "red",
+      state: "cancelled",
+    });
+    await expect(
+      fixture.service.create(owner, {
+        clientCreationKey: "dispatch-from-call-after-cancel",
+        episodeId,
+        baseId,
+        communicationId: callId,
+      }),
+    ).rejects.toThrow(/anulada|anulad/i);
+    await fixture.service.update(owner, {
+      dispatchId: created.dispatch.id,
+      expectedVersion: 1,
+      operationId: "edit-existing-cancelled-call-link",
+      baseId,
+      note: "Edición no relacionada",
+    });
+    expect(fixture.dispatches[0]?.communicationId).toBe(callId);
+    expect(fixture.communicationReads.at(-1)).toEqual({ id: callId, lock: false });
+  });
+
+  it("serializes a new dispatch origin check against concurrent communication cancellation", async () => {
+    const fixture = makeStore();
+    const insertGate = fixture.holdNextDispatchInsert();
+    const creating = fixture.service.create(owner, {
+      clientCreationKey: "dispatch-origin-lock-race",
+      episodeId,
+      baseId,
+      communicationId: callId,
+    });
+    await insertGate.reached;
+    const cancelling = fixture.cancelCommunication(callId);
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    const stateWhileCreateIsUncommitted = fixture.calls.get(callId)?.state;
+    insertGate.continue();
+    const created = await creating;
+    await cancelling;
+    expect(fixture.communicationReads).toContainEqual({ id: callId, lock: true });
+    expect(stateWhileCreateIsUncommitted).toBe("finalized");
+    expect(created.dispatch.communicationId).toBe(callId);
+    expect(fixture.calls.get(callId)?.state).toBe("cancelled");
+  });
+
+  it("requires current owner/admin authority and notifies only the original owner for admin cancellation", async () => {
+    const fixture = makeStore();
+    const created = await fixture.service.create(owner, {
+      clientCreationKey: "dispatch-admin-cancel-create",
+      episodeId,
+      baseId,
+    });
+    fixture.actors.set(owner, { isActive: true, roles: [] });
+    await expect(
+      fixture.service.cancel(owner, {
+        dispatchId: created.dispatch.id,
+        expectedVersion: 1,
+        operationId: "dispatch-owner-revoked-cancel",
+      }),
+    ).rejects.toThrow("acceso EFA");
+    fixture.actors.set(owner, { isActive: true, roles: ["efa"] });
+    const cancelled = await fixture.service.cancel(admin, {
+      dispatchId: created.dispatch.id,
+      expectedVersion: 1,
+      operationId: "dispatch-admin-cancel",
+    });
+    expect(cancelled.operation).toMatchObject({
+      action: "cancelled",
+      appliedVersion: 2,
+      changed: true,
+    });
+    expect(fixture.audits.at(-1)).toMatchObject({
+      action: "cancelled",
+      actorUserId: admin,
+      versionBefore: 1,
+      versionAfter: 2,
+      beforeState: { state: "draft", cancelledAt: null },
+      afterState: {
+        state: "cancelled",
+        cancelledFromState: "draft",
+        cancelledAt: "2026-10-06T10:00:00.000Z",
+      },
+    });
+    expect(fixture.dispatchNotices.map((notice) => notice.recipientUserId)).toEqual([owner]);
+    await expect(
+      fixture.service.cancel(admin, {
+        dispatchId: created.dispatch.id,
+        expectedVersion: 2,
+        operationId: "dispatch-admin-cancel",
+      }),
+    ).rejects.toThrow("identidad de operación");
+    await expect(
+      fixture.service.update(owner, {
+        dispatchId: created.dispatch.id,
+        expectedVersion: 2,
+        operationId: "dispatch-edit-while-cancelled",
+        baseId,
+      }),
+    ).rejects.toThrow("Reactivá");
+    await expect(
+      fixture.service.finalize(owner, {
+        dispatchId: created.dispatch.id,
+        expectedVersion: 2,
+        operationId: "dispatch-finalize-while-cancelled",
+        priority: "red",
+        result: "cancelled",
+      }),
+    ).rejects.toThrow("Reactivá");
+  });
+
   it("keeps institution selection per dispatch and permits no institution for non-transport outcomes", async () => {
     const fixture = makeStore();
     fixture.institutions.set("institution-second", {
@@ -381,6 +647,7 @@ describe("EFA dispatch service", () => {
       episodeId,
       ownerUserId: owner,
       priority: null,
+      state: "finalized",
     });
     const fromPrioritizedCall = await fixture.service.create(owner, {
       clientCreationKey: "create-priority-source",

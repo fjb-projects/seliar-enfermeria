@@ -30,6 +30,19 @@ export type DispatchForm = DispatchTimeForm & {
   firstResponseAt: string;
 };
 
+export type DispatchLifecycleOperation = { key: string; operationId: string };
+
+export function reuseDispatchLifecycleOperation(
+  current: DispatchLifecycleOperation | null,
+  action: "cancel" | "reactivate",
+  dispatchId: string,
+  expectedVersion: number,
+  createOperationId: () => string,
+): DispatchLifecycleOperation {
+  const key = `${action}:${dispatchId}:${expectedVersion}`;
+  return current?.key === key ? current : { key, operationId: createOperationId() };
+}
+
 export const emptyDispatchForm = (): DispatchForm => ({
   baseId: "",
   institutionId: "",

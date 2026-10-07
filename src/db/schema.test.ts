@@ -66,6 +66,10 @@ describe("ambulance dispatch persistence", () => {
     expect(dispatch.columns.find((column) => column.name === "institution_id")?.notNull).toBe(
       false,
     );
+    expect(dispatch.columns.find((column) => column.name === "cancelled_at")?.notNull).toBe(false);
+    expect(dispatch.columns.find((column) => column.name === "cancelled_from_state")?.notNull).toBe(
+      false,
+    );
     expect(dispatch.checks.map((item) => item.name)).toEqual(
       expect.arrayContaining([
         "efa_dispatch_state_allowed",
@@ -82,6 +86,12 @@ describe("ambulance dispatch persistence", () => {
     expect(getTableConfig(efaDispatchOperation).checks.map((item) => item.name)).toContain(
       "efa_dispatch_operation_create_result_valid",
     );
+    const auditActionConstraint = getTableConfig(efaDispatchAudit).checks.find(
+      (item) => item.name === "efa_dispatch_audit_action_allowed",
+    );
+    expect(
+      auditActionConstraint && new PgDialect().sqlToQuery(auditActionConstraint.value).sql,
+    ).toContain("reactivated");
     expect(getTableConfig(efaSupportRequestOperation).checks.map((item) => item.name)).toContain(
       "efa_support_request_operation_create_result_valid",
     );

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   canAdoptConfirmedDispatch,
   canApplyConfirmedMutation,
@@ -11,11 +11,29 @@ import {
   restoreDispatchQueueForm,
   rebaseDispatchQueueEntry,
   normalizeConfirmedDispatch,
+  reuseDispatchLifecycleOperation,
   shouldAdoptRefreshedDispatch,
 } from "./efa-dispatches.client";
 import type { DispatchQueueEntry } from "./efa-dispatches.queue";
 
 describe("dispatch client form helpers", () => {
+  it("reuses one lifecycle operation ID for same-record/version retries only", () => {
+    const createId = vi
+      .fn()
+      .mockReturnValueOnce("operation-a")
+      .mockReturnValueOnce("operation-b")
+      .mockReturnValueOnce("operation-c");
+    const first = reuseDispatchLifecycleOperation(null, "cancel", "dispatch-a", 3, createId);
+    expect(reuseDispatchLifecycleOperation(first, "cancel", "dispatch-a", 3, createId)).toBe(first);
+    expect(
+      reuseDispatchLifecycleOperation(first, "reactivate", "dispatch-a", 3, createId).operationId,
+    ).toBe("operation-b");
+    expect(
+      reuseDispatchLifecycleOperation(first, "cancel", "dispatch-a", 4, createId).operationId,
+    ).toBe("operation-c");
+    expect(createId).toHaveBeenCalledTimes(3);
+  });
+
   it("normalizes the real mutation DTO without dropping existing contact history", () => {
     const mutationDto = {
       id: "dispatch-a",

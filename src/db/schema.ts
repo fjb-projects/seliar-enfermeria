@@ -985,6 +985,8 @@ export const efaDispatch = pgTable(
     state: text("state").notNull().default("draft"),
     version: integer("version").notNull().default(1),
     finalizedAt: timestamp("finalized_at"),
+    cancelledAt: timestamp("cancelled_at"),
+    cancelledFromState: text("cancelled_from_state"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
@@ -1016,7 +1018,7 @@ export const efaDispatch = pgTable(
     ),
     check(
       "efa_dispatch_state_allowed",
-      sql`(${table.state} = 'draft' and ${table.finalizedAt} is null) or (${table.state} = 'finalized' and ${table.finalizedAt} is not null and ${table.priority} is not null and ${table.result} is not null)`,
+      sql`(${table.state} = 'draft' and ${table.finalizedAt} is null and ${table.cancelledAt} is null and ${table.cancelledFromState} is null) or (${table.state} = 'finalized' and ${table.finalizedAt} is not null and ${table.priority} is not null and ${table.result} is not null and ${table.cancelledAt} is null and ${table.cancelledFromState} is null) or (${table.state} = 'cancelled' and ${table.cancelledAt} is not null and ${table.cancelledFromState} in ('draft','finalized') and ((${table.cancelledFromState} = 'draft' and ${table.finalizedAt} is null) or (${table.cancelledFromState} = 'finalized' and ${table.finalizedAt} is not null and ${table.priority} is not null and ${table.result} is not null)))`,
     ),
     check("efa_dispatch_version_positive", sql`${table.version} > 0`),
     check(
@@ -1054,7 +1056,7 @@ export const efaDispatchAudit = pgTable(
     unique("efa_dispatch_audit_id_dispatch_unique").on(table.id, table.dispatchId),
     check(
       "efa_dispatch_audit_action_allowed",
-      sql`${table.action} in ('created','updated','finalized')`,
+      sql`${table.action} in ('created','updated','finalized','cancelled','reactivated')`,
     ),
     check(
       "efa_dispatch_audit_version_transition_valid",
@@ -1092,7 +1094,7 @@ export const efaDispatchOperation = pgTable(
     unique("efa_dispatch_operation_client_unique").on(table.dispatchId, table.clientOperationId),
     check(
       "efa_dispatch_operation_action_allowed",
-      sql`${table.action} in ('created','updated','finalized')`,
+      sql`${table.action} in ('created','updated','finalized','cancelled','reactivated')`,
     ),
     check(
       "efa_dispatch_operation_create_result_valid",

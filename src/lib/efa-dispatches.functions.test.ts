@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   dispatchCreateSchema,
   dispatchFinalizeSchema,
+  dispatchLifecycleSchema,
   dispatchUpdateSchema,
   supportRequestCreateSchema,
 } from "./efa-dispatches.functions";
@@ -16,6 +17,16 @@ const validCreate = {
 };
 
 describe("EFA dispatch function inputs", () => {
+  it("validates lifecycle operation IDs and positive expected versions", () => {
+    const base = { dispatchId, expectedVersion: 2, operationId };
+    expect(dispatchLifecycleSchema.safeParse(base).success).toBe(true);
+    expect(dispatchLifecycleSchema.safeParse({ ...base, expectedVersion: 0 }).success).toBe(false);
+    expect(dispatchLifecycleSchema.safeParse({ ...base, operationId: "not-a-uuid" }).success).toBe(
+      false,
+    );
+    expect(dispatchLifecycleSchema.safeParse({ ...base, extra: true }).success).toBe(false);
+  });
+
   it("accepts nullable real times without coercing observation states to zero", () => {
     expect(dispatchCreateSchema.safeParse(validCreate).success).toBe(true);
     expect(

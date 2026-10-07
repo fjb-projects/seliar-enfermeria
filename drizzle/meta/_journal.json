@@ -134,6 +134,13 @@
       "when": 1791401199745,
       "tag": "0018_clammy_mystique",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1791402087140,
+      "tag": "0019_low_gamma_corps",
+      "breakpoints": true
     }
   ]
 }

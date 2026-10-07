@@ -88,6 +88,9 @@ export const dispatchFinalizeSchema = z
     resultClarification: z.string().trim().max(1000).nullable().optional(),
   })
   .strict();
+export const dispatchLifecycleSchema = z
+  .object({ dispatchId: uuid, expectedVersion: version, operationId: uuid })
+  .strict();
 export const dispatchContactAttemptSchema = z
   .object({
     dispatchId: uuid,
@@ -153,6 +156,12 @@ export const updateEfaDispatch = createServerFn({ method: "POST" })
 export const finalizeEfaDispatch = createServerFn({ method: "POST" })
   .validator((data: unknown) => dispatchFinalizeSchema.parse(data))
   .handler(({ data }) => runWrite((service, userId) => service.finalize(userId, data)));
+export const cancelEfaDispatch = createServerFn({ method: "POST" })
+  .validator((data: unknown) => dispatchLifecycleSchema.parse(data))
+  .handler(({ data }) => runWrite((service, userId) => service.cancel(userId, data)));
+export const reactivateEfaDispatch = createServerFn({ method: "POST" })
+  .validator((data: unknown) => dispatchLifecycleSchema.parse(data))
+  .handler(({ data }) => runWrite((service, userId) => service.reactivate(userId, data)));
 export const addEfaDispatchContactAttempt = createServerFn({ method: "POST" })
   .validator((data: unknown) => dispatchContactAttemptSchema.parse(data))
   .handler(({ data }) => runWrite((service, userId) => service.addContactAttempt(userId, data)));

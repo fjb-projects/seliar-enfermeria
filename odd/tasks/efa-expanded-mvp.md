@@ -2,7 +2,7 @@
 
 Implement the next EFA operational workflows without changing public forms or external integrations. The first work unit records observed staffing-period facts, distinct from planned coverage, using anonymous roles rather than personal identities.
 
-**Status:** Tasks 10A, 10B, 11A, 11B, 12, and 13A complete locally; tasks 13B, 13C, and final integration remain.
+**Status:** Tasks 10A, 10B, 11A, 11B, 12, 13A, and 13B complete locally; task 13C and final integration remain.
 **Engram mirror:** Pending; the runtime did not provide an authorized registered session identity, so no memory write is attempted.
 **Delivery strategy:** `ask-on-risk`; the user selected a feature-branch chain on 2026-10-07. Keep each work unit as a reviewable block; do not publish a PR or push without separate authorization.
 **Forecast:** More than 400 authored changed lines across the expanded feature; generated migration artifacts are excluded. Slicing is by behavior, not by code compression.
@@ -161,9 +161,25 @@ The admin account route uses a catalog-ID selector for all plan targets, with ef
 - `npm run typecheck`: exit 0. `npm run build`: exit 0, with existing Vite path plugin, test-route file, and unrelated deprecated `inputValidator()` warnings. `git diff --check`: exit 0. Prettier check/write on changed TS, JSON, and Markdown sources completed successfully.
 - No changes to dispatch/episode lifecycle, police coordination/events, support requests, observations, staffing, public Forms/Drive, or queue records. Lifecycle writes intentionally use online server operations; transient retries within the active screen are idempotent. Work-unit commit: `37e18a0`. Independent code review and a focused parent spot check passed; real PostgreSQL migration/locking and browser behavior remain unverified. The 13B task must prevent new dispatches from selecting cancelled communications while preserving preexisting historical links.
 
-#### 13B — Dispatch cancellation and reactivation (pending)
+#### 13B — Dispatch cancellation and reactivation (complete locally)
 
-- [ ] Implement dispatch lifecycle transitions while preserving linked communications and dispatch history; retain the same server authorization, audit, version/CAS, idempotency, and notice invariants.
+- [x] Implement dispatch lifecycle transitions while preserving linked communications and dispatch history; retain the same server authorization, audit, version/CAS, idempotency, and notice invariants.
+- [x] Keep dispatch lifecycle cancellation distinct from a finalized dispatch result of `cancelled`; restore the prior draft/finalized state without changing result or timestamps.
+- [x] Prevent edits/finalization and contact-event writes while cancelled; keep the dispatch readable and offer explicit reactivation.
+- [x] Reject new/changed dispatch links to currently cancelled communications while preserving preexisting links to communications cancelled later and allowing unrelated dispatch edits.
+- [x] Generate forward-only migration 0019; test server authorization, admin notices, audit, replay, preservation, and origin-picker behavior.
+
+**13B implementation and verification evidence:** Dispatches now store independent `cancelled_at` and `cancelled_from_state` lifecycle metadata. The `cancel` and `reactivate` service transitions reauthorize the active EFA actor and owner/admin scope, lock and compare the expected version, replay only an identical actor/action/request hash, and write versioned operation receipts plus actor-attributed before/after audits using database time. Administrator actions create an in-app notice for the original owner only (not the acting administrator). Cancelling preserves `draft` versus `finalized`, `finalized_at`, result (including the separate result value `cancelled`), recorded times, institution, communication link, and other relationships; no row or related record is deleted. Cancelled dispatches remain listed/readable, expose their values read-only, and cannot be edited, finalized, or receive new contact-event records until reactivation. Communication choices omit currently cancelled origins except when displaying the dispatch's pre-existing historical link; the server rejects creation or changing a link to a cancelled communication but permits unrelated edits when the link is unchanged.
+
+- Test-first RED: the new lifecycle regression failed because `service.cancel` did not exist; the origin-link regression showed dispatch creation accepted an already-cancelled communication. GREEN: targeted lifecycle, communication-origin, authorization/notice, schema, function-input, client retry-ID, and picker tests passed.
+- `npm run db:generate`: exit 0; generated forward-only `drizzle/0019_low_gamma_corps.sql`, snapshot 0019, and journal entry 19. It adds nullable lifecycle metadata and updates dispatch state/audit/operation action constraints. Migration remains unapplied; no remote DB was accessed.
+- `npm run test -- src/lib/efa-dispatches.server.test.ts src/lib/efa-dispatches.functions.test.ts src/lib/efa-dispatches.client.test.ts src/lib/efa-dispatches.queue.test.ts src/components/EfaDispatchStepper.test.tsx`: exit 0; 5 files, 44 tests.
+- `npm run test -- src/lib/efa-dispatches.server.test.ts src/lib/efa-dispatches.functions.test.ts src/lib/efa-dispatches.client.test.ts src/components/EfaDispatchStepper.test.tsx src/db/schema.test.ts`: exit 0; 5 files, 59 tests.
+- `npm run typecheck`: exit 0. `npm run build`: exit 0; existing warnings remain for Vite's `vite-tsconfig-paths`, test files under routes that are not route modules, and deprecated `inputValidator()` calls in unrelated modules. `git diff --check`: exit 0.
+- The first build attempt caught a server/client import-protection violation because the lifecycle retry helper was statically imported from a `.client.ts` module. The component now resolves that helper through the existing `createClientOnlyFn` dynamic loader, and the final production build passed.
+- Correctness follow-up: origin validation now requests a `FOR UPDATE` lock for a new/changed communication link within the dispatch transaction. This serializes the state check with communication cancellation: either dispatch creation commits the link first, or a cancellation committed first is observed and rejects creation. The unchanged historical-link path remains unlocked and permits unrelated edits. The fake-store concurrency regression models this ordering but does not establish real PostgreSQL lock behavior.
+- Concurrency regression evidence: RED without the lock request failed because the fake store observed no locked origin read; GREEN after adding the transaction-scoped lock passed `npm run test -- src/lib/efa-dispatches.server.test.ts` (1 file, 17 tests). `npm run typecheck`, `git diff --check`, and `npx prettier --check src/lib/efa-dispatches.server.ts src/lib/efa-dispatches.server.test.ts` passed after the correction. No migration was applied.
+- No support request, police coordination/event, observation, staffing, episode, or public Forms/Drive lifecycle behavior was changed. No migration or remote database operation was performed. No commit was made; parent owns commit and delivery decisions.
 
 #### 13C — Episode cancellation and reactivation (pending)
 
@@ -178,4 +194,4 @@ The admin account route uses a catalog-ID selector for all plan targets, with ef
 
 ## Next step
 
-Parent review/commit of 13A is pending; next implement task 13B dispatch cancellation/reactivation, then 13C episode cancellation/reactivation, without expanding into police coordination/events, support requests, observations, or staffing.
+Parent review/commit of 13A and 13B is pending; next implement task 13C episode cancellation/reactivation, without expanding into police coordination/events, support requests, observations, or staffing.

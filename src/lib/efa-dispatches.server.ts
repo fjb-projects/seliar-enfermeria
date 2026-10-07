@@ -65,9 +65,11 @@ export type DispatchRecord = DispatchFields & {
   episodeId: string;
   ownerUserId: string;
   clientCreationKey: string;
-  state: "draft" | "finalized";
+  state: "draft" | "finalized" | "cancelled";
   version: number;
   finalizedAt: Date | null;
+  cancelledAt: Date | null;
+  cancelledFromState: "draft" | "finalized" | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -77,7 +79,7 @@ export type DispatchAudit = {
   ownerUserId: string;
   actorUserId: string;
   operationId: string;
-  action: "created" | "updated" | "finalized";
+  action: "created" | "updated" | "finalized" | "cancelled" | "reactivated";
   versionBefore: number | null;
   versionAfter: number;
   beforeState: Record<string, string | null> | null;
@@ -90,7 +92,7 @@ export type DispatchOperation = {
   ownerUserId: string;
   actorUserId: string;
   clientOperationId: string;
-  action: "created" | "updated" | "finalized";
+  action: "created" | "updated" | "finalized" | "cancelled" | "reactivated";
   requestHash: string;
   appliedVersion: number;
   changed: boolean;
@@ -128,27 +130,33 @@ type Communication = {
   episodeId: string;
   ownerUserId: string;
   priority: DispatchPriority | null;
+  state: "draft" | "finalized" | "cancelled";
 };
 export interface DispatchTransaction {
   findActor(id: string): Promise<Actor | null>;
   findEpisode(id: string, lock?: boolean): Promise<Episode | null>;
   findBase(id: string): Promise<Base | null>;
   findInstitution(id: string): Promise<Institution | null>;
-  findCommunication(id: string): Promise<Communication | null>;
+  findCommunication(id: string, lock?: boolean): Promise<Communication | null>;
   listDispatches(episodeId: string): Promise<DispatchRecord[]>;
   findDispatch(id: string, lock?: boolean): Promise<DispatchRecord | null>;
   findDispatchByKey(owner: string, key: string): Promise<DispatchRecord | null>;
   findDispatchOperation(dispatchId: string, operationId: string): Promise<DispatchOperation | null>;
   insertDispatch(
-    input: Omit<DispatchRecord, "version" | "createdAt" | "updatedAt" | "finalizedAt">,
+    input: Omit<
+      DispatchRecord,
+      "version" | "createdAt" | "updatedAt" | "finalizedAt" | "cancelledAt" | "cancelledFromState"
+    >,
   ): Promise<void>;
   updateDispatch(
     id: string,
     version: number,
     fields: Partial<DispatchFields> & {
-      state: "draft" | "finalized";
+      state: "draft" | "finalized" | "cancelled";
       version: number;
       finalizedAt: Date | null;
+      cancelledAt: Date | null;
+      cancelledFromState: "draft" | "finalized" | null;
     },
   ): Promise<void>;
   appendDispatchAudit(input: Omit<DispatchAudit, "id" | "occurredAt">): Promise<string>;
@@ -299,6 +307,8 @@ const dispatchState = (record: DispatchRecord): Record<string, string | null> =>
   ),
   state: record.state,
   finalizedAt: record.finalizedAt?.toISOString() ?? null,
+  cancelledAt: record.cancelledAt?.toISOString() ?? null,
+  cancelledFromState: record.cancelledFromState,
 });
 const view = (record: DispatchRecord, canEdit: boolean) => ({
   ...record,
@@ -313,7 +323,8 @@ const view = (record: DispatchRecord, canEdit: boolean) => ({
   finalizedAt: record.finalizedAt?.toISOString() ?? null,
   createdAt: record.createdAt.toISOString(),
   updatedAt: record.updatedAt.toISOString(),
-  canEdit,
+  canEdit: canEdit && record.state !== "cancelled",
+  canManage: canEdit,
 });
 const viewRequest = (record: SupportRequestRecord, canEdit: boolean) => ({
   ...record,
@@ -355,6 +366,7 @@ export function createEfaDispatchesService(
     fields: DispatchFields,
     currentBaseId?: string,
     currentInstitutionId?: string | null,
+    currentCommunicationId?: string | null,
   ) {
     if (fields.baseId !== currentBaseId) {
       const base = await tx.findBase(fields.baseId);
@@ -366,9 +378,12 @@ export function createEfaDispatchesService(
         throw new Error("La institución o destino no está disponible para nuevos despachos.");
     }
     if (fields.communicationId) {
-      const call = await tx.findCommunication(fields.communicationId);
+      const changedOrigin = fields.communicationId !== currentCommunicationId;
+      const call = await tx.findCommunication(fields.communicationId, changedOrigin);
       if (!call || call.episodeId !== episode.id || call.ownerUserId !== episode.ownerUserId)
         throw new Error("La llamada no pertenece al episodio.");
+      if (call.state === "cancelled" && fields.communicationId !== currentCommunicationId)
+        throw new Error("No se puede vincular una llamada anulada a un nuevo despacho.");
     }
   }
   return {
@@ -536,6 +551,8 @@ export function createEfaDispatchesService(
           state: "draft" as const,
           version: 1,
           finalizedAt: null,
+          cancelledAt: null,
+          cancelledFromState: null,
           createdAt: new Date(0),
           updatedAt: new Date(0),
         };
@@ -544,6 +561,8 @@ export function createEfaDispatchesService(
           updatedAt: _updatedAt,
           version: _version,
           finalizedAt: _finalizedAt,
+          cancelledAt: _cancelledAt,
+          cancelledFromState: _cancelledFromState,
           ...insert
         } = record;
         await tx.insertDispatch(insert);
@@ -615,7 +634,16 @@ export function createEfaDispatchesService(
         );
         const episode = await tx.findEpisode(current.episodeId, true);
         if (!episode) throw new Error("No se encontró el episodio.");
-        await baseAndLink(tx, episode, requested, current.baseId, current.institutionId);
+        if (current.state === "cancelled")
+          throw new Error("Reactivá el despacho antes de editarlo.");
+        await baseAndLink(
+          tx,
+          episode,
+          requested,
+          current.baseId,
+          current.institutionId,
+          current.communicationId,
+        );
         const next = { ...current, ...requested };
         if (current.state === "finalized" && (!next.priority || !next.result))
           throw new Error("Un despacho finalizado debe conservar prioridad y resultado.");
@@ -629,6 +657,8 @@ export function createEfaDispatchesService(
             state: current.state,
             version: versionAfter,
             finalizedAt: current.finalizedAt,
+            cancelledAt: current.cancelledAt,
+            cancelledFromState: current.cancelledFromState,
           });
         const auditId = changed
           ? await tx.appendDispatchAudit({
@@ -706,6 +736,8 @@ export function createEfaDispatchesService(
         }
         if (current.version !== input.expectedVersion)
           throw new Error("El despacho cambió; actualiza el historial.");
+        if (current.state === "cancelled")
+          throw new Error("Reactivá el despacho antes de finalizarlo.");
         if (current.state === "finalized") throw new Error("El despacho ya está finalizado.");
         const finalizedAt = await tx.currentTimestamp();
         const next = {
@@ -724,6 +756,8 @@ export function createEfaDispatchesService(
           state: next.state,
           version: next.version,
           finalizedAt,
+          cancelledAt: null,
+          cancelledFromState: null,
         });
         const auditId = await tx.appendDispatchAudit({
           dispatchId: current.id,
@@ -773,6 +807,18 @@ export function createEfaDispatchesService(
         );
       });
     },
+    async cancel(
+      userId: string,
+      input: { dispatchId: string; expectedVersion: number; operationId: string },
+    ) {
+      return transitionCancellation(userId, input, "cancel");
+    },
+    async reactivate(
+      userId: string,
+      input: { dispatchId: string; expectedVersion: number; operationId: string },
+    ) {
+      return transitionCancellation(userId, input, "reactivate");
+    },
     async addContactAttempt(
       userId: string,
       input: {
@@ -787,6 +833,8 @@ export function createEfaDispatchesService(
         const dispatch = await tx.findDispatch(input.dispatchId, true);
         if (!dispatch || !visible(dispatch.ownerUserId, userId, access.roles))
           throw new Error("No se encontró el despacho.");
+        if (dispatch.state === "cancelled")
+          throw new Error("Reactivá el despacho antes de registrar eventos.");
         const eventAt = parseDate(input.occurredAt, "intento de contacto")!;
         const prior = await tx.findContactAttempt(dispatch.id, input.clientEventId);
         if (prior) {
@@ -1023,6 +1071,130 @@ export function createEfaDispatchesService(
       });
     },
   };
+
+  async function transitionCancellation(
+    userId: string,
+    input: { dispatchId: string; expectedVersion: number; operationId: string },
+    kind: "cancel" | "reactivate",
+  ) {
+    const action = kind === "cancel" ? "cancelled" : "reactivated";
+    const requestHash = hash({ action, userId, ...input });
+    return store.transaction(async (tx) => {
+      const access = await actor(tx, userId, true);
+      const current = await tx.findDispatch(input.dispatchId, true);
+      if (!current || !visible(current.ownerUserId, userId, access.roles))
+        throw new Error("No se encontró el despacho.");
+      const existing = await tx.findDispatchOperation(current.id, input.operationId);
+      if (existing) {
+        assertOperation(existing, userId, action, requestHash);
+        return mutation(current, existing, true);
+      }
+      if (current.version !== input.expectedVersion)
+        throw new Error("El despacho cambió; actualiza el historial antes de continuar.");
+      const alreadyInRequestedState =
+        (kind === "cancel" && current.state === "cancelled") ||
+        (kind === "reactivate" && current.state !== "cancelled");
+      if (alreadyInRequestedState) {
+        await tx.insertDispatchOperation({
+          dispatchId: current.id,
+          ownerUserId: current.ownerUserId,
+          actorUserId: userId,
+          clientOperationId: input.operationId,
+          action,
+          requestHash,
+          appliedVersion: current.version,
+          changed: false,
+        });
+        return mutation(
+          current,
+          {
+            id: "",
+            dispatchId: current.id,
+            ownerUserId: current.ownerUserId,
+            actorUserId: userId,
+            clientOperationId: input.operationId,
+            action,
+            requestHash,
+            appliedVersion: current.version,
+            changed: false,
+          },
+          false,
+        );
+      }
+      if (kind === "reactivate" && !current.cancelledFromState)
+        throw new Error("No se puede restaurar el estado anterior del despacho.");
+
+      const beforeState = dispatchState(current);
+      const next =
+        kind === "cancel"
+          ? {
+              ...current,
+              state: "cancelled" as const,
+              cancelledAt: await tx.currentTimestamp(),
+              cancelledFromState: current.state as "draft" | "finalized",
+            }
+          : {
+              ...current,
+              state: current.cancelledFromState as "draft" | "finalized",
+              cancelledAt: null,
+              cancelledFromState: null,
+            };
+      const versionAfter = current.version + 1;
+      await tx.updateDispatch(current.id, current.version, {
+        state: next.state,
+        version: versionAfter,
+        finalizedAt: current.finalizedAt,
+        cancelledAt: next.cancelledAt,
+        cancelledFromState: next.cancelledFromState,
+      });
+      const auditId = await tx.appendDispatchAudit({
+        dispatchId: current.id,
+        ownerUserId: current.ownerUserId,
+        actorUserId: userId,
+        operationId: input.operationId,
+        action,
+        versionBefore: current.version,
+        versionAfter,
+        beforeState,
+        afterState: dispatchState({ ...next, version: versionAfter }),
+      });
+      if (current.ownerUserId !== userId)
+        await tx.appendDispatchNotice({
+          dispatchId: current.id,
+          ownerUserId: current.ownerUserId,
+          auditId,
+          recipientUserId: current.ownerUserId,
+        });
+      await tx.insertDispatchOperation({
+        dispatchId: current.id,
+        ownerUserId: current.ownerUserId,
+        actorUserId: userId,
+        clientOperationId: input.operationId,
+        action,
+        requestHash,
+        appliedVersion: versionAfter,
+        changed: true,
+      });
+      const saved = await tx.findDispatch(current.id);
+      if (!saved) throw new Error("No se pudo confirmar el cambio de estado.");
+      return mutation(
+        saved,
+        {
+          id: "",
+          dispatchId: current.id,
+          ownerUserId: current.ownerUserId,
+          actorUserId: userId,
+          clientOperationId: input.operationId,
+          action,
+          requestHash,
+          appliedVersion: versionAfter,
+          changed: true,
+        },
+        false,
+        auditId,
+      );
+    });
+  }
 }
 
 function normalizeFields(input: object, preserveLegacyRole = false): DispatchFields {
@@ -1188,21 +1360,20 @@ const drizzleStore: DispatchStore = {
             )[0] as Institution | undefined) ?? null
           );
         },
-        async findCommunication(communicationId) {
-          return (
-            ((
-              await db
-                .select({
-                  id: efaCommunication.id,
-                  episodeId: efaCommunication.episodeId,
-                  ownerUserId: efaCommunication.ownerUserId,
-                  priority: efaCommunication.priority,
-                })
-                .from(efaCommunication)
-                .where(eq(efaCommunication.id, communicationId))
-                .limit(1)
-            )[0] as Communication | undefined) ?? null
-          );
+        async findCommunication(communicationId, lock = false) {
+          let query = db
+            .select({
+              id: efaCommunication.id,
+              episodeId: efaCommunication.episodeId,
+              ownerUserId: efaCommunication.ownerUserId,
+              priority: efaCommunication.priority,
+              state: efaCommunication.state,
+            })
+            .from(efaCommunication)
+            .where(eq(efaCommunication.id, communicationId))
+            .limit(1);
+          if (lock) query = query.for("update") as typeof query;
+          return ((await query)[0] as Communication | undefined) ?? null;
         },
         async listDispatches(episodeId) {
           return (await db
