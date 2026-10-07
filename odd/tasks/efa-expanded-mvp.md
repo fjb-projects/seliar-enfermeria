@@ -2,7 +2,7 @@
 
 Implement the next EFA operational workflows without changing public forms or external integrations. The first work unit records observed staffing-period facts, distinct from planned coverage, using anonymous roles rather than personal identities.
 
-**Status:** Tasks 10A, 10B, 11A, and 11B complete locally; tasks 12, 13, and final integration remain.
+**Status:** Tasks 10A, 10B, 11A, 11B, and 12 complete locally; task 13 and final integration remain.
 **Engram mirror:** Pending; the runtime did not provide an authorized registered session identity, so no memory write is attempted.
 **Delivery strategy:** `ask-on-risk`; the user selected a feature-branch chain on 2026-10-07. Keep each work unit as a reviewable block; do not publish a PR or push without separate authorization.
 **Forecast:** More than 400 authored changed lines across the expanded feature; generated migration artifacts are excluded. Slicing is by behavior, not by code compression.
@@ -121,11 +121,21 @@ The admin account route uses a catalog-ID selector for all plan targets, with ef
 
 ### 12 — Correction notices and offline conflict handling
 
-- [ ] Verify administrator-created correction notices and track read state independently for each recipient.
-- [ ] Verify local draft queues remain scoped to the current user and retain pending operations safely.
-- [ ] Verify retries use idempotent operation identifiers so a lost response does not create duplicates.
-- [ ] Verify divergent local and server versions are shown for manual resolution; do not apply last-write-wins.
-- [ ] The existing implementation is broad: inspect current behavior first and fix only gaps demonstrated by code or focused tests; do not reimplement working flows.
+- [x] Verify administrator-created correction notices and track read state independently for each recipient.
+- [x] Verify local draft queues remain scoped to the current user and retain pending operations safely.
+- [x] Verify retries use idempotent operation identifiers so a lost response does not create duplicates.
+- [x] Verify divergent local and server versions are shown for manual resolution; do not apply last-write-wins.
+- [x] Close the stale reconciliation-list race with a deterministic regression; re-read persisted state before every dispatch and retain payload identity, owner fencing, and explicit pause behavior.
+- [x] Inspect only demonstrated gaps; do not reimplement working flows or expand into deferred timestamp precision work.
+
+**Task 12 implementation and verification evidence:** A new race regression first failed against the previous controller: reconciliation dispatched `op-b` from its stale `list()` snapshot after the `op-a` attempt changed B to `paused-conflict`. The controller now re-reads the exact owner/operation entry inside the in-flight fence immediately before eligibility checks and dispatch. It verifies the immutable payload and uses the persisted status/entry; stale paused entries are not sent. This also protects `enqueue` and manual `retry` paths because they converge on the same `attempt()` gate. Existing owner fencing, operation IDs, frozen payloads, manual pause states, receipt checks, and manual conflict selection remain intact. A queue test's deferred storage read was narrowed to its intended first read to preserve its fresh-actor assertion under the additional pre-dispatch read.
+
+- RED: `npm run test -- src/lib/efa-episodes.queue.test.ts -t "rechecks a stale listed entry"` failed as expected (`confirmed, confirmed` instead of `confirmed, paused`; B dispatched).
+- GREEN/focused: `npm run test -- src/lib/efa-episodes.queue.test.ts -t "rechecks a stale listed entry"` passed (1 test); `npm run test -- src/lib/efa-episodes.queue.test.ts src/components/EfaEpisodePanel.test.tsx` passed (2 files, 30 tests).
+- Final local checks: `npm run test` passed (54 files, 317 tests); `npm run typecheck` passed; `git diff --check` passed. These are local automated tests/type checks, not real-browser or IndexedDB validation.
+- Existing tests verify recipient-scoped correction notice read state and idempotent acknowledgement in `src/lib/efa-episodes.server.test.ts`; the panel test verifies generic unread notice rendering. Queue tests cover per-user reconciliation, frozen same-ID retry after uncertain transport, receipt validation, explicit conflict selection, and preservation of another uncertain operation. No test claims real browser storage or UI interaction behavior.
+- Residual deferred issue: E3-A R3-001 remains. If IndexedDB itself fails while persisting a mismatched-receipt pause or confirmed-cleanup marker/deletion, the controller can only retain an in-memory fence; after reload, persisted `pending` state can still be resent. This task does not claim recovery if IndexedDB fails. Real-browser IndexedDB behavior remains unverified.
+- E2-A timestamp formatting and C1-A2 submillisecond preservation remain explicitly out of scope; no timestamp contract changes were made. No Neon/remote database access or migrations occurred, no public Forms/Drive work occurred, and no commit was created.
 
 ### 13 — Cancellation and reactivation
 

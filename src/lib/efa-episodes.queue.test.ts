@@ -348,7 +348,7 @@ describe("EFA episode browser queue controller", () => {
     const db = fakeStore([close]);
     const storedGet = db.store.get.bind(db.store);
     let releaseGet!: (value: EpisodeQueueEntry | null) => void;
-    vi.spyOn(db.store, "get").mockImplementation(
+    vi.spyOn(db.store, "get").mockImplementationOnce(
       () => new Promise((resolve) => (releaseGet = resolve)),
     );
     const currentSession = {
@@ -489,6 +489,23 @@ describe("EFA episode browser queue controller", () => {
     expect(dispatch).toHaveBeenCalledTimes(1);
     expect(dispatch.mock.calls[0]![0].ownerUserId).toBe("owner-a");
     expect(dispatch.mock.calls[0]![0].operationId).toBe("op-a");
+  });
+
+  it("rechecks a stale listed entry after an earlier dispatch pauses it", async () => {
+    const db = fakeStore([entry("owner-a", "op-a"), entry("owner-a", "op-b")]);
+    const dispatch = vi.fn(async (queued: EpisodeQueueEntry) => {
+      if (queued.operationId === "op-a") {
+        await db.store.setStatus("owner-a", "op-b", "paused-conflict");
+      }
+      return { operation: { id: queued.operationId } };
+    });
+    const controller = createEpisodeQueueController(db.store, dispatch);
+
+    const outcomes = await controller.reconcile("owner-a");
+
+    expect(outcomes.map((outcome) => outcome.status)).toEqual(["confirmed", "paused"]);
+    expect(dispatch.mock.calls.map(([queued]) => queued.operationId)).toEqual(["op-a"]);
+    expect(await db.store.get("owner-a", "op-b")).toMatchObject({ status: "paused-conflict" });
   });
 
   it("allows at most one concurrent dispatch for a pending operation", async () => {

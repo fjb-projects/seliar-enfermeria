@@ -270,37 +270,50 @@ export function createEpisodeQueueController<TResult extends { operation?: { id?
 
   async function attempt(entry: EpisodeQueueEntry): Promise<EpisodeQueueOutcome<TResult>> {
     const key = queueKey(entry);
-    const confirmed = confirmedResults.get(key);
-    if (confirmed) return cleanConfirmed(entry, confirmed);
-    if (entry.status === "confirmed-cleanup") return cleanConfirmed(entry);
-    if (entry.status === "paused-mismatch") return { status: "mismatched", entry };
-    if (entry.status !== "pending") return { status: "paused", entry };
-    if (pausedAfterStorageFailure.has(key)) return { status: "pause-storage-failed", entry };
     if (inFlight.has(key)) return { status: "already-in-flight", entry };
     inFlight.add(key);
     try {
-      const result = await dispatch(entry);
+      // Reconciliation lists are snapshots. Re-read the stored entry immediately before
+      // dispatch so an earlier operation cannot make this stale copy newly ineligible.
+      const persisted = await store.get(entry.ownerUserId, entry.operationId);
+      if (!persisted) return { status: "missing", entry };
+      if (!samePayload(persisted, entry)) throw new Error("Operation payload is immutable.");
+
+      const confirmed = confirmedResults.get(key);
+      if (confirmed) return cleanConfirmed(persisted, confirmed);
+      if (persisted.status === "confirmed-cleanup") return cleanConfirmed(persisted);
+      if (persisted.status === "paused-mismatch") return { status: "mismatched", entry: persisted };
+      if (persisted.status !== "pending") return { status: "paused", entry: persisted };
+      if (pausedAfterStorageFailure.has(key)) {
+        return { status: "pause-storage-failed", entry: persisted };
+      }
+
+      let result: TResult;
       try {
-        if (!isValidEpisodeQueueReceipt(entry, result)) return await pauseMismatched(entry);
+        result = await dispatch(persisted);
+      } catch (error) {
+        const kind = episodeErrorKind(error);
+        if (kind === "conflict" || kind === "permission") {
+          const status = kind === "conflict" ? "paused-conflict" : "paused-permission";
+          try {
+            await store.setStatus(persisted.ownerUserId, persisted.operationId, status);
+            return { status, entry: { ...persisted, status } };
+          } catch {
+            pausedAfterStorageFailure.add(key);
+            return { status: "pause-storage-failed", entry: persisted };
+          }
+        }
+        return { status: "uncertain", entry: persisted };
+      }
+
+      try {
+        if (!isValidEpisodeQueueReceipt(persisted, result)) return await pauseMismatched(persisted);
         confirmedResults.set(key, result);
-        await store.setStatus(entry.ownerUserId, entry.operationId, "confirmed-cleanup");
+        await store.setStatus(persisted.ownerUserId, persisted.operationId, "confirmed-cleanup");
       } catch {
         // The server receipt is already known; keep an in-memory fence if its local marker fails.
       }
-      return cleanConfirmed({ ...entry, status: "confirmed-cleanup" }, result);
-    } catch (error) {
-      const kind = episodeErrorKind(error);
-      if (kind === "conflict" || kind === "permission") {
-        const status = kind === "conflict" ? "paused-conflict" : "paused-permission";
-        try {
-          await store.setStatus(entry.ownerUserId, entry.operationId, status);
-          return { status, entry: { ...entry, status } };
-        } catch {
-          pausedAfterStorageFailure.add(key);
-          return { status: "pause-storage-failed", entry };
-        }
-      }
-      return { status: "uncertain", entry };
+      return cleanConfirmed({ ...persisted, status: "confirmed-cleanup" }, result);
     } finally {
       inFlight.delete(key);
     }
