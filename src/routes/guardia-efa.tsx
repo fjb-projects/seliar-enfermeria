@@ -7,6 +7,7 @@ import {
   listEfaGuards,
 } from "@/lib/efa-guards.functions";
 import { readSession } from "@/lib/auth.functions";
+import { listEfaStaffing } from "@/lib/efa-staffing.functions";
 import { SessionLoadError } from "@/components/SessionLoadError";
 
 export const Route = createFileRoute("/guardia-efa")({
@@ -23,19 +24,34 @@ export const Route = createFileRoute("/guardia-efa")({
       listEfaGuards(),
       canWrite ? listActiveEfaGuardBases() : Promise.resolve([]),
     ]);
-    return { guards, bases, canWrite, isAdmin };
+    const staffingEntries = canWrite
+      ? await Promise.all(
+          guards.map(
+            async (guard) =>
+              [guard.id, await listEfaStaffing({ data: { guardId: guard.id } })] as const,
+          ),
+        )
+      : [];
+    return {
+      guards,
+      bases,
+      staffingByGuard: Object.fromEntries(staffingEntries),
+      canWrite,
+      isAdmin,
+    };
   },
   component: EfaGuardPage,
 });
 
 function EfaGuardPage() {
   const { session } = Route.useRouteContext();
-  const { guards, bases, canWrite, isAdmin } = Route.useLoaderData();
+  const { guards, bases, staffingByGuard, canWrite, isAdmin } = Route.useLoaderData();
   return (
     <PrivateAccountShell session={session}>
       <EfaGuardPanel
         initialGuards={guards as GuardView[]}
         activeBases={bases as GuardBase[]}
+        initialStaffing={staffingByGuard}
         currentUserId={session.user.id}
         isAdmin={isAdmin}
         canWrite={canWrite}

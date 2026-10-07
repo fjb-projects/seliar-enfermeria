@@ -1,7 +1,13 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ComponentProps } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { EfaGuardPanel, type GuardView } from "./EfaGuardPanel";
+import {
+  clearConfirmedStaffingOperation,
+  EfaGuardPanel,
+  getStableStaffingOperationId,
+  type GuardView,
+  type PendingStaffingOperation,
+} from "./EfaGuardPanel";
 
 vi.mock("@tanstack/react-start", () => ({
   createClientOnlyFn: (fn: () => unknown) => fn,
@@ -21,6 +27,13 @@ vi.mock("@/lib/efa-guards.functions", () => ({
   listEfaGuards: vi.fn(),
   setEfaGuardBases: vi.fn(),
   startEfaGuard: vi.fn(),
+}));
+vi.mock("@/lib/efa-staffing.functions", () => ({
+  arriveEfaStaffing: vi.fn(),
+  departEfaStaffing: vi.fn(),
+  enterEfaStaffing: vi.fn(),
+  exitEfaStaffing: vi.fn(),
+  listEfaStaffing: vi.fn(),
 }));
 vi.mock("@/lib/efa-observations.functions", () => ({
   createEfaObservation: vi.fn(),
@@ -77,6 +90,7 @@ describe("EfaGuardPanel", () => {
           { id: "base-other", name: "Oeste", isActive: true },
         ]}
         currentUserId="current-user"
+        initialStaffing={{}}
         isAdmin
         canWrite
       />,
@@ -96,6 +110,7 @@ describe("EfaGuardPanel", () => {
       <EfaGuardPanel
         initialGuards={[]}
         activeBases={[]}
+        initialStaffing={{}}
         currentUserId="current-user"
         isAdmin={false}
         canWrite={false}
@@ -105,5 +120,148 @@ describe("EfaGuardPanel", () => {
     expect(html).toContain("Mis guardias");
     expect(html).toContain("Solo se muestran guardias propias.");
     expect(html).not.toContain("Iniciar guardia");
+  });
+
+  it("presents staffing as anonymous observed facts and keeps transfer times distinct", () => {
+    const html = renderToStaticMarkup(
+      <EfaGuardPanel
+        initialGuards={[
+          {
+            id: "own-guard",
+            ownerUserId: "current-user",
+            startedAt: "2026-10-07T08:00:00.000Z",
+            endedAt: null,
+            declaredAtCentral: true,
+            version: 1,
+            bases: [],
+            baseEvents: [],
+          },
+        ]}
+        activeBases={[]}
+        initialStaffing={{
+          "own-guard": [
+            {
+              id: "staffing-period",
+              guardId: "own-guard",
+              role: "nurse",
+              enteredAt: new Date("2026-10-07T08:00:00.000Z"),
+              exitedAt: null,
+              exitCause: null,
+              exitDescription: null,
+              version: 2,
+              movements: [
+                {
+                  id: "transfer",
+                  periodId: "staffing-period",
+                  kind: "transfer",
+                  departedAt: new Date("2026-10-07T09:00:00.000Z"),
+                  arrivedAt: new Date("2026-10-07T09:30:00.000Z"),
+                  cause: "coordination",
+                  description: null,
+                  version: 2,
+                },
+              ],
+            },
+          ],
+        }}
+        currentUserId="current-user"
+        isAdmin={false}
+        canWrite={false}
+      />,
+    );
+
+    expect(html).toContain("Dotación observada");
+    expect(html).toContain("registro anónimo");
+    expect(html).toContain("llegada al destino");
+    expect(html).toContain("salida");
+    expect(html).toContain("Coordinación");
+    expect(html).toContain("Los datos faltantes no confirman ausencia");
+    expect(html).not.toContain("Registrar ingreso");
+  });
+
+  it("reuses an operation ID and payload for uncertain retries until success or an explicit edit", () => {
+    const pending = new Map<string, PendingStaffingOperation>();
+    let nextId = 0;
+    const createId = () => `operation-${++nextId}`;
+    const original = {
+      periodId: "period",
+      kind: "transfer",
+      departedAt: "2026-10-07T10:00:00.000Z",
+    };
+
+    const first = getStableStaffingOperationId(pending, "departure", original, createId);
+    const retry = getStableStaffingOperationId(pending, "departure", original, createId);
+    expect(retry).toBe(first);
+    expect([...pending.values()][0]?.fingerprint).toBe(JSON.stringify(original));
+
+    const edited = { ...original, departedAt: "2026-10-07T10:05:00.000Z" };
+    const changed = getStableStaffingOperationId(pending, "departure", edited, createId);
+    expect(changed).not.toBe(first);
+    clearConfirmedStaffingOperation(pending, "departure", changed);
+    expect(getStableStaffingOperationId(pending, "departure", edited, createId)).not.toBe(changed);
+  });
+
+  it("allows completing pre-existing staffing after guard closure but prevents new entries", () => {
+    const html = renderToStaticMarkup(
+      <EfaGuardPanel
+        initialGuards={[
+          {
+            id: "closed-guard",
+            ownerUserId: "current-user",
+            startedAt: "2026-10-07T08:00:00.000Z",
+            endedAt: "2026-10-07T12:00:00.000Z",
+            declaredAtCentral: true,
+            version: 2,
+            bases: [],
+            baseEvents: [],
+          },
+        ]}
+        activeBases={[]}
+        initialStaffing={{
+          "closed-guard": [
+            {
+              id: "staffing-to-exit",
+              guardId: "closed-guard",
+              role: "nurse",
+              enteredAt: new Date("2026-10-07T08:30:00.000Z"),
+              exitedAt: null,
+              exitCause: null,
+              exitDescription: null,
+              version: 1,
+              movements: [],
+            },
+            {
+              id: "staffing-to-return",
+              guardId: "closed-guard",
+              role: "driver",
+              enteredAt: new Date("2026-10-07T09:00:00.000Z"),
+              exitedAt: null,
+              exitCause: null,
+              exitDescription: null,
+              version: 2,
+              movements: [
+                {
+                  id: "pending-transfer",
+                  periodId: "staffing-to-return",
+                  kind: "transfer",
+                  departedAt: new Date("2026-10-07T11:00:00.000Z"),
+                  arrivedAt: null,
+                  cause: "coordination",
+                  description: null,
+                  version: 1,
+                },
+              ],
+            },
+          ],
+        }}
+        currentUserId="current-user"
+        isAdmin={false}
+        canWrite
+      />,
+    );
+
+    expect(html).not.toContain("Registrar ingreso");
+    expect(html).toContain("Registrar egreso");
+    expect(html).toContain("Registrar llegada al destino");
   });
 });

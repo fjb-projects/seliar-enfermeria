@@ -289,6 +289,127 @@ export const efaGuardBaseEvent = pgTable(
   ],
 );
 
+export const efaStaffingPeriod = pgTable(
+  "efa_staffing_period",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    guardId: uuid("guard_id")
+      .notNull()
+      .references(() => efaGuard.id, { onDelete: "restrict" }),
+    role: text("role").notNull(),
+    enteredAt: timestamp("entered_at").notNull(),
+    exitedAt: timestamp("exited_at"),
+    exitCause: text("exit_cause"),
+    exitDescription: text("exit_description"),
+    clientCreationKey: uuid("client_creation_key").notNull(),
+    version: integer("version").notNull().default(1),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => [
+    unique("efa_staffing_period_guard_creation_key_unique").on(
+      table.guardId,
+      table.clientCreationKey,
+    ),
+    check("efa_staffing_period_role_allowed", sql`${table.role} in ('nurse', 'driver', 'doctor')`),
+    check("efa_staffing_period_version_positive", sql`${table.version} > 0`),
+    check(
+      "efa_staffing_period_exit_after_entry",
+      sql`${table.exitedAt} is null or ${table.exitedAt} >= ${table.enteredAt}`,
+    ),
+    check(
+      "efa_staffing_period_exit_cause_allowed",
+      sql`${table.exitCause} is null or ${table.exitCause} in ('medical_request', 'coordination', 'temporary', 'other')`,
+    ),
+    check(
+      "efa_staffing_period_other_description_required",
+      sql`(${table.exitCause} = 'other' and char_length(btrim(coalesce(${table.exitDescription}, ''))) > 0) or (${table.exitCause} is distinct from 'other' and ${table.exitDescription} is null)`,
+    ),
+  ],
+);
+
+export const efaStaffingMovement = pgTable(
+  "efa_staffing_movement",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    periodId: uuid("period_id")
+      .notNull()
+      .references(() => efaStaffingPeriod.id, { onDelete: "restrict" }),
+    kind: text("kind").notNull(),
+    departedAt: timestamp("departed_at").notNull(),
+    arrivedAt: timestamp("arrived_at"),
+    cause: text("cause"),
+    description: text("description"),
+    clientCreationKey: uuid("client_creation_key").notNull(),
+    version: integer("version").notNull().default(1),
+    createdByUserId: text("created_by_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    completedByUserId: text("completed_by_user_id").references(() => user.id, {
+      onDelete: "restrict",
+    }),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => [
+    unique("efa_staffing_movement_period_creation_key_unique").on(
+      table.periodId,
+      table.clientCreationKey,
+    ),
+    uniqueIndex("efa_staffing_movement_one_open_per_period_unique")
+      .on(table.periodId)
+      .where(sql`${table.arrivedAt} is null`),
+    check("efa_staffing_movement_kind_allowed", sql`${table.kind} in ('transfer', 'temporary')`),
+    check("efa_staffing_movement_version_positive", sql`${table.version} > 0`),
+    check(
+      "efa_staffing_movement_arrival_after_departure",
+      sql`${table.arrivedAt} is null or ${table.arrivedAt} >= ${table.departedAt}`,
+    ),
+    check(
+      "efa_staffing_movement_cause_allowed",
+      sql`${table.cause} is null or ${table.cause} in ('medical_request', 'coordination', 'temporary', 'other')`,
+    ),
+    check(
+      "efa_staffing_movement_other_description_required",
+      sql`(${table.cause} = 'other' and char_length(btrim(coalesce(${table.description}, ''))) > 0) or (${table.cause} is distinct from 'other' and ${table.description} is null)`,
+    ),
+  ],
+);
+
+export const efaStaffingAudit = pgTable(
+  "efa_staffing_audit",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    periodId: uuid("period_id")
+      .notNull()
+      .references(() => efaStaffingPeriod.id, { onDelete: "restrict" }),
+    actorUserId: text("actor_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    action: text("action").notNull(),
+    versionBefore: integer("version_before"),
+    versionAfter: integer("version_after").notNull(),
+    beforeState: jsonb("before_state").$type<Record<string, unknown> | null>(),
+    afterState: jsonb("after_state").$type<Record<string, unknown>>().notNull(),
+    occurredAt: timestamp("occurred_at").notNull().defaultNow(),
+  },
+  (table) => [
+    unique("efa_staffing_audit_period_version_unique").on(table.periodId, table.versionAfter),
+    check(
+      "efa_staffing_audit_action_allowed",
+      sql`${table.action} in ('entered', 'exited', 'movement_started', 'movement_completed')`,
+    ),
+    check(
+      "efa_staffing_audit_version_transition_valid",
+      sql`(${table.versionBefore} is null and ${table.versionAfter} = 1) or (${table.versionBefore} is not null and ${table.versionBefore} > 0 and ${table.versionAfter} = ${table.versionBefore} + 1)`,
+    ),
+    check(
+      "efa_staffing_audit_states_are_objects",
+      sql`jsonb_typeof(${table.afterState}) = 'object' and (${table.beforeState} is null or jsonb_typeof(${table.beforeState}) = 'object')`,
+    ),
+  ],
+);
+
 export const efaEpisode = pgTable(
   "efa_episode",
   {

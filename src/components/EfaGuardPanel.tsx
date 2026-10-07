@@ -1,10 +1,18 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { EfaObservationPanel } from "@/components/EfaObservationPanel";
+import type { StaffingCause, StaffingRole, StaffingView } from "@/lib/efa-staffing.server";
+import {
+  arriveEfaStaffing,
+  departEfaStaffing,
+  enterEfaStaffing,
+  exitEfaStaffing,
+  listEfaStaffing,
+} from "@/lib/efa-staffing.functions";
 import {
   correctEfaGuardEnd,
   endEfaGuard,
@@ -38,27 +46,436 @@ function toLocalDateTimeValue(value: Date | string) {
   return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 }
 
+function localNow() {
+  return toLocalDateTimeValue(new Date());
+}
+
+export type PendingStaffingOperation = { fingerprint: string; id: string };
+
+export function getStableStaffingOperationId(
+  pending: Map<string, PendingStaffingOperation>,
+  scope: string,
+  payload: unknown,
+  createId: () => string = () => crypto.randomUUID(),
+) {
+  const fingerprint = JSON.stringify(payload);
+  const current = pending.get(scope);
+  if (current?.fingerprint === fingerprint) return current.id;
+  const id = createId();
+  pending.set(scope, { fingerprint, id });
+  return id;
+}
+
+export function clearConfirmedStaffingOperation(
+  pending: Map<string, PendingStaffingOperation>,
+  scope: string,
+  id: string,
+) {
+  if (pending.get(scope)?.id === id) pending.delete(scope);
+}
+
+const staffingRoleLabels: Record<StaffingRole, string> = {
+  nurse: "Enfermería",
+  driver: "Conducción",
+  doctor: "Medicina",
+};
+const staffingCauseLabels: Record<StaffingCause, string> = {
+  medical_request: "Requerimiento médico",
+  coordination: "Coordinación",
+  temporary: "Salida temporal",
+  other: "Otra",
+};
+
+function ObservedStaffingPanel({
+  guardId,
+  periods,
+  canCreate,
+  canEdit,
+  busy,
+  runAction,
+}: {
+  guardId: string;
+  periods: StaffingView[];
+  canCreate: boolean;
+  canEdit: boolean;
+  busy: boolean;
+  runAction: (action: () => Promise<unknown>, success: string) => Promise<boolean>;
+}) {
+  const enter = useServerFn(enterEfaStaffing);
+  const exit = useServerFn(exitEfaStaffing);
+  const depart = useServerFn(departEfaStaffing);
+  const arrive = useServerFn(arriveEfaStaffing);
+  const [role, setRole] = useState<StaffingRole>("nurse");
+  const [enteredAt, setEnteredAt] = useState(localNow);
+  const [exitCauses, setExitCauses] = useState<Record<string, StaffingCause | "">>({});
+  const [exitDescriptions, setExitDescriptions] = useState<Record<string, string>>({});
+  const [exitTimes, setExitTimes] = useState<Record<string, string>>({});
+  const [movementKinds, setMovementKinds] = useState<Record<string, "transfer" | "temporary">>({});
+  const [movementCauses, setMovementCauses] = useState<Record<string, StaffingCause | "">>({});
+  const [movementDescriptions, setMovementDescriptions] = useState<Record<string, string>>({});
+  const [movementTimes, setMovementTimes] = useState<Record<string, string>>({});
+  const pendingOperations = useRef(new Map<string, PendingStaffingOperation>());
+
+  async function runIdempotentAction(
+    scope: string,
+    payload: unknown,
+    action: (operationId: string) => Promise<unknown>,
+    success: string,
+  ) {
+    const operationId = getStableStaffingOperationId(pendingOperations.current, scope, payload);
+    if (await runAction(() => action(operationId), success)) {
+      clearConfirmedStaffingOperation(pendingOperations.current, scope, operationId);
+    }
+  }
+
+  return (
+    <section className="space-y-3 rounded-lg border p-4" aria-label="Dotación observada">
+      <div>
+        <h3 className="font-medium">Dotación observada</h3>
+        <p className="text-sm text-muted-foreground">
+          Registra hechos observados. Los datos faltantes no confirman ausencia y no representan una
+          planificación.
+        </p>
+      </div>
+      {canCreate && (
+        <div className="grid gap-3 rounded-md bg-muted/40 p-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+          <label className="grid gap-1 text-sm">
+            Rol anónimo
+            <select
+              className="min-h-11 rounded-md border bg-background px-3"
+              value={role}
+              onChange={(event) => setRole(event.target.value as StaffingRole)}
+            >
+              {Object.entries(staffingRoleLabels).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="grid gap-1 text-sm">
+            Hora de ingreso
+            <input
+              className="min-h-11 rounded-md border bg-background px-3"
+              type="datetime-local"
+              value={enteredAt}
+              onChange={(event) => setEnteredAt(event.target.value)}
+            />
+          </label>
+          <Button
+            className="min-h-11"
+            disabled={busy || !enteredAt}
+            onClick={() => {
+              const payload = { guardId, role, enteredAt: new Date(enteredAt).toISOString() };
+              void runIdempotentAction(
+                `entry:${guardId}`,
+                payload,
+                (clientOperationId) => enter({ data: { ...payload, clientOperationId } }),
+                "El ingreso observado se registró.",
+              );
+            }}
+          >
+            Registrar ingreso
+          </Button>
+        </div>
+      )}
+      {periods.map((period) => {
+        const openMovement = period.movements.find((movement) => !movement.arrivedAt);
+        return (
+          <article key={period.id} className="space-y-3 rounded-md border p-3">
+            <div>
+              <p className="font-medium">{staffingRoleLabels[period.role]} · registro anónimo</p>
+              <p className="text-sm">Ingreso: {new Date(period.enteredAt).toLocaleString()}</p>
+              <p className="text-sm">
+                {period.exitedAt
+                  ? `Egreso: ${new Date(period.exitedAt).toLocaleString()}`
+                  : "Período en curso"}
+              </p>
+            </div>
+            {period.movements.length > 0 && (
+              <ul className="space-y-2 text-sm">
+                {period.movements.map((movement) => (
+                  <li key={movement.id} className="rounded border p-2">
+                    {movement.kind === "transfer" ? "Traslado" : "Salida temporal"}: salida{" "}
+                    {new Date(movement.departedAt).toLocaleString()}
+                    {movement.arrivedAt
+                      ? ` · ${movement.kind === "transfer" ? "llegada al destino" : "regreso"} ${new Date(movement.arrivedAt).toLocaleString()}`
+                      : " · llegada o regreso pendiente"}
+                    {movement.cause && ` · ${staffingCauseLabels[movement.cause]}`}
+                    {movement.description && `: ${movement.description}`}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {canEdit && !period.exitedAt && (
+              <div className="grid gap-3 border-t pt-3">
+                {!openMovement && (
+                  <>
+                    <fieldset className="grid gap-2 sm:grid-cols-[1fr_1fr_1fr]" disabled={busy}>
+                      <legend className="mb-1 text-sm font-medium">
+                        Registrar salida observada
+                      </legend>
+                      <select
+                        aria-label="Tipo de salida"
+                        className="min-h-11 rounded-md border bg-background px-3"
+                        value={movementKinds[period.id] ?? "transfer"}
+                        onChange={(event) =>
+                          setMovementKinds((current) => ({
+                            ...current,
+                            [period.id]: event.target.value as "transfer" | "temporary",
+                          }))
+                        }
+                      >
+                        <option value="transfer">Traslado</option>
+                        <option value="temporary">Salida temporal</option>
+                      </select>
+                      <select
+                        aria-label="Causa de salida"
+                        className="min-h-11 rounded-md border bg-background px-3"
+                        value={movementCauses[period.id] ?? ""}
+                        onChange={(event) =>
+                          setMovementCauses((current) => ({
+                            ...current,
+                            [period.id]: event.target.value as StaffingCause | "",
+                          }))
+                        }
+                      >
+                        <option value="">Sin causa informada</option>
+                        {Object.entries(staffingCauseLabels).map(([value, label]) => (
+                          <option key={value} value={value}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        aria-label="Hora de salida"
+                        className="min-h-11 rounded-md border bg-background px-3"
+                        type="datetime-local"
+                        value={movementTimes[period.id] ?? localNow()}
+                        onChange={(event) =>
+                          setMovementTimes((current) => ({
+                            ...current,
+                            [period.id]: event.target.value,
+                          }))
+                        }
+                      />
+                    </fieldset>
+                    {movementCauses[period.id] === "other" && (
+                      <input
+                        aria-label="Descripción de otra causa"
+                        className="min-h-11 rounded-md border bg-background px-3"
+                        maxLength={500}
+                        value={movementDescriptions[period.id] ?? ""}
+                        onChange={(event) =>
+                          setMovementDescriptions((current) => ({
+                            ...current,
+                            [period.id]: event.target.value,
+                          }))
+                        }
+                        placeholder="Describe la causa"
+                      />
+                    )}
+                    <Button
+                      variant="outline"
+                      className="min-h-11 w-full sm:w-auto"
+                      disabled={
+                        busy ||
+                        movementTimes[period.id] === "" ||
+                        (movementCauses[period.id] === "other" &&
+                          !movementDescriptions[period.id]?.trim())
+                      }
+                      onClick={() => {
+                        const localDeparture = movementTimes[period.id] ?? localNow();
+                        setMovementTimes((current) => ({
+                          ...current,
+                          [period.id]: localDeparture,
+                        }));
+                        const payload = {
+                          periodId: period.id,
+                          kind: movementKinds[period.id] ?? "transfer",
+                          departedAt: new Date(localDeparture).toISOString(),
+                          cause: movementCauses[period.id] || null,
+                          description: movementDescriptions[period.id] || null,
+                        };
+                        void runIdempotentAction(
+                          `departure:${period.id}`,
+                          payload,
+                          (clientOperationId) =>
+                            depart({ data: { ...payload, clientOperationId } }),
+                          "La salida observada quedó registrada.",
+                        );
+                      }}
+                    >
+                      Registrar salida
+                    </Button>
+                  </>
+                )}
+                {openMovement && (
+                  <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                    <label className="grid gap-1 text-sm">
+                      {openMovement.kind === "transfer"
+                        ? "Hora de llegada al destino"
+                        : "Hora de regreso"}
+                      <input
+                        className="min-h-11 rounded-md border bg-background px-3"
+                        type="datetime-local"
+                        value={movementTimes[openMovement.id] ?? localNow()}
+                        onChange={(event) =>
+                          setMovementTimes((current) => ({
+                            ...current,
+                            [openMovement.id]: event.target.value,
+                          }))
+                        }
+                      />
+                    </label>
+                    <Button
+                      className="min-h-11"
+                      disabled={busy}
+                      onClick={() => {
+                        const localArrival = movementTimes[openMovement.id] ?? localNow();
+                        setMovementTimes((current) => ({
+                          ...current,
+                          [openMovement.id]: localArrival,
+                        }));
+                        const payload = {
+                          movementId: openMovement.id,
+                          arrivedAt: new Date(localArrival).toISOString(),
+                        };
+                        void runIdempotentAction(
+                          `arrival:${openMovement.id}`,
+                          payload,
+                          () => arrive({ data: payload }),
+                          openMovement.kind === "transfer"
+                            ? "La llegada al destino quedó registrada."
+                            : "El regreso quedó registrado.",
+                        );
+                      }}
+                    >
+                      {openMovement.kind === "transfer"
+                        ? "Registrar llegada al destino"
+                        : "Registrar regreso"}
+                    </Button>
+                  </div>
+                )}
+                {!openMovement && (
+                  <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                    <label className="grid gap-1 text-sm">
+                      Causa al egreso (opcional)
+                      <select
+                        className="min-h-11 rounded-md border bg-background px-3"
+                        value={exitCauses[period.id] ?? ""}
+                        onChange={(event) =>
+                          setExitCauses((current) => ({
+                            ...current,
+                            [period.id]: event.target.value as StaffingCause | "",
+                          }))
+                        }
+                      >
+                        <option value="">Sin causa informada</option>
+                        {Object.entries(staffingCauseLabels).map(([value, label]) => (
+                          <option key={value} value={value}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="grid gap-1 text-sm">
+                      Hora de egreso
+                      <input
+                        className="min-h-11 rounded-md border bg-background px-3"
+                        type="datetime-local"
+                        value={exitTimes[period.id] ?? localNow()}
+                        onChange={(event) =>
+                          setExitTimes((current) => ({
+                            ...current,
+                            [period.id]: event.target.value,
+                          }))
+                        }
+                      />
+                    </label>
+                    <Button
+                      variant="outline"
+                      className="min-h-11"
+                      disabled={
+                        busy ||
+                        (exitCauses[period.id] === "other" && !exitDescriptions[period.id]?.trim())
+                      }
+                      onClick={() => {
+                        const localExit = exitTimes[period.id] ?? localNow();
+                        setExitTimes((current) => ({ ...current, [period.id]: localExit }));
+                        const payload = {
+                          periodId: period.id,
+                          expectedVersion: period.version,
+                          exitedAt: new Date(localExit).toISOString(),
+                          cause: exitCauses[period.id] || null,
+                          description: exitDescriptions[period.id] || null,
+                        };
+                        void runIdempotentAction(
+                          `exit:${period.id}`,
+                          payload,
+                          () => exit({ data: payload }),
+                          "El egreso observado quedó registrado.",
+                        );
+                      }}
+                    >
+                      Registrar egreso
+                    </Button>
+                  </div>
+                )}
+                {exitCauses[period.id] === "other" && (
+                  <input
+                    aria-label="Descripción de otra causa de egreso"
+                    className="min-h-11 rounded-md border bg-background px-3"
+                    maxLength={500}
+                    value={exitDescriptions[period.id] ?? ""}
+                    onChange={(event) =>
+                      setExitDescriptions((current) => ({
+                        ...current,
+                        [period.id]: event.target.value,
+                      }))
+                    }
+                    placeholder="Describe la causa"
+                  />
+                )}
+              </div>
+            )}
+          </article>
+        );
+      })}
+      {periods.length === 0 && (
+        <p className="rounded border border-dashed p-3 text-sm text-muted-foreground">
+          Todavía no hay ingresos observados. No se infiere ausencia de personal.
+        </p>
+      )}
+    </section>
+  );
+}
+
 export function EfaGuardPanel({
   initialGuards,
   activeBases,
+  initialStaffing,
   currentUserId,
   isAdmin,
   canWrite,
 }: {
   initialGuards: GuardView[];
   activeBases: GuardBase[];
+  initialStaffing: Record<string, StaffingView[]>;
   currentUserId: string;
   isAdmin: boolean;
   canWrite: boolean;
 }) {
   const listGuards = useServerFn(listEfaGuards);
   const listBases = useServerFn(listActiveEfaGuardBases);
+  const listStaffing = useServerFn(listEfaStaffing);
   const startGuard = useServerFn(startEfaGuard);
   const updateBases = useServerFn(setEfaGuardBases);
   const endGuard = useServerFn(endEfaGuard);
   const correctGuardEnd = useServerFn(correctEfaGuardEnd);
   const [guards, setGuards] = useState(initialGuards);
   const [bases, setBases] = useState(activeBases);
+  const [staffingByGuard, setStaffingByGuard] = useState(initialStaffing);
   const [selectedBaseIds, setSelectedBaseIds] = useState<string[]>(() => {
     const openOwnGuard = initialGuards.find(
       (guard) => guard.ownerUserId === currentUserId && !guard.endedAt,
@@ -78,16 +495,25 @@ export function EfaGuardPanel({
       canWrite ? listBases() : Promise.resolve([]),
     ]);
     const currentGuards = nextGuards as GuardView[];
+    const staffingEntries = canWrite
+      ? await Promise.all(
+          currentGuards.map(
+            async (guard) =>
+              [guard.id, await listStaffing({ data: { guardId: guard.id } })] as const,
+          ),
+        )
+      : [];
     setGuards(currentGuards);
     setBases(nextBases as GuardBase[]);
+    setStaffingByGuard(Object.fromEntries(staffingEntries) as Record<string, StaffingView[]>);
     const open = currentGuards.find(
       (guard) => guard.ownerUserId === currentUserId && !guard.endedAt,
     );
     setSelectedBaseIds(open?.bases.map((base) => base.id) ?? []);
   }
 
-  async function runAction(action: () => Promise<unknown>, success: string) {
-    if (!canWrite || busy) return;
+  async function runAction(action: () => Promise<unknown>, success: string): Promise<boolean> {
+    if (!canWrite || busy) return false;
     setBusy(true);
     setError("");
     setMessage("");
@@ -95,8 +521,10 @@ export function EfaGuardPanel({
       await action();
       await refresh();
       setMessage(success);
+      return true;
     } catch {
       setError("No se pudo guardar el cambio. Actualiza la guardia e inténtalo nuevamente.");
+      return false;
     } finally {
       setBusy(false);
     }
@@ -370,6 +798,16 @@ export function EfaGuardPanel({
                   </div>
                 </div>
               )}
+              <ObservedStaffingPanel
+                guardId={guard.id}
+                periods={staffingByGuard[guard.id] ?? []}
+                canEdit={canWrite && (isAdmin || guard.ownerUserId === currentUserId)}
+                canCreate={
+                  canWrite && (isAdmin || guard.ownerUserId === currentUserId) && !guard.endedAt
+                }
+                busy={busy}
+                runAction={runAction}
+              />
             </article>
           ))}
           {guards.length === 0 && (
