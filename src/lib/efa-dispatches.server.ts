@@ -29,6 +29,7 @@ export type DispatchResult =
   | "death"
   | "not_informed";
 export type ObservationStatus = "observed" | "not_observed" | "not_informed" | "not_applicable";
+const firstResponseRoleValues = ["driver", "nurse", "doctor", "other", "not_observed"] as const;
 type TimingKey = "t0" | "t1" | "t2" | "t3" | "t4" | "t5" | "t6";
 export type DispatchFields = {
   baseId: string;
@@ -585,7 +586,10 @@ export function createEfaDispatchesService(
         }
         if (current.version !== input.expectedVersion)
           throw new Error("El despacho cambió; actualiza el historial.");
-        const requested = normalizeFields({ ...current, ...input });
+        const requested = normalizeFields(
+          { ...current, ...input },
+          !Object.prototype.hasOwnProperty.call(input, "firstResponseRole"),
+        );
         const episode = await tx.findEpisode(current.episodeId, true);
         if (!episode) throw new Error("No se encontró el episodio.");
         await baseAndLink(tx, episode, requested, current.baseId);
@@ -998,7 +1002,7 @@ export function createEfaDispatchesService(
   };
 }
 
-function normalizeFields(input: object): DispatchFields {
+function normalizeFields(input: object, preserveLegacyRole = false): DispatchFields {
   const source = input as Record<string, unknown>;
   const fields: Record<string, unknown> = { ...source };
   for (let i = 0; i <= 6; i++) {
@@ -1016,10 +1020,19 @@ function normalizeFields(input: object): DispatchFields {
   fields["baseId"] = source["baseId"];
   fields["communicationId"] = source["communicationId"] ?? null;
   fields["priority"] = source["priority"] ?? null;
-  fields["firstResponseRole"] =
-    typeof source["firstResponseRole"] === "string"
-      ? source["firstResponseRole"].trim() || null
-      : null;
+  const firstResponseRole = source["firstResponseRole"];
+  if (firstResponseRole == null) {
+    fields["firstResponseRole"] = null;
+  } else if (
+    typeof firstResponseRole === "string" &&
+    firstResponseRoleValues.some((role) => role === firstResponseRole)
+  ) {
+    fields["firstResponseRole"] = firstResponseRole;
+  } else if (preserveLegacyRole && typeof firstResponseRole === "string") {
+    fields["firstResponseRole"] = firstResponseRole;
+  } else {
+    throw new Error("El rol anónimo de primera respuesta no es válido.");
+  }
   fields["firstResponseAt"] = parseDate(
     source["firstResponseAt"] as string | Date | null | undefined,
     "primera respuesta",

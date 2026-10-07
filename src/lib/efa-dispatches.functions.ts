@@ -7,6 +7,13 @@ export const dispatchIdSchema = z.string().uuid();
 export const dispatchEpisodeIdSchema = z.string().uuid();
 export const dispatchNoticeIdSchema = z.string().uuid();
 export const supportRequestIdSchema = z.string().uuid();
+export const firstResponseRoleValues = [
+  "driver",
+  "nurse",
+  "doctor",
+  "other",
+  "not_observed",
+] as const;
 const uuid = z.string().uuid();
 const version = z.number().int().positive();
 const time = z.iso.datetime({ offset: true }).nullable();
@@ -42,7 +49,7 @@ const dispatchFields = {
   communicationId: uuid.nullable().optional(),
   priority: priority.nullable().optional(),
   ...timingFields,
-  firstResponseRole: z.string().trim().max(120).nullable().optional(),
+  firstResponseRole: z.enum(firstResponseRoleValues).nullable().optional(),
   firstResponseAt: time.optional(),
   note: z.string().trim().max(2000).nullable().optional(),
   result: result.nullable().optional(),

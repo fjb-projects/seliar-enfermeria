@@ -27,6 +27,38 @@ describe("EFA dispatch function inputs", () => {
     expect(dispatchCreateSchema.safeParse({ ...validCreate, t0At: "bad" }).success).toBe(false);
   });
 
+  it("restricts the optional anonymous first-response role to its approved values", () => {
+    const values = ["driver", "nurse", "doctor", "other", "not_observed"];
+    for (const firstResponseRole of values)
+      expect(dispatchCreateSchema.safeParse({ ...validCreate, firstResponseRole }).success).toBe(
+        true,
+      );
+    expect(
+      dispatchCreateSchema.safeParse({ ...validCreate, firstResponseRole: null }).success,
+    ).toBe(true);
+    expect(
+      dispatchCreateSchema.safeParse({ ...validCreate, firstResponseRole: "Named operator" })
+        .success,
+    ).toBe(false);
+    expect(
+      dispatchUpdateSchema.safeParse({
+        dispatchId,
+        expectedVersion: 1,
+        operationId,
+        baseId: validCreate.baseId,
+        firstResponseRole: "Named operator",
+      }).success,
+    ).toBe(false);
+    expect(
+      dispatchUpdateSchema.safeParse({
+        dispatchId,
+        expectedVersion: 1,
+        operationId,
+        baseId: validCreate.baseId,
+      }).success,
+    ).toBe(true);
+  });
+
   it("requires priority and a named result for finalization", () => {
     const base = { dispatchId, expectedVersion: 1, operationId };
     expect(dispatchFinalizeSchema.safeParse(base).success).toBe(false);

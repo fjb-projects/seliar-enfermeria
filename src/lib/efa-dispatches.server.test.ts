@@ -336,6 +336,69 @@ describe("EFA dispatch service", () => {
     ]);
   });
 
+  it("rejects named or unknown first-response roles before creating or auditing", async () => {
+    const fixture = makeStore();
+    await expect(
+      fixture.service.create(owner, {
+        clientCreationKey: "create-named-role",
+        episodeId,
+        baseId,
+        firstResponseRole: "Named operator",
+      }),
+    ).rejects.toThrow("rol anónimo");
+    await expect(
+      fixture.service.create(owner, {
+        clientCreationKey: "create-empty-role",
+        episodeId,
+        baseId,
+        firstResponseRole: "",
+      }),
+    ).rejects.toThrow("rol anónimo");
+    expect(fixture.dispatches).toHaveLength(0);
+    expect(fixture.audits).toHaveLength(0);
+    expect(fixture.operations).toHaveLength(0);
+
+    const created = await fixture.service.create(owner, {
+      clientCreationKey: "create-valid-role",
+      episodeId,
+      baseId,
+      firstResponseRole: "nurse",
+    });
+    await expect(
+      fixture.service.update(owner, {
+        dispatchId: created.dispatch.id,
+        expectedVersion: 1,
+        operationId: "update-named-role",
+        baseId,
+        firstResponseRole: "Named operator",
+      }),
+    ).rejects.toThrow("rol anónimo");
+    expect(fixture.dispatches[0]?.firstResponseRole).toBe("nurse");
+    expect(fixture.audits).toHaveLength(1);
+    expect(fixture.operations).toHaveLength(1);
+  });
+
+  it("preserves an unchanged legacy role while allowing other edits", async () => {
+    const fixture = makeStore();
+    const created = await fixture.service.create(owner, {
+      clientCreationKey: "create-legacy-role",
+      episodeId,
+      baseId,
+      firstResponseRole: "not_observed",
+    });
+    const stored = fixture.dispatches[0]!;
+    stored.firstResponseRole = "Historical free text";
+    const updated = await fixture.service.update(owner, {
+      dispatchId: created.dispatch.id,
+      expectedVersion: 1,
+      operationId: "update-legacy-note",
+      baseId,
+      note: "Se conserva el dato histórico sin editarlo.",
+    });
+    expect(updated.dispatch.firstResponseRole).toBe("Historical free text");
+    expect(updated.dispatch.note).toBe("Se conserva el dato histórico sin editarlo.");
+  });
+
   it("allows revoked owners to read but prevents writes, and requires final priority and result", async () => {
     const fixture = makeStore();
     const created = await fixture.service.create(owner, {

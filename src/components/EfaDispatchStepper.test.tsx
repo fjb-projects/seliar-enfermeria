@@ -4,6 +4,7 @@ import {
   canEditSupportAssociation,
   captureActionTimestamp,
   EfaDispatchStepper,
+  FirstResponseRoleSelect,
 } from "./EfaDispatchStepper";
 
 vi.mock("@tanstack/react-start", () => ({
@@ -11,6 +12,7 @@ vi.mock("@tanstack/react-start", () => ({
   useServerFn: () => vi.fn(async () => []),
 }));
 vi.mock("@/lib/efa-dispatches.functions", () => ({
+  firstResponseRoleValues: ["driver", "nurse", "doctor", "other", "not_observed"],
   addEfaDispatchContactAttempt: vi.fn(),
   createEfaDispatch: vi.fn(),
   createEfaSupportRequest: vi.fn(),
@@ -38,6 +40,21 @@ describe("EfaDispatchStepper", () => {
     const clickedAt = new Date("2026-10-07T12:34:56.789Z");
     expect(captureActionTimestamp(clickedAt)).toBe("2026-10-07T12:34:56.789Z");
     expect(captureActionTimestamp(clickedAt)).not.toBe(captureActionTimestamp(mountedAt));
+  });
+
+  it("uses anonymous role choices and keeps legacy values visibly read-only", () => {
+    const html = renderToStaticMarkup(
+      <FirstResponseRoleSelect value="Named operator" onChange={() => undefined} />,
+    );
+    expect(html).toContain("<select");
+    expect(html).toContain("Conductor");
+    expect(html).toContain("Enfermería");
+    expect(html).toContain("Médico/a");
+    expect(html).toContain("Otro rol anónimo");
+    expect(html).toContain("No observado");
+    expect(html).toContain("Valor histórico (solo lectura): Named operator");
+    expect(html).toContain('value="Named operator" disabled');
+    expect(html).not.toContain("<input");
   });
 
   it("renders a readable dispatch workspace without requiring write access", () => {

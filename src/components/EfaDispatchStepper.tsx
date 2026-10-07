@@ -7,6 +7,7 @@ import {
   addEfaDispatchContactAttempt,
   createEfaDispatch,
   createEfaSupportRequest,
+  firstResponseRoleValues,
   finalizeEfaDispatch,
   getEfaDispatch,
   getEfaDispatchHistory,
@@ -217,6 +218,36 @@ function captureDispatchTime(now: Date) {
 // eslint-disable-next-line react-refresh/only-export-components -- exported for deterministic tests; this helper is used by the quick-action handlers.
 export function captureActionTimestamp(now = new Date()) {
   return inputToIso(captureDispatchTime(now)) ?? now.toISOString();
+}
+
+export function FirstResponseRoleSelect({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const legacyValue = value && !firstResponseRoleValues.some((role) => role === value);
+  return (
+    <select
+      className="mt-1 h-11 w-full rounded border px-3"
+      aria-label="Rol anónimo de primera respuesta"
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+    >
+      <option value="">Sin dato</option>
+      <option value="driver">Conductor</option>
+      <option value="nurse">Enfermería</option>
+      <option value="doctor">Médico/a</option>
+      <option value="other">Otro rol anónimo</option>
+      <option value="not_observed">No observado</option>
+      {legacyValue && (
+        <option value={value} disabled>
+          Valor histórico (solo lectura): {value}
+        </option>
+      )}
+    </select>
+  );
 }
 // eslint-disable-next-line react-refresh/only-export-components -- exported for deterministic tests; this predicate is bound to the support selector and handler.
 export function canEditSupportAssociation(
@@ -845,7 +876,20 @@ export function EfaDispatchStepper({
       )
         return;
       const restored = helpers.restoreDispatchQueueForm(entry, currentForm);
-      if (restored) setForm(restored);
+      if (restored) {
+        if (entry.kind === "update" && !("firstResponseRole" in entry.payload)) {
+          const existing = rowsRef.current.find(
+            (row) =>
+              row.id === String((entry.payload as Record<string, unknown>)["dispatchId"] ?? ""),
+          );
+          if (
+            existing?.firstResponseRole &&
+            !firstResponseRoleValues.some((role) => role === existing.firstResponseRole)
+          )
+            restored.firstResponseRole = existing.firstResponseRole;
+        }
+        setForm(restored);
+      }
     } catch {
       if (
         mounted.current &&
@@ -1133,6 +1177,11 @@ export function EfaDispatchStepper({
       t6At: null,
     };
     const times = dispatchFormTimes(form, source);
+    const preserveLegacyFirstResponseRole =
+      selected &&
+      !!selected.firstResponseRole &&
+      !firstResponseRoleValues.some((role) => role === selected.firstResponseRole) &&
+      form.firstResponseRole === selected.firstResponseRole;
     const fields = {
       baseId: form.baseId,
       communicationId: form.communicationId || null,
@@ -1145,7 +1194,9 @@ export function EfaDispatchStepper({
       t4Status: form.t4Status,
       t5Status: form.t5Status,
       t6Status: form.t6Status,
-      firstResponseRole: form.firstResponseRole || null,
+      ...(!preserveLegacyFirstResponseRole
+        ? { firstResponseRole: form.firstResponseRole || null }
+        : {}),
       firstResponseAt: form.firstResponseAt ? new Date(form.firstResponseAt).toISOString() : null,
       note: form.note || null,
       result: form.result || null,
@@ -1157,8 +1208,13 @@ export function EfaDispatchStepper({
         expectedVersion: selected.version,
         operationId: crypto.randomUUID(),
         ...fields,
-      });
-    else await freeze("create", { clientCreationKey: crypto.randomUUID(), episodeId, ...fields });
+      } as unknown as DispatchQueueEntry["payload"]);
+    else
+      await freeze("create", {
+        clientCreationKey: crypto.randomUUID(),
+        episodeId,
+        ...fields,
+      } as unknown as DispatchQueueEntry["payload"]);
   };
 
   const finalize = async () => {
@@ -1377,12 +1433,9 @@ export function EfaDispatchStepper({
                 </p>
                 <label className="block">
                   Primera respuesta (rol anónimo)
-                  <input
-                    className="mt-1 h-11 w-full rounded border px-3"
+                  <FirstResponseRoleSelect
                     value={form.firstResponseRole}
-                    onChange={(event) =>
-                      setForm({ ...form, firstResponseRole: event.target.value })
-                    }
+                    onChange={(value) => setForm({ ...form, firstResponseRole: value })}
                   />
                 </label>
                 <label className="block">
