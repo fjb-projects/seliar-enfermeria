@@ -2,7 +2,7 @@
 
 Implement the next EFA operational workflows without changing public forms or external integrations. The first work unit records observed staffing-period facts, distinct from planned coverage, using anonymous roles rather than personal identities.
 
-**Status:** Tasks 10A and 10B complete locally; task 11A implementation and checks complete locally pending parent commit; task 11B, 12, 13, and final integration remain.
+**Status:** Tasks 10A, 10B, and 11A complete locally; tasks 11B, 12, 13, and final integration remain.
 **Engram mirror:** Pending; the runtime did not provide an authorized registered session identity, so no memory write is attempted.
 **Delivery strategy:** `ask-on-risk`; the user selected a feature-branch chain on 2026-10-07. Keep each work unit as a reviewable block; do not publish a PR or push without separate authorization.
 **Forecast:** More than 400 authored changed lines across the expanded feature; generated migration artifacts are excluded. Slicing is by behavior, not by code compression.
@@ -92,7 +92,7 @@ The admin account route uses a catalog-ID selector for all plan targets, with ef
 - [x] Expose only active choices to EFA and revalidate EFA/admin access on the server; catalog access must not grant access to another user's episodes.
 - [x] Add focused service, server-function, admin UI, and schema/migration checks; keep the existing base catalog unchanged and do not add private-address or free-text mobile/fleet catalogs.
 - [x] Generate a forward migration after 0015 and do not apply it to any database.
-- [ ] Parent review and commit of 11A; task remains open until the parent records the commit identity.
+- [x] Parent review and commit of 11A; work-unit commit `bf8c168`.
 
 **11A implementation and verification evidence:** Added `efa_institution` with stable UUID identity, NFKC/whitespace/case-normalized unique name, active state, optimistic version, and DB-managed create/update timestamps. `efa_institution_audit` records actor ID, DB timestamp, action, before/after state and version transition; the forward migration prohibits audit update/delete and catalog delete. Server-only service and server functions revalidate active EFA/admin roles against current account state; EFA callers list active choices and may create inline, while only administrators list all entries, inspect audit history, correct names, deactivate, or reactivate. `EfaInstitutionPicker` supplies the active-list/inline-create UI for the subsequent dispatch integration; `/admin-usuarios` now hosts the administrator catalog and visible history. The existing `efa_base` catalog was not modified. No episode query or private-address catalog was introduced.
 
@@ -128,4 +128,4 @@ The admin account route uses a catalog-ID selector for all plan targets, with ef
 
 ## Next step
 
-Implement task 11: shared institution/destination catalog with EFA inline creation and administrator correction/deactivation. Preserve historical references and keep the existing base catalog as the only mobile/base list.
+Implement task 11B: associate an optional catalog institution with each dispatch and expose selection/inline creation near the destination timeline. Preserve historical links when catalog entries are deactivated; keep episode private addresses separate.
