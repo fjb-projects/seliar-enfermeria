@@ -178,6 +178,7 @@ export function EfaEpisodePanel({
   const [conflict, setConflict] = useState<ActiveEpisodeConflict | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [saveError, setSaveError] = useState("");
   const [message, setMessage] = useState("");
   const [refreshWarning, setRefreshWarning] = useState("");
   const lifecycleOperationRef = useRef<{ key: string; operationId: string } | null>(null);
@@ -277,6 +278,7 @@ export function EfaEpisodePanel({
     setActiveConflict(null);
     setForm(emptyForm());
     setError("");
+    setSaveError("");
     setMessage("");
   }
 
@@ -298,6 +300,7 @@ export function EfaEpisodePanel({
       });
     });
     setError("");
+    setSaveError("");
     setMessage("");
   }
 
@@ -436,6 +439,7 @@ export function EfaEpisodePanel({
     pendingRef.current = restored.operation;
     if (restored.form) setForm(restored.form);
     setError("");
+    setSaveError("");
     setMessage("");
     setServerConfirmedOperationId(entry.status === "confirmed-cleanup" ? entry.operationId : null);
     const episodeId =
@@ -769,6 +773,7 @@ export function EfaEpisodePanel({
     setForm(emptyForm());
     setQueueError("");
     setError("");
+    setSaveError("");
     setMessage("");
     setRefreshWarning("");
     setBusy(false);
@@ -862,23 +867,26 @@ export function EfaEpisodePanel({
       serverConfirmedOperationId
     )
       return;
+    let preparationStage = "client helpers";
     const ticket = ownerTicketRef.current;
     if (!ticket || ticket.ownerUserId !== currentUserId) return;
     void submissionGate.current
       .run(async () => {
         if (!ownerFenceRef.current?.isCurrent(ticket)) return;
         setBusy(true);
-        setError("");
+        setSaveError("");
         try {
           const helpers = episodeHelpersRef.current ?? (await loadEpisodeClientHelpers());
           episodeHelpersRef.current = helpers;
           if (!ownerFenceRef.current?.isCurrent(ticket)) return;
+          preparationStage = "form validation";
           const validation = helpers.validateEpisodeForm(form);
           if (!validation.valid) {
-            setError("Indica una fecha y hora válidas para el episodio.");
+            setSaveError("Indica una fecha y hora válidas para el episodio.");
             return;
           }
           const normalized = { ...form, eventAt: validation.eventAt };
+          preparationStage = "operation creation";
           const operation = selected
             ? helpers.createPendingUpdate({
                 episodeId: selected.id,
@@ -892,11 +900,9 @@ export function EfaEpisodePanel({
               ? helpers.createPendingCreate(openOwnGuard.id, normalized)
               : null;
           if (!operation) {
-            setError("Para crear un episodio necesitas una guardia propia abierta.");
+            setSaveError("Para crear un episodio necesitas una guardia propia abierta.");
             return;
           }
-          setPending(operation);
-          pendingRef.current = operation;
           const entry: EpisodeQueueEntry = {
             ownerUserId: currentUserId,
             operationId: operation.operationId,
@@ -906,18 +912,32 @@ export function EfaEpisodePanel({
             createdAt: new Date().toISOString(),
           };
           selectedQueueOperationId.current = operation.operationId;
+          setPending(operation);
+          pendingRef.current = operation;
+          preparationStage = "local queue";
           await runQueueEntry(entry, "enqueue");
-        } catch {
-          setError(
-            "No se pudo preparar el borrador para guardar. Tus datos permanecen en esta pantalla.",
-          );
+        } catch (cause) {
+          if (ownerFenceRef.current?.isCurrent(ticket)) {
+            console.error("EFA draft save failed", {
+              stage: preparationStage,
+              errorType: cause instanceof Error ? "Error" : "NonError",
+            });
+            setSaveError(
+              "No se pudo preparar el borrador para guardar. Tus datos permanecen en esta pantalla.",
+            );
+          }
         } finally {
           if (ownerFenceRef.current?.isCurrent(ticket)) setBusy(false);
         }
       })
-      .catch(() => {
-        if (ownerFenceRef.current?.isCurrent(ticket))
-          setError("No se pudo preparar el borrador para guardar.");
+      .catch((cause) => {
+        if (ownerFenceRef.current?.isCurrent(ticket)) {
+          console.error("EFA draft save submission failed", {
+            stage: preparationStage,
+            errorType: cause instanceof Error ? "Error" : "NonError",
+          });
+          setSaveError("No se pudo preparar el borrador para guardar.");
+        }
       });
   }
 
@@ -1274,9 +1294,8 @@ export function EfaEpisodePanel({
             <p className="text-sm">
               {openOwnGuard
                 ? `Guardia propia abierta desde ${formatEpisodeDate(openOwnGuard.startedAt)}.`
-                : "Sin guardia propia abierta."}
-              {" "}Esta vista muestra solo episodios de la guardia abierta; no es el historial
-              completo.
+                : "Sin guardia propia abierta."}{" "}
+              Esta vista muestra solo episodios de la guardia abierta; no es el historial completo.
             </p>
             <Button asChild variant="outline" className="min-h-11 w-full sm:w-auto">
               <Link to="/guardia-efa">Volver a mi guardia EFA</Link>
@@ -1538,6 +1557,11 @@ export function EfaEpisodePanel({
             >
               {selected ? "Guardar cambios" : "Guardar borrador"}
             </Button>
+            {saveError && (
+              <p role="alert" className="text-sm text-destructive">
+                {saveError}
+              </p>
+            )}
           </CardContent>
         </Card>
       )}

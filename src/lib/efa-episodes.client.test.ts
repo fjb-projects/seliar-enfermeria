@@ -139,6 +139,40 @@ describe("EFA episode client operation helpers", () => {
     expect(Object.isFrozen(first.payload)).toBe(true);
   });
 
+  it("creates a secure unique UUID when randomUUID is unavailable", () => {
+    let nextByte = 1;
+    vi.stubGlobal("crypto", {
+      getRandomValues: (bytes: Uint8Array) => {
+        bytes.fill(nextByte++);
+        return bytes;
+      },
+    });
+
+    try {
+      const first = createPendingCreate("guard-1", {
+        eventAt: "2026-10-06T09:30:00.000Z",
+        motive: "",
+        address: "",
+        interventionNumber: "",
+      });
+      const second = createPendingCreate("guard-1", {
+        eventAt: "2026-10-06T09:30:00.000Z",
+        motive: "",
+        address: "",
+        interventionNumber: "",
+      });
+
+      expect(first.operationId).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+      );
+      expect(second.operationId).not.toBe(first.operationId);
+      expect(first.payload.clientCreationKey).toBe(first.operationId);
+      expect(second.payload.clientCreationKey).toBe(second.operationId);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("keeps update retries tied to their original expected version and classifies conflicts", () => {
     const pending = createPendingUpdate(
       {
