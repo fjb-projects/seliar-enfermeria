@@ -55,6 +55,59 @@ export function createCommunicationSubmissionGate() {
   };
 }
 
+export function canSelectInitialCommunication(input: {
+  targetOperationId: string;
+  activeTargetOperationId: string | null;
+  targetCommunicationId: string;
+  activeTargetCommunicationId: string | null;
+  selectedCommunicationId: string | null;
+  selectedOperationId: string;
+  dirty: boolean;
+  hasPendingOperation: boolean;
+  busy: boolean;
+  selectionClaimed: boolean;
+  currentRevision: number;
+  expectedRevision: number;
+}): boolean {
+  return Boolean(
+    input.targetCommunicationId &&
+    input.activeTargetOperationId === input.targetOperationId &&
+    input.activeTargetCommunicationId === input.targetCommunicationId &&
+    input.selectedCommunicationId === null &&
+    input.selectedOperationId === "" &&
+    !input.dirty &&
+    !input.hasPendingOperation &&
+    !input.busy &&
+    !input.selectionClaimed &&
+    input.currentRevision === input.expectedRevision,
+  );
+}
+
+// eslint-disable-next-line react-refresh/only-export-components
+export function canFocusInitialCallHeading(input: {
+  hasPendingFocus: boolean;
+  selectionClaimed: boolean;
+  selectedCommunicationId: string | null;
+  targetCommunicationId: string;
+  currentRevision: number;
+  expectedRevision: number;
+}) {
+  return Boolean(
+    input.hasPendingFocus &&
+    input.selectionClaimed &&
+    input.selectedCommunicationId === input.targetCommunicationId &&
+    input.currentRevision === input.expectedRevision,
+  );
+}
+
+export function communicationStateLabel(state: EfaCommunicationView["state"]) {
+  return state === "draft"
+    ? "Borrador · pendiente de completar"
+    : state === "cancelled"
+      ? "Anulada"
+      : "Finalizada";
+}
+
 export function communicationLifecycleAction(
   state: EfaCommunicationStatus,
 ): "cancel" | "reactivate" {
@@ -197,12 +250,16 @@ export function EfaCommunicationPanel({
   currentUserId,
   canWrite,
   episodeCanEdit,
+  initialCallTarget,
+  onInitialCallSelected,
 }: {
   episodeId: string;
   episodeLabel: string;
   currentUserId: string;
   canWrite: boolean;
   episodeCanEdit: boolean;
+  initialCallTarget?: { operationId: string; communicationId: string } | null;
+  onInitialCallSelected?: (operationId: string, communicationId: string) => void;
 }) {
   const listForEpisode = useServerFn(listEfaCommunicationsForEpisode);
   const listNotices = useServerFn(listEfaCommunicationNotices);
@@ -251,6 +308,17 @@ export function EfaCommunicationPanel({
   const lifecycleOperationRef = useRef<{ key: string; operationId: string } | null>(null);
   const historyRequestRef = useRef<string | null>(null);
   const pendingRef = useRef(pendingEntry);
+  const dirtyRef = useRef(dirty);
+  const initialCallTargetRef = useRef(initialCallTarget ?? null);
+  const onInitialCallSelectedRef = useRef(onInitialCallSelected);
+  const initialSelectionRevisionRef = useRef(0);
+  const initialSelectionClaimedRef = useRef(false);
+  const consumedInitialCallsRef = useRef(new Set<string>());
+  const pendingInitialCallFocusRef = useRef<{
+    communicationId: string;
+    revision: number;
+  } | null>(null);
+  const initialCallHeadingRef = useRef<HTMLDivElement | null>(null);
   const originalTimesRef = useRef<{ startedAt: string | null; endedAt: string | null }>({
     startedAt: null,
     endedAt: null,
@@ -261,12 +329,41 @@ export function EfaCommunicationPanel({
   selectedCallRef.current = selected;
   callsRef.current = calls;
   pendingRef.current = pendingEntry;
+  dirtyRef.current = dirty;
+  initialCallTargetRef.current = initialCallTarget ?? null;
+  onInitialCallSelectedRef.current = onInitialCallSelected;
   ownerRef.current = currentUserId;
   episodeRef.current = episodeId;
   canWriteRef.current = canWrite;
 
   const currentContext = () =>
     activeRef.current && ownerRef.current === currentUserId && episodeRef.current === episodeId;
+
+  function noteCallEditorInteraction() {
+    initialSelectionRevisionRef.current += 1;
+    initialSelectionClaimedRef.current = true;
+    pendingInitialCallFocusRef.current = null;
+  }
+
+  function canApplyInitialCallSelection(
+    target: { operationId: string; communicationId: string },
+    expectedRevision: number,
+  ) {
+    return canSelectInitialCommunication({
+      targetOperationId: target.operationId,
+      activeTargetOperationId: initialCallTargetRef.current?.operationId ?? null,
+      targetCommunicationId: target.communicationId,
+      activeTargetCommunicationId: initialCallTargetRef.current?.communicationId ?? null,
+      selectedCommunicationId: selectedCallRef.current?.id ?? null,
+      selectedOperationId: selectedOperationRef.current,
+      dirty: dirtyRef.current,
+      hasPendingOperation: Boolean(pendingRef.current),
+      busy: busyRef.current,
+      selectionClaimed: initialSelectionClaimedRef.current,
+      currentRevision: initialSelectionRevisionRef.current,
+      expectedRevision,
+    });
+  }
 
   async function reloadCalls() {
     const [nextCalls, nextNotices] = await Promise.all([
@@ -911,6 +1008,7 @@ export function EfaCommunicationPanel({
 
   async function selectCall(call: EfaCommunicationView) {
     if (pendingRef.current || busyRef.current) return;
+    noteCallEditorInteraction();
     const client = await loadCommunicationClient();
     if (!currentContext()) return;
     setSelected(call);
@@ -935,6 +1033,7 @@ export function EfaCommunicationPanel({
       busyRef.current
     )
       return;
+    noteCallEditorInteraction();
     setSelected(null);
     selectedCallRef.current = null;
     setDirection("incoming");
@@ -948,11 +1047,13 @@ export function EfaCommunicationPanel({
   }
 
   async function captureTime(field: keyof FormTimes) {
+    noteCallEditorInteraction();
     const clickedAt = new Date();
     const client = await loadCommunicationClient();
     if (!currentContext()) return;
     const value = client.captureCommunicationTime(clickedAt);
     setTimes((current) => ({ ...current, [field]: value }));
+    dirtyRef.current = true;
     setDirty(true);
   }
 
@@ -1066,6 +1167,91 @@ export function EfaCommunicationPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUserId, episodeId]);
 
+  useEffect(() => {
+    const target = initialCallTarget;
+    if (!target || !callsReady || !currentContext()) return;
+    const targetKey = `${target.operationId}:${target.communicationId}`;
+    if (consumedInitialCallsRef.current.has(targetKey)) return;
+    const expectedRevision = initialSelectionRevisionRef.current;
+    if (!canApplyInitialCallSelection(target, expectedRevision)) return;
+
+    void (async () => {
+      try {
+        const freshCalls = (await listForEpisode({ data: episodeId })) as EfaCommunicationView[];
+        if (!currentContext() || !canApplyInitialCallSelection(target, expectedRevision)) return;
+        callsRef.current = freshCalls;
+        setCalls(freshCalls);
+        const initialCall = freshCalls.find((call) => call.id === target.communicationId);
+        if (!initialCall) return;
+        const client = await loadCommunicationClient();
+        if (
+          !currentContext() ||
+          !canApplyInitialCallSelection(target, expectedRevision) ||
+          !callsRef.current.some((call) => call.id === target.communicationId)
+        )
+          return;
+        const currentCall = callsRef.current.find((call) => call.id === target.communicationId);
+        if (!currentCall) return;
+        consumedInitialCallsRef.current.add(targetKey);
+        initialSelectionClaimedRef.current = true;
+        pendingInitialCallFocusRef.current = {
+          communicationId: currentCall.id,
+          revision: expectedRevision,
+        };
+        setSelected(currentCall);
+        selectedCallRef.current = currentCall;
+        setConfirmingLifecycle(null);
+        setDirection(currentCall.direction);
+        setPriority(currentCall.priority ?? "");
+        const nextTimes = client.communicationToFormTimes(currentCall);
+        setTimes(nextTimes);
+        originalTimesRef.current = {
+          startedAt: currentCall.startedAt,
+          endedAt: currentCall.endedAt,
+        };
+        setDirty(false);
+        dirtyRef.current = false;
+        setStep(0);
+        setMessage("");
+        setError("");
+        onInitialCallSelectedRef.current?.(target.operationId, target.communicationId);
+      } catch {
+        if (currentContext() && canApplyInitialCallSelection(target, expectedRevision)) {
+          setError(
+            "No se pudo abrir la llamada registrada. El servicio y la llamada siguen guardados.",
+          );
+        }
+      }
+    })();
+  }, [callsReady, initialCallTarget?.operationId, initialCallTarget?.communicationId]);
+
+  useEffect(() => {
+    const pendingFocus = pendingInitialCallFocusRef.current;
+    if (!pendingFocus) return;
+    if (
+      !currentContext() ||
+      !canFocusInitialCallHeading({
+        hasPendingFocus: true,
+        selectionClaimed: initialSelectionClaimedRef.current,
+        selectedCommunicationId: selectedCallRef.current?.id ?? null,
+        targetCommunicationId: pendingFocus.communicationId,
+        currentRevision: initialSelectionRevisionRef.current,
+        expectedRevision: pendingFocus.revision,
+      })
+    ) {
+      pendingInitialCallFocusRef.current = null;
+      return;
+    }
+    const heading = initialCallHeadingRef.current;
+    if (!heading) {
+      pendingInitialCallFocusRef.current = null;
+      return;
+    }
+    pendingInitialCallFocusRef.current = null;
+    heading.scrollIntoView({ block: "start" });
+    heading.focus({ preventScroll: true });
+  }, [selected?.id]);
+
   const canCreateCall =
     canCreateCommunication(canWrite, episodeCanEdit) &&
     queueReady &&
@@ -1132,6 +1318,7 @@ export function EfaCommunicationPanel({
                 value={selectedOperationId}
                 disabled={busy}
                 onChange={(event) => {
+                  noteCallEditorInteraction();
                   const entry = queueEntries.find(
                     (candidate) => candidate.operationId === event.target.value,
                   );
@@ -1216,13 +1403,8 @@ export function EfaCommunicationPanel({
                 <li key={call.id} className="rounded-lg border p-3">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <p className="font-medium">
-                      {directionLabel(call.direction)} ·{" "}
-                      {call.state === "finalized"
-                        ? "Finalizada"
-                        : call.state === "cancelled"
-                          ? "Anulada"
-                          : "Borrador"}{" "}
-                      · {priorityLabel(call.priority)}
+                      {directionLabel(call.direction)} · {communicationStateLabel(call.state)} ·{" "}
+                      {priorityLabel(call.priority)}
                     </p>
                     <div className="flex flex-wrap gap-2">
                       <Button
@@ -1319,7 +1501,13 @@ export function EfaCommunicationPanel({
       }) && (
         <Card className="min-w-0 border-0 bg-transparent p-0 shadow-none">
           <CardHeader className="p-0 pb-1">
-            <CardTitle>
+            <CardTitle
+              ref={initialCallHeadingRef}
+              role="heading"
+              aria-level={3}
+              tabIndex={-1}
+              className="focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+            >
               {selected
                 ? selected.state === "cancelled"
                   ? `Ver llamada anulada · versión ${selected.version}`
@@ -1328,7 +1516,13 @@ export function EfaCommunicationPanel({
             </CardTitle>
           </CardHeader>
           <CardContent className="min-w-0 space-y-3 p-0">
-            <EfaCommunicationStepper step={step} onStepChange={setStep}>
+            <EfaCommunicationStepper
+              step={step}
+              onStepChange={(nextStep) => {
+                noteCallEditorInteraction();
+                setStep(nextStep);
+              }}
+            >
               {step === 0 && (
                 <fieldset className="space-y-3">
                   <legend className="text-sm font-medium">
@@ -1349,7 +1543,9 @@ export function EfaCommunicationPanel({
                           busy
                         }
                         onChange={() => {
+                          noteCallEditorInteraction();
                           setDirection(value);
+                          dirtyRef.current = true;
                           setDirty(true);
                         }}
                       />
@@ -1377,7 +1573,9 @@ export function EfaCommunicationPanel({
                     }
                     onChange={(event) => {
                       const field = step === 1 ? "startedAt" : "endedAt";
+                      noteCallEditorInteraction();
                       setTimes((current) => ({ ...current, [field]: event.target.value }));
+                      dirtyRef.current = true;
                       setDirty(true);
                     }}
                   />
@@ -1406,7 +1604,9 @@ export function EfaCommunicationPanel({
                       }
                       onClick={() => {
                         const field = step === 1 ? "startedAt" : "endedAt";
+                        noteCallEditorInteraction();
                         setTimes((current) => ({ ...current, [field]: "" }));
+                        dirtyRef.current = true;
                         setDirty(true);
                       }}
                     >
@@ -1439,7 +1639,9 @@ export function EfaCommunicationPanel({
                           busy
                         }
                         onChange={() => {
+                          noteCallEditorInteraction();
                           setPriority(value as Priority);
+                          dirtyRef.current = true;
                           setDirty(true);
                         }}
                       />
@@ -1454,7 +1656,9 @@ export function EfaCommunicationPanel({
                       !(selected ? canEditSelected : canCreateCall) || Boolean(pendingEntry) || busy
                     }
                     onClick={() => {
+                      noteCallEditorInteraction();
                       setPriority("");
+                      dirtyRef.current = true;
                       setDirty(true);
                     }}
                   >

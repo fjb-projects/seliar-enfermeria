@@ -2,15 +2,71 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import {
   canCreateCommunication,
+  communicationStateLabel,
   canEditCommunication,
   communicationLifecycleAction,
   communicationSteps,
   createCommunicationSubmissionGate,
+  canSelectInitialCommunication,
+  canFocusInitialCallHeading,
   shouldShowCommunicationEditor,
   EfaCommunicationStepper,
 } from "./EfaCommunicationStepper";
 
 describe("EfaCommunicationStepper", () => {
+  it("only auto-selects a first call while its original editor target remains untouched", () => {
+    const base = {
+      targetOperationId: "episode-create-1",
+      activeTargetOperationId: "episode-create-1",
+      targetCommunicationId: "call-1",
+      activeTargetCommunicationId: "call-1",
+      selectedCommunicationId: null,
+      selectedOperationId: "",
+      dirty: false,
+      hasPendingOperation: false,
+      busy: false,
+      selectionClaimed: false,
+      currentRevision: 0,
+      expectedRevision: 0,
+    };
+    expect(canSelectInitialCommunication(base)).toBe(true);
+    expect(canSelectInitialCommunication({ ...base, selectedCommunicationId: "call-2" })).toBe(
+      false,
+    );
+    expect(canSelectInitialCommunication({ ...base, dirty: true })).toBe(false);
+    expect(canSelectInitialCommunication({ ...base, activeTargetCommunicationId: "call-2" })).toBe(
+      false,
+    );
+    expect(
+      canSelectInitialCommunication({ ...base, activeTargetOperationId: "episode-create-2" }),
+    ).toBe(false);
+    expect(canSelectInitialCommunication({ ...base, currentRevision: 1 })).toBe(false);
+    expect(canSelectInitialCommunication({ ...base, hasPendingOperation: true })).toBe(false);
+    expect(canSelectInitialCommunication({ ...base, selectionClaimed: true })).toBe(false);
+  });
+
+  it("focuses the initial call heading only while its successful selection is still current", () => {
+    const focus = {
+      hasPendingFocus: true,
+      selectionClaimed: true,
+      selectedCommunicationId: "call-1",
+      targetCommunicationId: "call-1",
+      currentRevision: 3,
+      expectedRevision: 3,
+    };
+
+    expect(canFocusInitialCallHeading(focus)).toBe(true);
+    expect(canFocusInitialCallHeading({ ...focus, currentRevision: 4 })).toBe(false);
+    expect(canFocusInitialCallHeading({ ...focus, selectedCommunicationId: "call-2" })).toBe(false);
+    expect(canFocusInitialCallHeading({ ...focus, hasPendingFocus: false })).toBe(false);
+  });
+
+  it("labels only actual drafts as pending completion", () => {
+    expect(communicationStateLabel("draft")).toBe("Borrador · pendiente de completar");
+    expect(communicationStateLabel("finalized")).toBe("Finalizada");
+    expect(communicationStateLabel("cancelled")).toBe("Anulada");
+  });
+
   it("keeps a frozen failed create visible for same-operation storage recovery", () => {
     expect(
       shouldShowCommunicationEditor({
