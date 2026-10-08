@@ -1413,7 +1413,7 @@ export function EfaObservationPanel({
           opcionales, anónimas y sin evaluación de personas.
         </p>
       </CardHeader>
-      <CardContent className="space-y-5">
+      <CardContent className="space-y-4">
         {error && (
           <p
             role="alert"
@@ -1430,7 +1430,7 @@ export function EfaObservationPanel({
         {loading && <p className="text-sm text-muted-foreground">Cargando catálogo e historial…</p>}
         {!loading && (
           <>
-            <section className="space-y-3 rounded-md border p-4">
+            <section className="space-y-3 rounded-md border p-3">
               <h3 className="font-medium">Contexto de observación</h3>
               {!root.episodeId && (
                 <div className="space-y-2">
@@ -1548,7 +1548,7 @@ export function EfaObservationPanel({
             )}
 
             {effectiveCanWrite && (canCreateHere || editing?.canEdit) && (
-              <section className="space-y-4 rounded-md border p-4">
+              <section className="space-y-3 rounded-md border p-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <h3 className="font-medium">
                     {editing

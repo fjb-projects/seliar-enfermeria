@@ -1327,7 +1327,7 @@ export function EfaPoliceCoordinationPanel({
           {episodeLabel} · {canWrite ? "EFA vigente" : "Solo lectura"}
         </p>
       </CardHeader>
-      <CardContent className="space-y-5">
+      <CardContent className="space-y-4">
         {message && (
           <p role="status" className="rounded-md bg-muted p-3 text-sm">
             {message}
@@ -1466,7 +1466,7 @@ export function EfaPoliceCoordinationPanel({
         {(selectedId === "" || current) &&
         activeStep === 0 &&
         (selectedId === "" ? writeAllowed : current?.canEdit && writeAllowed) ? (
-          <section className="space-y-4 rounded-md border p-4">
+          <section className="space-y-3 rounded-md border p-3">
             <h3 className="font-medium">
               {current ? "Editar coordinación" : "Nueva coordinación"}
             </h3>
@@ -1589,7 +1589,7 @@ export function EfaPoliceCoordinationPanel({
           </section>
         ) : null}
         {current && activeStep === 1 && (
-          <section className="space-y-3 rounded-md border p-4">
+          <section className="space-y-3 rounded-md border p-3">
             <fieldset disabled={busy || Boolean(pendingOperationId)} className="space-y-2">
               <legend className="font-medium">Despachos asociados</legend>
               {dispatches.length === 0 && (
@@ -1641,7 +1641,7 @@ export function EfaPoliceCoordinationPanel({
         )}
         {current && activeStep === 2 && (
           <>
-            <section className="space-y-3 rounded-md border p-4">
+            <section className="space-y-3 rounded-md border p-3">
               <h3 className="font-medium">Registrar evento de coordinación</h3>
               {!current.canEdit || !writeAllowed ? (
                 <p className="text-sm text-muted-foreground">

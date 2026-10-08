@@ -650,7 +650,7 @@ export function EfaGuardPanel({
   );
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <Button asChild variant="outline" className="min-h-11">
         <Link to="/episodios-efa">Ver episodios de atención</Link>
       </Button>
@@ -662,7 +662,7 @@ export function EfaGuardPanel({
             ubicación.
           </p>
         </CardHeader>
-        <CardContent className="space-y-5">
+        <CardContent className="space-y-4">
           {error && (
             <p role="alert" className="text-sm text-destructive">
               {error}
@@ -674,7 +674,7 @@ export function EfaGuardPanel({
             </p>
           )}
           {!openOwnGuard && canWrite && (
-            <div className="space-y-4 rounded-lg border p-4">
+            <div className="space-y-3 rounded-lg border p-3">
               <p className="font-medium">Iniciar una guardia</p>
               <label className="flex min-h-11 items-start gap-3 text-sm">
                 <input
@@ -704,7 +704,7 @@ export function EfaGuardPanel({
             </div>
           )}
           {openOwnGuard && (
-            <div className="space-y-4 rounded-lg border p-4">
+            <div className="space-y-3 rounded-lg border p-3">
               <div>
                 <p className="font-medium">Guardia en curso</p>
                 <p className="text-sm text-muted-foreground">

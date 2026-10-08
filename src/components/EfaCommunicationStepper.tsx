@@ -1093,7 +1093,7 @@ export function EfaCommunicationPanel({
   };
 
   return (
-    <div className="space-y-4" aria-label={`Llamadas de ${episodeLabel}`}>
+    <div className="space-y-3" aria-label={`Llamadas de ${episodeLabel}`}>
       <Card>
         <CardHeader>
           <CardTitle>Llamadas · {episodeLabel}</CardTitle>
@@ -1107,7 +1107,7 @@ export function EfaCommunicationPanel({
             </p>
           )}
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-3">
           {queueError && (
             <p role="alert" className="rounded-md border p-3 text-sm">
               {queueError}
@@ -1322,7 +1322,7 @@ export function EfaCommunicationPanel({
                 : "Nueva llamada"}
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-3">
             <EfaCommunicationStepper step={step} onStepChange={setStep}>
               {step === 0 && (
                 <fieldset className="space-y-3">

@@ -1275,7 +1275,7 @@ export function EfaEpisodePanel({
   }
 
   return (
-    <div className="space-y-5 ">
+    <div className="space-y-4">
       <Card className="bg-indigo-100">
         <CardHeader>
           <CardTitle>Servicios de la guardia</CardTitle>
@@ -1284,7 +1284,7 @@ export function EfaEpisodePanel({
             enviadas se conservan en este dispositivo; el texto que aún no enviaste puede perderse.
           </p>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-3">
           {!canWrite && (
             <p className="rounded-md bg-muted p-3 text-sm">
               Solo lectura: se requiere acceso EFA vigente para editar.
@@ -1453,7 +1453,7 @@ export function EfaEpisodePanel({
               {selected ? `Editar servicio · versión ${selected.version}` : "Nuevo episodio"}
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-3">
             <div className="space-y-2">
               <Label htmlFor="episode-event-at">Fecha y hora del hecho</Label>
               <Input
@@ -1514,7 +1514,7 @@ export function EfaEpisodePanel({
               <summary className="min-h-11 cursor-pointer py-2 font-medium">
                 Datos opcionales de ubicación e intervención
               </summary>
-              <div className="space-y-4 pt-3">
+              <div className="space-y-3 pt-3">
                 <div className="space-y-2">
                   <Label htmlFor="episode-address">Dirección exacta (dato privado)</Label>
                   <Textarea

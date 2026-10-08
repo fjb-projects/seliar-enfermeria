@@ -1413,9 +1413,9 @@ export function EfaDispatchStepper({
             : "Revisión";
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <section
-        className="rounded-lg border p-4 space-y-3"
+        className="space-y-3 rounded-lg border p-3"
         aria-label={`Despachos del episodio ${episodeLabel}`}
       >
         <h2 className="text-lg font-semibold">Despachos · {episodeLabel}</h2>
@@ -1592,7 +1592,7 @@ export function EfaDispatchStepper({
           </div>
         )}
         {editable && (
-          <fieldset disabled={queueLocked} className="space-y-4 border-t pt-4">
+          <fieldset disabled={queueLocked} className="space-y-3 border-t pt-3">
             <div className="flex flex-wrap gap-2" aria-label="Progreso del despacho">
               {[
                 "Base",
