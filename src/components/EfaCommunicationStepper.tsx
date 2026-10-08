@@ -1094,20 +1094,25 @@ export function EfaCommunicationPanel({
 
   return (
     <div className="space-y-3" aria-label={`Llamadas de ${episodeLabel}`}>
-      <Card>
-        <CardHeader>
-          <CardTitle>Llamadas · {episodeLabel}</CardTitle>
-          <p className="text-sm text-muted-foreground">
-            Se guardan llamadas enviadas en este dispositivo. Los campos aún no enviados no son un
-            respaldo; la cola temporal contiene datos privados del episodio.
-          </p>
+      <Card className="min-w-0 border-0 bg-transparent p-0 shadow-none">
+        <CardHeader className="space-y-2 p-0 pb-1">
+          <CardTitle>Llamadas</CardTitle>
+          <details className="text-sm text-muted-foreground">
+            <summary className="min-h-11 cursor-pointer py-2 font-medium">
+              Guardado y privacidad
+            </summary>
+            <p>
+              Las llamadas enviadas quedan en este dispositivo. Los campos sin enviar no son un
+              respaldo; la cola temporal contiene datos privados del episodio.
+            </p>
+          </details>
           {!canWrite && (
             <p className="rounded-md border p-3 text-sm">
               Solo lectura: tu acceso vigente no permite editar llamadas.
             </p>
           )}
         </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent className="min-w-0 space-y-3 p-0">
           {queueError && (
             <p role="alert" className="rounded-md border p-3 text-sm">
               {queueError}
@@ -1123,7 +1128,7 @@ export function EfaCommunicationPanel({
               </Label>
               <select
                 id={`communication-pending-${episodeId}`}
-                className="min-h-11 w-full rounded-md border bg-background px-3"
+                className="min-h-11 w-full min-w-0 max-w-full rounded-md border bg-background px-3"
                 value={selectedOperationId}
                 disabled={busy}
                 onChange={(event) => {
@@ -1312,8 +1317,8 @@ export function EfaCommunicationPanel({
         canCreateCall,
         pendingCreateRecovery,
       }) && (
-        <Card>
-          <CardHeader>
+        <Card className="min-w-0 border-0 bg-transparent p-0 shadow-none">
+          <CardHeader className="p-0 pb-1">
             <CardTitle>
               {selected
                 ? selected.state === "cancelled"
@@ -1322,7 +1327,7 @@ export function EfaCommunicationPanel({
                 : "Nueva llamada"}
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="min-w-0 space-y-3 p-0">
             <EfaCommunicationStepper step={step} onStepChange={setStep}>
               {step === 0 && (
                 <fieldset className="space-y-3">
@@ -1332,7 +1337,7 @@ export function EfaCommunicationPanel({
                   {(["incoming", "outgoing"] as const).map((value) => (
                     <label
                       key={value}
-                      className="flex min-h-12 items-center gap-3 rounded-md border p-3"
+                      className="flex min-h-11 min-w-0 items-center gap-3 border-b py-2"
                     >
                       <input
                         type="radio"
@@ -1348,7 +1353,7 @@ export function EfaCommunicationPanel({
                           setDirty(true);
                         }}
                       />
-                      <span>{directionLabel(value)}</span>
+                      <span className="min-w-0">{directionLabel(value)}</span>
                     </label>
                   ))}
                 </fieldset>
@@ -1422,7 +1427,7 @@ export function EfaCommunicationPanel({
                   ].map(({ value, label }) => (
                     <label
                       key={value}
-                      className="flex min-h-12 items-center gap-3 rounded-md border p-3"
+                      className="flex min-h-11 min-w-0 items-center gap-3 border-b py-2"
                     >
                       <input
                         type="radio"
@@ -1438,7 +1443,7 @@ export function EfaCommunicationPanel({
                           setDirty(true);
                         }}
                       />
-                      <span>{label}</span>
+                      <span className="min-w-0">{label}</span>
                     </label>
                   ))}
                   <Button
@@ -1458,7 +1463,7 @@ export function EfaCommunicationPanel({
                 </fieldset>
               )}
               {step === 4 && (
-                <div className="space-y-3 rounded-md border p-4">
+                <div className="min-w-0 space-y-3 border-l-2 pl-3">
                   <h3 className="font-medium">Revisa los datos de la llamada</h3>
                   <p>Dirección: {directionLabel(direction)}</p>
                   <p>Inicio real: {times.startedAt || "Sin registrar"}</p>

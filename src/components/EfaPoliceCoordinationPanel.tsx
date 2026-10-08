@@ -1320,19 +1320,18 @@ export function EfaPoliceCoordinationPanel({
   const pending = queueEntries;
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Coordinación policial</CardTitle>
+    <Card className="min-w-0 border-0 bg-transparent p-0 shadow-none">
+      <CardHeader className="space-y-2 p-0 pb-1">
+        <CardTitle>Coordinación</CardTitle>
         <p className="text-sm text-muted-foreground">
-          {episodeLabel} · {canWrite ? "EFA vigente" : "Solo lectura"}
+          {canWrite ? "Acceso EFA vigente" : "Solo lectura"}
         </p>
       </CardHeader>
-      <CardContent className="space-y-4">
-        {message && (
-          <p role="status" className="rounded-md bg-muted p-3 text-sm">
-            {message}
-          </p>
-        )}
+      <CardContent
+        className="min-w-0 space-y-3 p-0"
+        role="region"
+        aria-label={"Coordinación policial del episodio " + episodeLabel}
+      >
         {loading && <p className="text-sm text-muted-foreground">Cargando coordinación…</p>}
         {!loading && (
           <div className="flex flex-wrap gap-2">
@@ -1358,6 +1357,11 @@ export function EfaPoliceCoordinationPanel({
                 {item.version}
               </Button>
             ))}
+            {items.length === 0 && (
+              <p className="text-sm text-muted-foreground">
+                Sin coordinaciones registradas. Puedes iniciar una con el botón anterior.
+              </p>
+            )}
           </div>
         )}
         {unpersisted && (
@@ -1466,17 +1470,17 @@ export function EfaPoliceCoordinationPanel({
         {(selectedId === "" || current) &&
         activeStep === 0 &&
         (selectedId === "" ? writeAllowed : current?.canEdit && writeAllowed) ? (
-          <section className="space-y-3 rounded-md border p-3">
+          <section className="min-w-0 space-y-3">
             <h3 className="font-medium">
               {current ? "Editar coordinación" : "Nueva coordinación"}
             </h3>
             <fieldset disabled={busy || Boolean(pendingOperationId)} className="space-y-4">
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid min-w-0 gap-3 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="police-initiator">Iniciador</Label>
                   <select
                     id="police-initiator"
-                    className="min-h-11 w-full rounded-md border bg-background px-3"
+                    className="min-h-11 w-full min-w-0 max-w-full rounded-md border bg-background px-3"
                     value={form.initiator}
                     onChange={(e) => {
                       const next = {
@@ -1496,7 +1500,7 @@ export function EfaPoliceCoordinationPanel({
                   <Label htmlFor="police-place">Lugar</Label>
                   <select
                     id="police-place"
-                    className="min-h-11 w-full rounded-md border bg-background px-3"
+                    className="min-h-11 w-full min-w-0 max-w-full rounded-md border bg-background px-3"
                     value={form.placeType}
                     onChange={(e) => {
                       const next = {
@@ -1530,7 +1534,7 @@ export function EfaPoliceCoordinationPanel({
                   <Label htmlFor="police-start-dispatch">Despacho iniciador (opcional)</Label>
                   <select
                     id="police-start-dispatch"
-                    className="min-h-11 w-full rounded-md border bg-background px-3"
+                    className="min-h-11 w-full min-w-0 max-w-full rounded-md border bg-background px-3"
                     value={form.initiatingDispatchId}
                     onChange={(e) => {
                       const next = { ...form, initiatingDispatchId: e.target.value };
@@ -1589,7 +1593,7 @@ export function EfaPoliceCoordinationPanel({
           </section>
         ) : null}
         {current && activeStep === 1 && (
-          <section className="space-y-3 rounded-md border p-3">
+          <section className="min-w-0 space-y-3 border-t pt-3">
             <fieldset disabled={busy || Boolean(pendingOperationId)} className="space-y-2">
               <legend className="font-medium">Despachos asociados</legend>
               {dispatches.length === 0 && (
@@ -1641,7 +1645,7 @@ export function EfaPoliceCoordinationPanel({
         )}
         {current && activeStep === 2 && (
           <>
-            <section className="space-y-3 rounded-md border p-3">
+            <section className="min-w-0 space-y-3 border-t pt-3">
               <h3 className="font-medium">Registrar evento de coordinación</h3>
               {!current.canEdit || !writeAllowed ? (
                 <p className="text-sm text-muted-foreground">
@@ -1650,13 +1654,13 @@ export function EfaPoliceCoordinationPanel({
               ) : (
                 <fieldset
                   disabled={busy || Boolean(pendingOperationId)}
-                  className="grid gap-3 sm:grid-cols-2"
+                  className="grid min-w-0 gap-3 sm:grid-cols-2"
                 >
                   <div className="space-y-2">
                     <Label htmlFor="police-event-kind">Evento compartido o por despacho</Label>
                     <select
                       id="police-event-kind"
-                      className="min-h-11 w-full rounded-md border bg-background px-3"
+                      className="min-h-11 w-full min-w-0 max-w-full rounded-md border bg-background px-3"
                       value={eventForm.kind}
                       onChange={(e) => {
                         const kind = e.target.value as PoliceEventKind;
@@ -1683,7 +1687,7 @@ export function EfaPoliceCoordinationPanel({
                     </Label>
                     <select
                       id="police-event-dispatch"
-                      className="min-h-11 w-full rounded-md border bg-background px-3"
+                      className="min-h-11 w-full min-w-0 max-w-full rounded-md border bg-background px-3"
                       value={eventForm.dispatchId}
                       onChange={(e) => setEventForm({ ...eventForm, dispatchId: e.target.value })}
                     >
@@ -1719,7 +1723,7 @@ export function EfaPoliceCoordinationPanel({
                     <Label htmlFor="police-event-status">Estado de la hora</Label>
                     <select
                       id="police-event-status"
-                      className="min-h-11 w-full rounded-md border bg-background px-3"
+                      className="min-h-11 w-full min-w-0 max-w-full rounded-md border bg-background px-3"
                       value={eventForm.timeStatus}
                       onChange={(e) => {
                         const timeStatus = e.target.value as PoliceTimeStatus;
@@ -1804,7 +1808,7 @@ export function EfaPoliceCoordinationPanel({
                   note: event.note ?? "",
                 };
                 return (
-                  <article className="space-y-2 rounded-md border p-3" key={event.id}>
+                  <article className="min-w-0 space-y-2 border-t py-2" key={event.id}>
                     <p className="font-medium">
                       {eventLabel(event.kind)} · {formatDate(event.occurredAt)} ·{" "}
                       {timeStatusLabel(event.timeStatus)}
@@ -1815,13 +1819,13 @@ export function EfaPoliceCoordinationPanel({
                         <summary className="min-h-11 cursor-pointer py-2">Corregir evento</summary>
                         <fieldset
                           disabled={busy || Boolean(pendingOperationId)}
-                          className="grid gap-3 sm:grid-cols-2"
+                          className="grid min-w-0 gap-3 sm:grid-cols-2"
                           onChange={() => setDirtyEventId(event.id)}
                         >
                           <div className="space-y-2">
                             <Label>Tipo</Label>
                             <select
-                              className="min-h-11 w-full rounded-md border bg-background px-3"
+                              className="min-h-11 w-full min-w-0 max-w-full rounded-md border bg-background px-3"
                               value={edited.kind}
                               onChange={(e) =>
                                 setEventEdits((value) => ({
@@ -1848,7 +1852,7 @@ export function EfaPoliceCoordinationPanel({
                           <div className="space-y-2">
                             <Label>Despacho asociado</Label>
                             <select
-                              className="min-h-11 w-full rounded-md border bg-background px-3"
+                              className="min-h-11 w-full min-w-0 max-w-full rounded-md border bg-background px-3"
                               value={edited.dispatchId}
                               onChange={(e) =>
                                 setEventEdits((value) => ({
@@ -1888,7 +1892,7 @@ export function EfaPoliceCoordinationPanel({
                           <div className="space-y-2">
                             <Label>Estado de la hora</Label>
                             <select
-                              className="min-h-11 w-full rounded-md border bg-background px-3"
+                              className="min-h-11 w-full min-w-0 max-w-full rounded-md border bg-background px-3"
                               value={edited.timeStatus}
                               onChange={(e) => {
                                 const timeStatus = e.target.value as PoliceTimeStatus;
@@ -1995,6 +1999,11 @@ export function EfaPoliceCoordinationPanel({
               )}
             </section>
           </>
+        )}
+        {message && (
+          <p role="status" className="bg-muted p-2 text-sm" aria-live="polite">
+            {message}
+          </p>
         )}
         {notices
           .filter((notice) => items.some((item) => item.id === notice.coordinationId))
