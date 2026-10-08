@@ -89,6 +89,14 @@ type ObservationAuditView = {
   afterState: Record<string, string | null>;
   occurredAt: string;
 };
+type ObservationErrorSurface = "global" | "submit" | "queue" | "history" | "notice";
+// eslint-disable-next-line react-refresh/only-export-components -- Shared with a focused unavailable-target fallback regression.
+export function observationFeedbackNeedsGlobalFallback(
+  area: ObservationErrorSurface,
+  targetAvailable: boolean,
+) {
+  return area === "global" || !targetAvailable;
+}
 type ObservationNoticeView = {
   id: string;
   observationId: string;
@@ -382,12 +390,14 @@ export function EfaObservationPanel({
   currentUserId,
   canWrite,
   isAdmin,
+  compact = false,
 }: {
   root: ObservationRoot;
   title: string;
   currentUserId: string;
   canWrite: boolean;
   isAdmin: boolean;
+  compact?: boolean;
 }) {
   const catalogFn = useServerFn(getEfaObservationCatalog);
   const listGuardFn = useServerFn(listEfaObservationsForGuard);
@@ -433,7 +443,12 @@ export function EfaObservationPanel({
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [errorSurface, setErrorSurface] = useState<{
+    area: ObservationErrorSurface;
+    id?: string;
+  }>({ area: "global" });
   const [message, setMessage] = useState("");
+  const [messageSurface, setMessageSurface] = useState<ObservationErrorSurface>("global");
   const mounted = useRef(false);
   const contextRef = useRef({ currentUserId, root, canWrite: false });
   const queueStoreRef = useRef<import("@/lib/efa-observations.queue").ObservationQueueStore | null>(
@@ -448,6 +463,21 @@ export function EfaObservationPanel({
   const busyRef = useRef(false);
   const conflictGateRef = useRef(createObservationConflictGate());
   const queueScope = root.episodeId ? `episode:${root.episodeId}` : `guard:${root.guardId}`;
+  const reportError = (text: string, area: ObservationErrorSurface = "global", id?: string) => {
+    setError(text);
+    setErrorSurface(id === undefined ? { area } : { area, id });
+  };
+  const clearError = () => {
+    setError("");
+    setErrorSurface({ area: "global" });
+  };
+  const clearErrorAt = (area: ObservationErrorSurface, id?: string) => {
+    if (errorSurface.area === area && (id === undefined || errorSurface.id === id)) clearError();
+  };
+  const reportMessage = (text: string, area: ObservationErrorSurface) => {
+    setMessage(text);
+    setMessageSurface(area);
+  };
   const activeEpisodeId = root.episodeId ?? contextEpisodeId;
   const effectiveCanWrite = canWrite && currentEfaAccess;
   const isRootOwner = root.ownerUserId === currentUserId;
@@ -550,7 +580,9 @@ export function EfaObservationPanel({
           setQueueAvailable(true);
         } catch {
           setQueueAvailable(false);
-          setError("El almacenamiento local no está disponible; las operaciones no se enviarán.");
+          reportError(
+            "El almacenamiento local no está disponible; las operaciones no se enviarán.",
+          );
         }
         setQueueReady(true);
         if (!root.episodeId) {
@@ -560,7 +592,7 @@ export function EfaObservationPanel({
         }
       } catch (cause) {
         if (live && mounted.current)
-          setError(
+          reportError(
             cause instanceof Error ? cause.message : "No se pudieron cargar las observaciones.",
           );
       } finally {
@@ -629,7 +661,9 @@ export function EfaObservationPanel({
         }
       } catch (cause) {
         if (active && mounted.current)
-          setError(cause instanceof Error ? cause.message : "No se pudieron cargar los contextos.");
+          reportError(
+            cause instanceof Error ? cause.message : "No se pudieron cargar los contextos.",
+          );
       }
     })();
     return () => {
@@ -662,6 +696,7 @@ export function EfaObservationPanel({
   );
 
   const loadHistory = async (observationId: string) => {
+    clearErrorAt("history", observationId);
     const ticket = ++selectionTicket.current;
     try {
       const rows = (await historyFn({ data: observationId })) as ObservationAuditView[];
@@ -670,7 +705,11 @@ export function EfaObservationPanel({
       setHistoryFor(observationId);
     } catch (cause) {
       if (mounted.current)
-        setError(cause instanceof Error ? cause.message : "No se pudo cargar el historial.");
+        reportError(
+          cause instanceof Error ? cause.message : "No se pudo cargar el historial.",
+          "history",
+          observationId,
+        );
     }
   };
 
@@ -731,7 +770,12 @@ export function EfaObservationPanel({
     return updateFn({ data: entry.payload as never });
   };
 
-  async function processEntry(entry: ObservationQueueEntry, lockHeld = false, background = false) {
+  async function processEntry(
+    entry: ObservationQueueEntry,
+    lockHeld = false,
+    background = false,
+    errorArea: "submit" | "queue" = "queue",
+  ) {
     if (!queueStoreRef.current || (!lockHeld && busyRef.current)) return;
     if (!lockHeld) {
       busyRef.current = true;
@@ -912,16 +956,18 @@ export function EfaObservationPanel({
             setForm(observationFormFromRecord(saved));
           }
         }
-        setMessage(
+        reportMessage(
           result.status === "confirmed"
             ? `Observación confirmada · versión aplicada ${acknowledgement.operation.appliedVersion}.`
             : "Observación confirmada; solo falta limpiar el pendiente local.",
+          errorArea,
         );
         try {
           await refreshList();
         } catch {
-          setMessage(
+          reportMessage(
             "Observación confirmada. No se pudo actualizar la lista; el registro ya está guardado.",
+            errorArea,
           );
         }
       } else if (result.status === "cleaned") {
@@ -940,9 +986,12 @@ export function EfaObservationPanel({
           setSelectedQueueOperationId("");
           if (entry.kind === "create") resetAfterConfirmedCreate();
         }
-        setMessage("La operación ya estaba confirmada; se limpió el pendiente sin reenviarla.");
+        reportMessage(
+          "La operación ya estaba confirmada; se limpió el pendiente sin reenviarla.",
+          errorArea,
+        );
       } else if (result.status === "paused") {
-        setError(result.error);
+        reportError(result.error, errorArea);
         if (
           result.queueStatus === "paused-conflict" ||
           result.queueStatus === "paused-permission"
@@ -961,8 +1010,11 @@ export function EfaObservationPanel({
           }
         }
       } else if (result.status === "cancelled") {
-        setError("La operación quedó pausada porque no hay permisos vigentes para editar.");
-      } else if (result.status === "stored") setError(result.error);
+        reportError(
+          "La operación quedó pausada porque no hay permisos vigentes para editar.",
+          errorArea,
+        );
+      } else if (result.status === "stored") reportError(result.error, errorArea);
       const latest = await queueStoreRef.current
         .list(entry.actorUserId, queueScope)
         .catch(() => []);
@@ -978,8 +1030,9 @@ export function EfaObservationPanel({
         contextRef.current.currentUserId === expected.actorUserId &&
         queueScope === expected.contextKey
       )
-        setError(
+        reportError(
           cause instanceof Error ? cause.message : "La operación sigue pendiente de confirmación.",
+          errorArea,
         );
     } finally {
       if (!lockHeld) {
@@ -1052,18 +1105,22 @@ export function EfaObservationPanel({
     setPendingOperationId(operationId);
     setSelectedQueueOperationId(operationId);
     selectedQueueRef.current = operationId;
-    setError("");
+    clearError();
+    setMessage("");
+    setMessageSurface("submit");
+    setErrorSurface({ area: "submit" });
     try {
       const queue = await loadObservationQueue();
       if (!mounted.current || contextRef.current.currentUserId !== entry.actorUserId) return;
       queueStoreRef.current = queueStoreRef.current ?? queue.createObservationQueueStore();
       await queue.persistObservationOperation(queueStoreRef.current, entry);
       setQueueEntries(await queueStoreRef.current.list(currentUserId, queueScope));
-      await processEntry(entry, true);
+      await processEntry(entry, true, false, "submit");
     } catch (cause) {
       setUnpersisted(entry);
-      setError(
+      reportError(
         `No se pudo guardar el envío local. Conservamos la misma operación para reintentar. ${cause instanceof Error ? cause.message : ""}`,
+        "submit",
       );
     } finally {
       busyRef.current = false;
@@ -1102,7 +1159,10 @@ export function EfaObservationPanel({
       setPendingOperationId(entry.operationId);
       await processEntry(entry, true);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "No se pudo persistir el reintento local.");
+      reportError(
+        cause instanceof Error ? cause.message : "No se pudo persistir el reintento local.",
+        "queue",
+      );
     } finally {
       busyRef.current = false;
       if (mounted.current) setBusy(false);
@@ -1128,7 +1188,10 @@ export function EfaObservationPanel({
           root.episodeId &&
           createSelection.episodeId !== root.episodeId))
     ) {
-      setError("El contexto pendiente no coincide con esta pantalla; la operación no se enviará.");
+      reportError(
+        "El contexto pendiente no coincide con esta pantalla; la operación no se enviará.",
+        "queue",
+      );
       return;
     }
     setSelectedQueueOperationId(entry.operationId);
@@ -1180,7 +1243,10 @@ export function EfaObservationPanel({
             setSelectedQueueOperationId("");
             pendingRef.current = "";
             selectedQueueRef.current = "";
-            setError("El registro no pertenece a este contexto o ya no admite correcciones.");
+            reportError(
+              "El registro no pertenece a este contexto o ya no admite correcciones.",
+              "queue",
+            );
             return;
           }
           setEditing(current);
@@ -1210,8 +1276,9 @@ export function EfaObservationPanel({
             setSelectedQueueOperationId("");
             pendingRef.current = "";
             selectedQueueRef.current = "";
-            setError(
+            reportError(
               cause instanceof Error ? cause.message : "No se pudo restaurar la observación.",
+              "queue",
             );
           }
         });
@@ -1248,7 +1315,10 @@ export function EfaObservationPanel({
     try {
       latest = (await getObservationFn({ data: entry.entityId })) as ObservationView;
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "No se pudo comparar con el servidor.");
+      reportError(
+        cause instanceof Error ? cause.message : "No se pudo comparar con el servidor.",
+        "queue",
+      );
       return;
     }
     if (
@@ -1257,7 +1327,10 @@ export function EfaObservationPanel({
       selectedQueueRef.current !== operationId ||
       (choice === "keep" && !latest.canEdit)
     ) {
-      setError("La cuenta, selección o permiso cambió; la operación pausada se conservó.");
+      reportError(
+        "La cuenta, selección o permiso cambió; la operación pausada se conservó.",
+        "queue",
+      );
       return;
     }
     if (choice === "server") {
@@ -1276,11 +1349,15 @@ export function EfaObservationPanel({
         setSelectedQueueOperationId("");
         selectedQueueRef.current = "";
         setConflictRemote(null);
-        setError("");
-        setMessage("Se cargó la versión del servidor y se descartó solo esta operación pausada.");
+        clearError();
+        reportMessage(
+          "Se cargó la versión del servidor y se descartó solo esta operación pausada.",
+          "queue",
+        );
       } catch (cause) {
-        setError(
+        reportError(
           cause instanceof Error ? cause.message : "No se pudo resolver la operación local.",
+          "queue",
         );
       }
       return;
@@ -1312,10 +1389,13 @@ export function EfaObservationPanel({
       selectedQueueRef.current = rebased.operationId;
       setPendingOperationId(rebased.operationId);
       setConflictRemote(null);
-      setError("");
+      clearError();
       await dispatchObservationRebasedEntry(rebased, processEntry);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "No se pudo rebasar la operación.");
+      reportError(
+        cause instanceof Error ? cause.message : "No se pudo rebasar la operación.",
+        "queue",
+      );
     }
   }
 
@@ -1332,6 +1412,23 @@ export function EfaObservationPanel({
 
   const validContext = currentContext !== null;
   const allowedToSave = editing ? effectiveCanWrite && editing.canEdit : canCreateHere;
+  const canRenderObservationForm =
+    effectiveCanWrite && (canCreateHere || editing?.canEdit === true);
+  const hasFeedbackTarget = (area: ObservationErrorSurface, id?: string) => {
+    if (area === "global") return true;
+    if (area === "submit") return canRenderObservationForm;
+    if (area === "queue") return queueEntries.length > 0 || unpersisted !== null;
+    if (area === "history") return !loading && visibleObservations.some((item) => item.id === id);
+    return !loading && notices.some((notice) => notice.id === id);
+  };
+  const showErrorGlobally = observationFeedbackNeedsGlobalFallback(
+    errorSurface.area,
+    hasFeedbackTarget(errorSurface.area, errorSurface.id),
+  );
+  const showMessageGlobally = observationFeedbackNeedsGlobalFallback(
+    messageSurface,
+    hasFeedbackTarget(messageSurface),
+  );
   const canSubmit =
     canChangeForm &&
     allowedToSave &&
@@ -1367,13 +1464,19 @@ export function EfaObservationPanel({
 
   async function markNotice(noticeId: string) {
     if (busy) return;
+    clearErrorAt("notice", noticeId);
+    setMessage("");
     setBusy(true);
     try {
       const saved = (await markNoticeFn({ data: noticeId })) as ObservationNoticeView;
       if (mounted.current && contextRef.current.currentUserId === currentUserId)
         setNotices((rows) => rows.map((item) => (item.id === saved.id ? saved : item)));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "No se pudo marcar el aviso.");
+      reportError(
+        cause instanceof Error ? cause.message : "No se pudo marcar el aviso.",
+        "notice",
+        noticeId,
+      );
     } finally {
       if (mounted.current) setBusy(false);
     }
@@ -1403,18 +1506,23 @@ export function EfaObservationPanel({
     const clickedAt = captureObservationNow();
     setForm((current) => ({ ...current, observedAt: localDateTimeValue(clickedAt) }));
   };
+  const selectedEpisode = episodes.find((item) => String(item["id"]) === contextEpisodeId);
+  const selectedEpisodeId = selectedEpisode ? String(selectedEpisode["id"]) : contextEpisodeId;
+  const selectedEpisodeLabel = selectedEpisode
+    ? String(selectedEpisode["motive"] ?? selectedEpisode["address"] ?? selectedEpisode["id"])
+    : contextEpisodeId;
 
   return (
-    <Card>
-      <CardHeader>
+    <Card className={compact ? "min-w-0 border-0 bg-transparent p-0 shadow-none" : undefined}>
+      <CardHeader className={compact ? "space-y-2 p-0 pb-1" : undefined}>
         <CardTitle>{title}</CardTitle>
         <p className="text-sm text-muted-foreground">
           {effectiveCanWrite ? "Acceso de escritura vigente" : "Solo lectura"} · Capturas
           opcionales, anónimas y sin evaluación de personas.
         </p>
       </CardHeader>
-      <CardContent className="space-y-4">
-        {error && (
+      <CardContent className={compact ? "min-w-0 space-y-3 p-0" : "space-y-4"}>
+        {error && (!compact || showErrorGlobally) && (
           <p
             role="alert"
             className="rounded-md border border-destructive p-3 text-sm text-destructive"
@@ -1422,15 +1530,22 @@ export function EfaObservationPanel({
             {error}
           </p>
         )}
-        {message && (
+        {message && (!compact || showMessageGlobally) && (
           <p role="status" className="rounded-md bg-muted p-3 text-sm">
             {message}
           </p>
         )}
         {loading && <p className="text-sm text-muted-foreground">Cargando catálogo e historial…</p>}
+        {compact &&
+          visibleObservations.length === 0 &&
+          (!effectiveCanWrite || (!canCreateHere && !editing?.canEdit)) && (
+            <p className="text-sm text-muted-foreground">
+              La ausencia de observaciones no es una valoración.
+            </p>
+          )}
         {!loading && (
           <>
-            <section className="space-y-3 rounded-md border p-3">
+            <section className={compact ? "min-w-0 space-y-3" : "space-y-3 rounded-md border p-3"}>
               <h3 className="font-medium">Contexto de observación</h3>
               {!root.episodeId && (
                 <div className="space-y-2">
@@ -1439,7 +1554,7 @@ export function EfaObservationPanel({
                   </Label>
                   <select
                     id={`observation-episode-${root.guardId}`}
-                    className="min-h-11 w-full rounded-md border bg-background px-3"
+                    className="min-h-11 w-full min-w-0 max-w-full rounded-md border bg-background px-3"
                     value={contextEpisodeId}
                     disabled={busy || Boolean(pendingOperationId) || Boolean(editing)}
                     onChange={(event) => selectEpisode(event.target.value)}
@@ -1447,11 +1562,16 @@ export function EfaObservationPanel({
                     <option value="">Solo guardia</option>
                     {episodes.map((episode) => (
                       <option key={String(episode["id"])} value={String(episode["id"])}>
-                        Episodio ·{" "}
+                        Episodio {String(episode["id"]).slice(0, 8)} ·{" "}
                         {String(episode["motive"] ?? episode["address"] ?? episode["id"])}
                       </option>
                     ))}
                   </select>
+                  {contextEpisodeId && (
+                    <p className="break-words text-sm text-muted-foreground">
+                      Servicio seleccionado: {selectedEpisodeLabel} · ID {selectedEpisodeId}
+                    </p>
+                  )}
                 </div>
               )}
               {activeEpisodeId && (
@@ -1459,7 +1579,7 @@ export function EfaObservationPanel({
                   <Label htmlFor={`observation-context-${root.guardId}`}>Tipo de contexto</Label>
                   <select
                     id={`observation-context-${root.guardId}`}
-                    className="min-h-11 w-full rounded-md border bg-background px-3"
+                    className="min-h-11 w-full min-w-0 max-w-full rounded-md border bg-background px-3"
                     value={contextType}
                     disabled={busy || Boolean(pendingOperationId) || Boolean(editing)}
                     onChange={(event) => handleContextType(event.target.value as ContextKind)}
@@ -1547,8 +1667,10 @@ export function EfaObservationPanel({
               </p>
             )}
 
-            {effectiveCanWrite && (canCreateHere || editing?.canEdit) && (
-              <section className="space-y-3 rounded-md border p-3">
+            {canRenderObservationForm && (
+              <section
+                className={compact ? "min-w-0 space-y-3" : "space-y-3 rounded-md border p-3"}
+              >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <h3 className="font-medium">
                     {editing
@@ -1577,7 +1699,7 @@ export function EfaObservationPanel({
                   </Label>
                   <select
                     id={`observation-group-${root.guardId}`}
-                    className="min-h-11 w-full rounded-md border bg-background px-3"
+                    className="min-h-11 w-full min-w-0 max-w-full rounded-md border bg-background px-3"
                     value={groupFilter}
                     disabled={!canChangeForm}
                     onChange={(event) =>
@@ -1596,7 +1718,7 @@ export function EfaObservationPanel({
                   <Label htmlFor={`observation-item-${root.guardId}`}>Conducta concreta</Label>
                   <select
                     id={`observation-item-${root.guardId}`}
-                    className="min-h-11 w-full rounded-md border bg-background px-3"
+                    className="min-h-11 w-full min-w-0 max-w-full rounded-md border bg-background px-3"
                     value={form.catalogItemKey}
                     disabled={!canChangeForm || !validContext}
                     onChange={(event) =>
@@ -1641,7 +1763,7 @@ export function EfaObservationPanel({
                       </Label>
                       <select
                         id={`observation-other-group-${root.guardId}`}
-                        className="min-h-11 w-full rounded-md border bg-background px-3"
+                        className="min-h-11 w-full min-w-0 max-w-full rounded-md border bg-background px-3"
                         value={form.otherGroup}
                         disabled={!canChangeForm}
                         onChange={(event) =>
@@ -1723,6 +1845,12 @@ export function EfaObservationPanel({
                     }
                   />
                 </div>
+                {compact && visibleObservations.length === 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    Aún no hay observaciones en este contexto; la ausencia de registros no es una
+                    valoración.
+                  </p>
+                )}
                 <Button
                   type="button"
                   className="min-h-11 w-full sm:w-auto"
@@ -1737,6 +1865,16 @@ export function EfaObservationPanel({
                 >
                   {editing ? "Guardar corrección" : "Guardar observación"}
                 </Button>
+                {compact && error && errorSurface.area === "submit" && (
+                  <p role="alert" className="text-sm text-destructive" aria-live="assertive">
+                    {error}
+                  </p>
+                )}
+                {compact && message && messageSurface === "submit" && (
+                  <p role="status" className="text-sm text-muted-foreground" aria-live="polite">
+                    {message}
+                  </p>
+                )}
               </section>
             )}
 
@@ -1748,7 +1886,7 @@ export function EfaObservationPanel({
                 <h3 id={`observation-conflict-${root.guardId}`} className="font-medium">
                   La observación cambió en el servidor
                 </h3>
-                <div className="grid gap-3 sm:grid-cols-2">
+                <div className="grid min-w-0 gap-3 sm:grid-cols-2">
                   <div className="rounded-md bg-muted p-3 text-sm">
                     <p className="font-medium">
                       Versión enviada · v
@@ -1800,6 +1938,16 @@ export function EfaObservationPanel({
                   El envío no pudo persistirse localmente. El payload y su identidad permanecen
                   congelados; los campos quedan bloqueados.
                 </p>
+                {compact && error && errorSurface.area === "queue" && (
+                  <p role="alert" className="text-sm text-destructive" aria-live="assertive">
+                    {error}
+                  </p>
+                )}
+                {compact && message && messageSurface === "queue" && (
+                  <p role="status" className="text-sm text-muted-foreground" aria-live="polite">
+                    {message}
+                  </p>
+                )}
                 <Button
                   type="button"
                   className="min-h-11"
@@ -1811,8 +1959,24 @@ export function EfaObservationPanel({
               </section>
             )}
             {queueEntries.length > 0 && (
-              <section className="space-y-3 rounded-md border p-4">
+              <section
+                className={
+                  compact
+                    ? "min-w-0 space-y-3 border-l-2 border-amber-500 pl-3"
+                    : "space-y-3 rounded-md border p-4"
+                }
+              >
                 <h3 className="font-medium">Operaciones locales pendientes</h3>
+                {compact && error && errorSurface.area === "queue" && !unpersisted && (
+                  <p role="alert" className="text-sm text-destructive" aria-live="assertive">
+                    {error}
+                  </p>
+                )}
+                {compact && message && messageSurface === "queue" && (
+                  <p role="status" className="text-sm text-muted-foreground" aria-live="polite">
+                    {message}
+                  </p>
+                )}
                 {queueEntries.map((entry) => (
                   <div
                     key={entry.operationId}
@@ -1872,16 +2036,21 @@ export function EfaObservationPanel({
               </section>
             )}
 
-            <section className="space-y-3 rounded-md border p-4">
+            <section className={compact ? "min-w-0 space-y-3" : "space-y-3 rounded-md border p-4"}>
               <h3 className="font-medium">Historial de conductas observadas</h3>
-              {visibleObservations.length === 0 && (
+              {visibleObservations.length === 0 && !compact && (
                 <p className="text-sm text-muted-foreground">
                   No hay observaciones en este contexto. La ausencia de registros no es una
                   valoración.
                 </p>
               )}
               {visibleObservations.map((item) => (
-                <article key={item.id} className="space-y-2 rounded-md border p-3">
+                <article
+                  key={item.id}
+                  className={
+                    compact ? "min-w-0 space-y-2 border-t py-2" : "space-y-2 rounded-md border p-3"
+                  }
+                >
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                     <div>
                       <p className="font-medium">
@@ -1924,6 +2093,14 @@ export function EfaObservationPanel({
                       )}
                     </div>
                   </div>
+                  {compact &&
+                    error &&
+                    errorSurface.area === "history" &&
+                    errorSurface.id === item.id && (
+                      <p role="alert" className="text-sm text-destructive" aria-live="assertive">
+                        {error}
+                      </p>
+                    )}
                   {historyFor === item.id && (
                     <div className="space-y-2 border-t pt-2">
                       <h4 className="font-medium">Versiones previas</h4>
@@ -1949,7 +2126,11 @@ export function EfaObservationPanel({
               ))}
             </section>
 
-            <section className="space-y-2 rounded-md border p-4">
+            <section
+              className={
+                compact ? "min-w-0 space-y-2 border-t pt-3" : "space-y-2 rounded-md border p-4"
+              }
+            >
               <h3 className="font-medium">Avisos de corrección</h3>
               {notices.length === 0 && (
                 <p className="text-sm text-muted-foreground">No tienes avisos pendientes.</p>
@@ -1973,14 +2154,35 @@ export function EfaObservationPanel({
                       Marcar leído
                     </Button>
                   )}
+                  {compact &&
+                    error &&
+                    errorSurface.area === "notice" &&
+                    errorSurface.id === notice.id && (
+                      <p role="alert" className="text-sm text-destructive" aria-live="assertive">
+                        {error}
+                      </p>
+                    )}
                 </div>
               ))}
             </section>
-            <p className="text-xs text-muted-foreground">
-              Las operaciones enviadas sin conexión permanecen temporalmente como texto privado en
-              este dispositivo. No son una copia de seguridad; los campos todavía no enviados no
-              quedan guardados.
-            </p>
+            {compact ? (
+              <details className="text-xs text-muted-foreground">
+                <summary className="min-h-11 cursor-pointer py-2 font-medium">
+                  Guardado y privacidad
+                </summary>
+                <p>
+                  Las operaciones enviadas sin conexión permanecen temporalmente como texto privado
+                  en este dispositivo. No son una copia de seguridad; los campos todavía no enviados
+                  no quedan guardados.
+                </p>
+              </details>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Las operaciones enviadas sin conexión permanecen temporalmente como texto privado en
+                este dispositivo. No son una copia de seguridad; los campos todavía no enviados no
+                quedan guardados.
+              </p>
+            )}
           </>
         )}
       </CardContent>
@@ -2010,7 +2212,7 @@ function ContextSelect({
       <Label htmlFor={id}>{label}</Label>
       <select
         id={id}
-        className="min-h-11 w-full rounded-md border bg-background px-3"
+        className="min-h-11 w-full min-w-0 max-w-full rounded-md border bg-background px-3"
         value={value}
         disabled={disabled}
         onChange={(event) => onChange(event.target.value)}

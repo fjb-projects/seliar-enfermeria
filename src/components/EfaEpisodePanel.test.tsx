@@ -237,7 +237,8 @@ describe("EfaEpisodePanel", () => {
     );
     const compactSummary = html.match(/<article[\s\S]*?<details/)?.[0] ?? "";
     expect(compactSummary).toContain("Activo");
-    expect(compactSummary).toContain("Hecho 6/10/2026, 06:30:00");
+    expect(compactSummary).toContain("Episodio del 6/10/2026, 06:30:00");
+    expect(compactSummary).not.toContain("Hecho 6/10/2026, 06:30:00");
     expect(compactSummary).not.toContain("Capturado");
     expect(compactSummary).not.toContain("Ver historial");
     expect(compactSummary).not.toContain("Editar");
@@ -250,7 +251,7 @@ describe("EfaEpisodePanel", () => {
     expect(details).toContain("versión 1");
     expect(html).not.toContain("foreign");
     expect(html.indexOf("Activo")).toBeLessThan(html.indexOf("Cerrado"));
-    expect(html).toContain("Hecho 6/10/2026, 06:30:00");
+    expect(html).toContain("Episodio del 6/10/2026, 06:30:00");
     expect(html).toContain("Episodio del");
     expect(html).toContain("Guardar borrador");
     expect(html).not.toContain("Dejar de editar");

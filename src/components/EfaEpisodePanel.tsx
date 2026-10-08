@@ -1591,9 +1591,7 @@ export function EfaEpisodePanel({
             >
               <div className="space-y-2">
                 <div className="min-w-0">
-                  <h3 className="line-clamp-2 break-words font-semibold leading-5">
-                    {displayName(episode)}
-                  </h3>
+                  <h3 className="break-words font-semibold leading-5">{displayName(episode)}</h3>
                   <p
                     className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${
                       episode.cancelledAt
@@ -1609,9 +1607,11 @@ export function EfaEpisodePanel({
                         ? "Cerrado"
                         : "Activo"}
                   </p>
-                  <p className="text-sm text-muted-foreground">
-                    Hecho {formatEpisodeDate(episode.eventAt)}
-                  </p>
+                  {(episode.motive || episode.address) && (
+                    <p className="text-sm text-muted-foreground">
+                      Hecho {formatEpisodeDate(episode.eventAt)}
+                    </p>
+                  )}
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {workspaceEpisodeId !== episode.id && (
@@ -1751,7 +1751,8 @@ export function EfaEpisodePanel({
                           ownerUserId: episode.ownerUserId,
                           guardEndedAt: null,
                         }}
-                        title="Conductas observadas del servicio"
+                        title="Conductas observadas"
+                        compact
                         currentUserId={currentUserId}
                         canWrite={canWrite}
                         isAdmin={isAdmin}

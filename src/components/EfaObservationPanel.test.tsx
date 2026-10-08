@@ -8,6 +8,7 @@ import {
   observationCanCreate,
   observationContextSelectionFromPayload,
   observationFrozenOperationMatches,
+  observationFeedbackNeedsGlobalFallback,
   observationQueueEntryCanContinue,
   restoreObservationUpdateForm,
   withCurrentEfaWriteAccess,
@@ -42,6 +43,14 @@ vi.mock("@/lib/efa-guards.functions", () => ({
 }));
 
 describe("EfaObservationPanel", () => {
+  it("falls back globally when a permission or selection change removes the feedback target", () => {
+    expect(observationFeedbackNeedsGlobalFallback("submit", true)).toBe(false);
+    expect(observationFeedbackNeedsGlobalFallback("submit", false)).toBe(true);
+    expect(observationFeedbackNeedsGlobalFallback("history", false)).toBe(true);
+    expect(observationFeedbackNeedsGlobalFallback("notice", false)).toBe(true);
+    expect(observationFeedbackNeedsGlobalFallback("global", true)).toBe(true);
+  });
+
   it("constructs only the selected typed context and preserves its guard ancestry", () => {
     const root = { guardId: "guard-1" };
     expect(buildObservationContext(root, { kind: "guard" })).toEqual({
@@ -241,5 +250,22 @@ describe("EfaObservationPanel", () => {
     expect(html).toContain("Conductas observadas");
     expect(html).toContain("Solo lectura");
     expect(html).not.toContain("Enviar evaluación completa");
+  });
+
+  it("keeps the neutral empty-history context in a compact read-only server render", () => {
+    const html = renderToStaticMarkup(
+      <EfaObservationPanel
+        root={{ guardId: "guard-1", episodeId: "episode-1" }}
+        title="Conductas observadas"
+        currentUserId="viewer"
+        canWrite={false}
+        isAdmin={false}
+        compact
+      />,
+    );
+
+    expect(html).toContain("Solo lectura");
+    expect(html).toContain("La ausencia de observaciones no es una valoración.");
+    expect(html).not.toContain("Guardar observación");
   });
 });
