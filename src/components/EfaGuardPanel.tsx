@@ -24,6 +24,8 @@ import {
 import { previewEfaStaffingPlan } from "@/lib/efa-staffing-plan.functions";
 import { getOperationalDateRange } from "@/lib/efa-staffing-plan.date";
 import type { DatedSlot } from "@/lib/efa-staffing-plan.server";
+import { listEfaMobileArrivalsForGuard } from "@/lib/efa-mobile-arrivals.functions";
+import { EfaMobileArrivalPanel, type MobileArrivalView } from "./EfaMobileArrivalPanel";
 
 export type GuardBase = { id: string; name: string; isActive: boolean };
 export type GuardEvent = {
@@ -562,6 +564,7 @@ export function EfaGuardPanel({
   initialGuards,
   activeBases,
   initialStaffing,
+  initialArrivals,
   currentUserId,
   isAdmin,
   canWrite,
@@ -569,6 +572,7 @@ export function EfaGuardPanel({
   initialGuards: GuardView[];
   activeBases: GuardBase[];
   initialStaffing: Record<string, StaffingView[]>;
+  initialArrivals?: Record<string, MobileArrivalView[]>;
   currentUserId: string;
   isAdmin: boolean;
   canWrite: boolean;
@@ -576,6 +580,7 @@ export function EfaGuardPanel({
   const listGuards = useServerFn(listEfaGuards);
   const listBases = useServerFn(listActiveEfaGuardBases);
   const listStaffing = useServerFn(listEfaStaffing);
+  const listArrivals = useServerFn(listEfaMobileArrivalsForGuard);
   const startGuard = useServerFn(startEfaGuard);
   const updateBases = useServerFn(setEfaGuardBases);
   const endGuard = useServerFn(endEfaGuard);
@@ -583,6 +588,7 @@ export function EfaGuardPanel({
   const [guards, setGuards] = useState(initialGuards);
   const [bases, setBases] = useState(activeBases);
   const [staffingByGuard, setStaffingByGuard] = useState(initialStaffing);
+  const [arrivalsByGuard, setArrivalsByGuard] = useState(initialArrivals ?? {});
   const [selectedBaseIds, setSelectedBaseIds] = useState<string[]>(() => {
     const openOwnGuard = initialGuards.find(
       (guard) => guard.ownerUserId === currentUserId && !guard.endedAt,
@@ -610,17 +616,29 @@ export function EfaGuardPanel({
       canWrite ? listBases() : Promise.resolve([]),
     ]);
     const currentGuards = nextGuards as GuardView[];
-    const staffingEntries = canWrite
-      ? await Promise.all(
-          currentGuards.map(
-            async (guard) =>
-              [guard.id, await listStaffing({ data: { guardId: guard.id } })] as const,
-          ),
-        )
-      : [];
+    const guardEntries = await Promise.all(
+      currentGuards.map(async (guard) => {
+        const arrivals = await listArrivals({ data: guard.id });
+        const staffing = canWrite
+          ? await listStaffing({ data: { guardId: guard.id } })
+          : [];
+        return { id: guard.id, staffing, arrivals };
+      }),
+    );
     setGuards(currentGuards);
     setBases(nextBases as GuardBase[]);
-    setStaffingByGuard(Object.fromEntries(staffingEntries) as Record<string, StaffingView[]>);
+    setStaffingByGuard(
+      Object.fromEntries(guardEntries.map(({ id, staffing }) => [id, staffing])) as Record<
+        string,
+        StaffingView[]
+      >,
+    );
+    setArrivalsByGuard(
+      Object.fromEntries(guardEntries.map(({ id, arrivals }) => [id, arrivals])) as Record<
+        string,
+        MobileArrivalView[]
+      >,
+    );
     const open = currentGuards.find(
       (guard) => guard.ownerUserId === currentUserId && !guard.endedAt,
     );
@@ -962,6 +980,23 @@ export function EfaGuardPanel({
                     </div>
                   )}
                   {canWrite && <PlannedCoverageReadOnly bases={guard.bases} />}
+                  <EfaMobileArrivalPanel
+                    guardId={guard.id}
+                    bases={guard.bases}
+                    arrivals={arrivalsByGuard[guard.id] ?? []}
+                    canWrite={
+                      canWrite && guard.ownerUserId === currentUserId && !guard.endedAt
+                    }
+                    onArrivalsChange={(arrival) =>
+                      setArrivalsByGuard((current) => ({
+                        ...current,
+                        [guard.id]: [
+                          ...(current[guard.id] ?? []).filter((item) => item.id !== arrival.id),
+                          arrival,
+                        ],
+                      }))
+                    }
+                  />
                   <ObservedStaffingPanel
                     guardId={guard.id}
                     periods={staffingByGuard[guard.id] ?? []}

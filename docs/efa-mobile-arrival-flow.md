@@ -22,14 +22,15 @@ flowchart TD
 
 ## Estados de la interfaz
 
-| Estado                            | Presentación y acción disponible                                                                                    |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| Sin guardia                       | Acción para iniciar una guardia.                                                                                    |
-| Guardia activa sin móviles        | Selección de uno o más móviles del catálogo existente.                                                              |
-| Móviles seleccionados sin ingreso | Cada móvil puede abrirse para registrar una hora de ingreso por enfermero/a, chofer y médico/a.                     |
-| Capturando                        | Se carga o corrige la hora de ingreso del rol elegido para ese móvil. La guardia conserva su dotación propia.       |
-| Ingreso guardado                  | Se muestra la marca horaria con las acciones Editar y Eliminar. No se crean eventos de salida ni de movimiento.     |
-| Confirmación o error              | Eliminar requiere confirmación. Los errores de edición o eliminación se muestran junto a la acción correspondiente. |
+| Estado                            | Presentación y acción disponible                                                                                 |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Sin guardia                       | Acción para iniciar una guardia.                                                                                 |
+| Guardia activa sin móviles        | Selección de uno o más móviles del catálogo existente.                                                           |
+| Móviles seleccionados sin ingreso | Cada móvil se abre para mostrar sus tres roles y ofrecer el registro de ingreso con una acción.                  |
+| Capturando                        | Registrar ingreso guarda la hora actual del servidor. La edición usa un campo explícito de fecha y hora local.   |
+| Ingreso guardado                  | Se muestra la marca horaria con las acciones Editar y Eliminar. No se crean eventos de salida ni de movimiento.  |
+| Historial                         | Las marcas de móviles ya no seleccionados y de guardias cerradas se consultan en solo lectura.                   |
+| Confirmación o error              | Eliminar requiere confirmación. El error queda junto a la fila; un reintento conserva la identidad de operación. |
 
 ## Reglas del registro
 

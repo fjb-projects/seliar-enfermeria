@@ -8,6 +8,7 @@ import {
 } from "@/lib/efa-guards.functions";
 import { readSession } from "@/lib/auth.functions";
 import { listEfaStaffing } from "@/lib/efa-staffing.functions";
+import { listEfaMobileArrivalsForGuard } from "@/lib/efa-mobile-arrivals.functions";
 import { SessionLoadError } from "@/components/SessionLoadError";
 
 export const Route = createFileRoute("/guardia-efa")({
@@ -24,18 +25,18 @@ export const Route = createFileRoute("/guardia-efa")({
       listEfaGuards(),
       canWrite ? listActiveEfaGuardBases() : Promise.resolve([]),
     ]);
-    const staffingEntries = canWrite
-      ? await Promise.all(
-          guards.map(
-            async (guard) =>
-              [guard.id, await listEfaStaffing({ data: { guardId: guard.id } })] as const,
-          ),
-        )
-      : [];
+    const guardEntries = await Promise.all(
+      guards.map(async (guard) => {
+        const arrivals = await listEfaMobileArrivalsForGuard({ data: guard.id });
+        const staffing = canWrite ? await listEfaStaffing({ data: { guardId: guard.id } }) : [];
+        return { id: guard.id, staffing, arrivals };
+      }),
+    );
     return {
       guards,
       bases,
-      staffingByGuard: Object.fromEntries(staffingEntries),
+      staffingByGuard: Object.fromEntries(guardEntries.map(({ id, staffing }) => [id, staffing])),
+      arrivalsByGuard: Object.fromEntries(guardEntries.map(({ id, arrivals }) => [id, arrivals])),
       canWrite,
       isAdmin,
     };
@@ -45,13 +46,15 @@ export const Route = createFileRoute("/guardia-efa")({
 
 function EfaGuardPage() {
   const { session } = Route.useRouteContext();
-  const { guards, bases, staffingByGuard, canWrite, isAdmin } = Route.useLoaderData();
+  const { guards, bases, staffingByGuard, arrivalsByGuard, canWrite, isAdmin } =
+    Route.useLoaderData();
   return (
     <PrivateAccountShell session={session}>
       <EfaGuardPanel
         initialGuards={guards as GuardView[]}
         activeBases={bases as GuardBase[]}
         initialStaffing={staffingByGuard}
+        initialArrivals={arrivalsByGuard}
         currentUserId={session.user.id}
         isAdmin={isAdmin}
         canWrite={canWrite}

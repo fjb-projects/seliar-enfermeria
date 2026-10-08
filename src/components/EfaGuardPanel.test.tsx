@@ -36,6 +36,12 @@ vi.mock("@/lib/efa-staffing.functions", () => ({
   exitEfaStaffing: vi.fn(),
   listEfaStaffing: vi.fn(),
 }));
+vi.mock("@/lib/efa-mobile-arrivals.functions", () => ({
+  createEfaMobileArrival: vi.fn(),
+  deleteEfaMobileArrival: vi.fn(),
+  listEfaMobileArrivalsForGuard: vi.fn(),
+  updateEfaMobileArrival: vi.fn(),
+}));
 vi.mock("@/lib/efa-staffing-plan.functions", () => ({ previewEfaStaffingPlan: vi.fn() }));
 vi.mock("@/lib/efa-observations.functions", () => ({
   createEfaObservation: vi.fn(),
