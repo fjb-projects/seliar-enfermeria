@@ -55,8 +55,9 @@ Pronóstico inicial: menos de 400 líneas de autoría, incluyendo regresiones y 
 - Revisión independiente adicional: `restoreQueueEntry` ahora limpia `saveError`; el `catch` de `save` valida que el ticket siga vigente antes de emitir diagnóstico o actualizar el error contextual.
 - No se añadió una prueba de interacción del panel: el harness existente solo renderiza estáticamente y no ofrece DOM/eventos; la secuencia de efectos y la posición del error se comprobaron mediante lectura estructural.
 - Revalidación de las correcciones: `npm.cmd run test -- src/components/EfaEpisodePanel.test.tsx src/lib/efa-episodes.client.test.ts`, exit 0 (2 archivos, 18 pruebas); `npm.cmd run typecheck`, exit 0; `npx.cmd prettier --check` sobre las cinco superficies autorizadas, exit 0; `git diff --check` sobre fuentes y pruebas, exit 0.
-- Commit: no aplica en este encargo; el orquestador inspeccionará el alcance, decidirá la revisión nativa y hará el commit con los archivos autorizados.
+- Verificación independiente: `npm.cmd run test`, exit 0 (57 archivos, 351 pruebas); `npm.cmd run build`, exit 0 con advertencias preexistentes de rutas y APIs deprecadas.
+- Commit de la unidad: `73c78c4` (`fix(efa): keep draft save recoverable and show local feedback`).
 
 ## Próximo paso
 
-El orquestador revisa este work unit y realiza el commit conforme a la instrucción delegada.
+Definir el recorrido por móvil y dotación sobre el modelo de guardias existente; la causa exacta del incidente en el navegador permanece sin confirmar.
