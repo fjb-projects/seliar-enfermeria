@@ -114,6 +114,27 @@ type EpisodeMutationResult = {
     changed: boolean;
     replayed: boolean;
   };
+  initialCall?: {
+    communication: {
+      id: string;
+      episodeId: string;
+      ownerUserId: string;
+      clientCreationKey: string;
+    };
+    creationReceipt: {
+      communicationId: string;
+      episodeId: string;
+      ownerUserId: string;
+      clientCreationKey: string;
+      operationId: string;
+      direction: "incoming";
+      action: "created";
+      requestHash: string;
+      appliedVersion: 1;
+      changed: true;
+    };
+    replayed: boolean;
+  };
 };
 type EpisodeQueueController = {
   enqueue(entry: EpisodeQueueEntry): Promise<EpisodeQueueOutcome<EpisodeMutationResult>>;
@@ -131,6 +152,69 @@ const emptyForm = (): EpisodeFormValues => ({
   address: "",
   interventionNumber: "",
 });
+type InitialCallContinuation = {
+  operationId: string;
+  episodeId: string;
+  communicationId: string;
+  guardId: string;
+};
+type InitialCallIntentSnapshot = {
+  ownerUserId: string;
+  operationId: string;
+  guardId: string;
+  navigationRevision: number;
+  form: EpisodeFormValues;
+};
+// eslint-disable-next-line react-refresh/only-export-components
+export function episodeSaveActionLabel(isEditing: boolean, registerFirstCall: boolean) {
+  if (isEditing) return "Guardar cambios";
+  return registerFirstCall ? "Abrir servicio y registrar llamada" : "Abrir servicio";
+}
+// eslint-disable-next-line react-refresh/only-export-components
+export function hasFirstCallCreateIntent(
+  payload: Pick<PendingEpisodeCreate["payload"], "childCreateKey" | "direction"> | null,
+) {
+  return Boolean(payload?.childCreateKey && payload.direction === "incoming");
+}
+// eslint-disable-next-line react-refresh/only-export-components
+export async function applyAfterEpisodeNavigationStable<T>(
+  refresh: Promise<T>,
+  capturedRevision: number,
+  currentRevision: () => number,
+  apply: (result: T) => void,
+): Promise<boolean> {
+  const result = await refresh;
+  if (currentRevision() !== capturedRevision) return false;
+  apply(result);
+  return true;
+}
+type InitialCallRefreshEligibility = {
+  navigationStayedStable: boolean;
+  hasContinuation: boolean;
+  syncEditor: boolean;
+  activeOwnerMatches: boolean;
+  guardMatches: boolean;
+  selectedOperationId: string | null;
+  pendingOperationId: string | null;
+  expectedOperationId: string;
+  intentMatches: boolean;
+  formMatches: boolean;
+};
+// eslint-disable-next-line react-refresh/only-export-components
+export function canAutoOpenInitialCallAfterRefresh(eligibility: InitialCallRefreshEligibility) {
+  return Boolean(
+    eligibility.navigationStayedStable &&
+    eligibility.hasContinuation &&
+    eligibility.syncEditor &&
+    eligibility.activeOwnerMatches &&
+    eligibility.guardMatches &&
+    eligibility.selectedOperationId === eligibility.expectedOperationId &&
+    (eligibility.pendingOperationId === null ||
+      eligibility.pendingOperationId === eligibility.expectedOperationId) &&
+    eligibility.intentMatches &&
+    eligibility.formMatches,
+  );
+}
 // eslint-disable-next-line react-refresh/only-export-components
 export const formatEpisodeDate = (value: Date | string) =>
   new Date(value).toLocaleString("es-AR", { timeZone: "America/Argentina/Buenos_Aires" });
@@ -165,6 +249,7 @@ export function EfaEpisodePanel({
   const [episodes, setEpisodes] = useState(initialEpisodes);
   const [notices, setNotices] = useState(initialNotices);
   const [form, setForm] = useState<EpisodeFormValues>(emptyForm);
+  const [registerFirstCall, setRegisterFirstCall] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [history, setHistory] = useState<EpisodeAuditView[]>([]);
   const [historyFor, setHistoryFor] = useState<string | null>(null);
@@ -181,6 +266,8 @@ export function EfaEpisodePanel({
   const [saveError, setSaveError] = useState("");
   const [message, setMessage] = useState("");
   const [refreshWarning, setRefreshWarning] = useState("");
+  const [initialCallContinuation, setInitialCallContinuation] =
+    useState<InitialCallContinuation | null>(null);
   const lifecycleOperationRef = useRef<{ key: string; operationId: string } | null>(null);
   const submissionGate = useRef(createEpisodeSubmissionGate());
   const [queueEntries, setQueueEntries] = useState<EpisodeQueueEntry[]>([]);
@@ -208,10 +295,28 @@ export function EfaEpisodePanel({
   const queueModuleRef = useRef<typeof import("@/lib/efa-episodes.queue") | null>(null);
   const episodeHelpersRef = useRef<EpisodeClientHelpers | null>(null);
   const selectedQueueOperationId = useRef<string | null>(null);
+  const episodeNavigationRevisionRef = useRef(0);
+  const formRef = useRef(form);
+  const initialCallIntentRef = useRef<InitialCallIntentSnapshot | null>(null);
+  const initialCallContinuationRef = useRef(initialCallContinuation);
+  const openOwnGuardRef = useRef(openOwnGuard);
+  const workspaceEpisodeIdRef = useRef(workspaceEpisodeId);
+  const activeWorkspaceSectionRef = useRef(activeWorkspaceSection);
+  const visitedWorkspaceSectionsRef = useRef(visitedWorkspaceSections);
+  formRef.current = form;
+  initialCallContinuationRef.current = initialCallContinuation;
+  openOwnGuardRef.current = openOwnGuard;
+  workspaceEpisodeIdRef.current = workspaceEpisodeId;
+  activeWorkspaceSectionRef.current = activeWorkspaceSection;
+  visitedWorkspaceSectionsRef.current = visitedWorkspaceSections;
 
   function setActiveConflict(next: ActiveEpisodeConflict | null) {
     conflictRef.current = next;
     setConflict(next);
+  }
+
+  function advanceEpisodeNavigationRevision() {
+    episodeNavigationRevisionRef.current += 1;
   }
 
   function isActiveConflict(target: ActiveEpisodeConflict, ticket: EpisodeQueueOwnerTicket) {
@@ -274,7 +379,9 @@ export function EfaEpisodePanel({
     if (!queueReady || !queueAvailable || pendingRef.current || !selectedId) return;
     if (formDirty && !window.confirm("¿Cancelar la edición y descartar esos cambios sin guardar?"))
       return;
+    advanceEpisodeNavigationRevision();
     setSelectedId(null);
+    setRegisterFirstCall(true);
     setActiveConflict(null);
     setForm(emptyForm());
     setError("");
@@ -287,6 +394,7 @@ export function EfaEpisodePanel({
     if (selectedId !== episode.id && formDirty) {
       if (!window.confirm("¿Descartar el formulario actual para editar otro servicio?")) return;
     }
+    advanceEpisodeNavigationRevision();
     setSelectedId(episode.id);
     setActiveConflict(null);
     const ticket = ownerTicketRef.current;
@@ -307,9 +415,9 @@ export function EfaEpisodePanel({
   function openWorkspace(episodeId: string, section: EfaEpisodeWorkspaceSection) {
     const selection = planEpisodeWorkspaceSelection(
       {
-        episodeId: workspaceEpisodeId,
-        section: activeWorkspaceSection,
-        visited: visitedWorkspaceSections,
+        episodeId: workspaceEpisodeIdRef.current,
+        section: activeWorkspaceSectionRef.current,
+        visited: visitedWorkspaceSectionsRef.current,
         requiresDiscardConfirmation: false,
       },
       episodeId,
@@ -321,11 +429,24 @@ export function EfaEpisodePanel({
           "Al cambiar de servicio se cerrarán los editores relacionados que no enviaste. ¿Continuar?",
         )
       )
-        return;
+        return false;
     }
+    advanceEpisodeNavigationRevision();
     setVisitedWorkspaceSections(selection.visited);
     setWorkspaceEpisodeId(selection.episodeId);
     setActiveWorkspaceSection(selection.section);
+    visitedWorkspaceSectionsRef.current = selection.visited;
+    workspaceEpisodeIdRef.current = selection.episodeId;
+    activeWorkspaceSectionRef.current = selection.section;
+    return true;
+  }
+
+  function continueToInitialCall() {
+    const target = initialCallContinuationRef.current;
+    if (!target) return;
+    if (openWorkspace(target.episodeId, "communications")) {
+      setMessage("Servicio abierto. Preparando la primera llamada registrada.");
+    }
   }
 
   async function refreshAfterWrite(
@@ -433,11 +554,27 @@ export function EfaEpisodePanel({
   function restoreQueueEntry(entry: EpisodeQueueEntry) {
     const queue = queueModuleRef.current;
     if (!queue) return;
+    advanceEpisodeNavigationRevision();
     const restored = queue.restoreQueuedEpisode(entry);
     selectedQueueOperationId.current = entry.operationId;
     setPending(restored.operation);
     pendingRef.current = restored.operation;
     if (restored.form) setForm(restored.form);
+    const createPayload =
+      entry.kind === "create" ? (entry.payload as PendingEpisodeCreate["payload"]) : null;
+    if (entry.kind === "create") {
+      setRegisterFirstCall(hasFirstCallCreateIntent(createPayload));
+    }
+    initialCallIntentRef.current =
+      createPayload?.childCreateKey && createPayload.direction === "incoming" && restored.form
+        ? {
+            ownerUserId: entry.ownerUserId,
+            operationId: entry.operationId,
+            guardId: createPayload.guardId,
+            navigationRevision: episodeNavigationRevisionRef.current,
+            form: { ...restored.form },
+          }
+        : null;
     setError("");
     setSaveError("");
     setMessage("");
@@ -559,17 +696,93 @@ export function EfaEpisodePanel({
     }
     if (outcome.status === "confirmed" || outcome.status === "confirmed-cleanup-failed") {
       const result = outcome.result;
+      const createPayload =
+        operation.kind === "create" ? (operation.payload as PendingEpisodeCreate["payload"]) : null;
+      const intentSnapshot = initialCallIntentRef.current;
+      const formStillMatchesIntent = Boolean(
+        intentSnapshot &&
+        formRef.current.eventAt === intentSnapshot.form.eventAt &&
+        formRef.current.motive === intentSnapshot.form.motive &&
+        formRef.current.address === intentSnapshot.form.address &&
+        formRef.current.interventionNumber === intentSnapshot.form.interventionNumber,
+      );
+      const firstCall = result.initialCall;
+      const receipt = firstCall?.creationReceipt;
+      const communication = firstCall?.communication;
+      const canContinueToInitialCall = Boolean(
+        operation.kind === "create" &&
+        createPayload?.childCreateKey &&
+        createPayload.direction === "incoming" &&
+        intentSnapshot?.ownerUserId === ticket.ownerUserId &&
+        intentSnapshot.operationId === operation.operationId &&
+        intentSnapshot.guardId === createPayload.guardId &&
+        formStillMatchesIntent &&
+        activeUserRef.current === ticket.ownerUserId &&
+        openOwnGuardRef.current?.id === createPayload.guardId &&
+        selectedQueueOperationId.current === operation.operationId &&
+        pendingRef.current?.operationId === operation.operationId &&
+        result.operation.id === operation.operationId &&
+        result.operation.action === "created" &&
+        result.operation.appliedVersion === 1 &&
+        result.operation.changed &&
+        result.episode.ownerUserId === ticket.ownerUserId &&
+        result.episode.originGuardId === createPayload.guardId &&
+        communication?.id &&
+        communication.episodeId === result.episode.id &&
+        communication.ownerUserId === ticket.ownerUserId &&
+        communication.clientCreationKey === createPayload.childCreateKey &&
+        receipt?.communicationId === communication.id &&
+        receipt.episodeId === result.episode.id &&
+        receipt.ownerUserId === ticket.ownerUserId &&
+        receipt.clientCreationKey === createPayload.childCreateKey &&
+        receipt.operationId === createPayload.childCreateKey &&
+        receipt.direction === "incoming" &&
+        receipt.action === "created" &&
+        receipt.appliedVersion === 1 &&
+        receipt.changed &&
+        /^[0-9a-f]{64}$/.test(receipt.requestHash),
+      );
+      const continuation =
+        canContinueToInitialCall && createPayload && communication
+          ? {
+              operationId: operation.operationId,
+              episodeId: result.episode.id,
+              communicationId: communication.id,
+              guardId: createPayload.guardId,
+            }
+          : null;
+      const exposeInitialCallContinuation = (shouldAutoOpen: boolean) => {
+        if (!continuation) return;
+        initialCallIntentRef.current = null;
+        initialCallContinuationRef.current = continuation;
+        setInitialCallContinuation(continuation);
+        if (shouldAutoOpen && openWorkspace(result.episode.id, "communications")) {
+          setMessage("Servicio abierto. Preparando la primera llamada registrada.");
+        } else {
+          setMessage(
+            "El servicio y su primera llamada están guardados. Puedes continuar cuando quieras.",
+          );
+        }
+      };
       const helpers = episodeHelpersRef.current ?? (await loadEpisodeClientHelpers());
       episodeHelpersRef.current = helpers;
       if (!ownerFenceRef.current?.isCurrent(ticket)) return;
-      await refreshAfterWrite(
-        result.episode,
-        result.operation.appliedVersion,
-        operation.kind,
-        result.operation.changed,
-        helpers,
-        ticket,
-        operation.operationId,
+      let navigationStayedStable = false;
+      await applyAfterEpisodeNavigationStable(
+        refreshAfterWrite(
+          result.episode,
+          result.operation.appliedVersion,
+          operation.kind,
+          result.operation.changed,
+          helpers,
+          ticket,
+          operation.operationId,
+        ),
+        intentSnapshot?.navigationRevision ?? episodeNavigationRevisionRef.current,
+        () => episodeNavigationRevisionRef.current,
+        () => {
+          navigationStayedStable = true;
+        },
       );
       if (!ownerFenceRef.current?.isCurrent(ticket)) return;
       const syncEditor = queue.shouldSyncEpisodeOperationToEditor(
@@ -577,6 +790,31 @@ export function EfaEpisodePanel({
         pendingRef.current?.operationId ?? null,
         selectedQueueOperationId.current,
       );
+      const latestIntent = initialCallIntentRef.current;
+      const latestFormMatchesIntent = Boolean(
+        intentSnapshot &&
+        formRef.current.eventAt === intentSnapshot.form.eventAt &&
+        formRef.current.motive === intentSnapshot.form.motive &&
+        formRef.current.address === intentSnapshot.form.address &&
+        formRef.current.interventionNumber === intentSnapshot.form.interventionNumber,
+      );
+      const mayAutoOpenInitialCall = canAutoOpenInitialCallAfterRefresh({
+        navigationStayedStable,
+        hasContinuation: Boolean(continuation),
+        syncEditor,
+        activeOwnerMatches: activeUserRef.current === ticket.ownerUserId,
+        guardMatches: openOwnGuardRef.current?.id === continuation?.guardId,
+        selectedOperationId: selectedQueueOperationId.current,
+        pendingOperationId: pendingRef.current?.operationId ?? null,
+        expectedOperationId: operation.operationId,
+        intentMatches: Boolean(
+          latestIntent?.ownerUserId === ticket.ownerUserId &&
+          latestIntent.operationId === operation.operationId &&
+          latestIntent.guardId === continuation?.guardId &&
+          latestIntent.navigationRevision === intentSnapshot?.navigationRevision,
+        ),
+        formMatches: latestFormMatchesIntent,
+      });
       if (outcome.status === "confirmed-cleanup-failed") {
         if (syncEditor) {
           setPending(operation);
@@ -585,12 +823,18 @@ export function EfaEpisodePanel({
           setMessage(
             `${operation.kind === "close" ? "Cierre" : "Guardado"} confirmado en el servidor; no se pudo limpiar la cola local. No vuelvas a enviarlo.`,
           );
+          if (continuation) exposeInitialCallContinuation(mayAutoOpenInitialCall);
         }
       } else if (syncEditor) {
         selectedQueueOperationId.current = null;
         if (operation.kind === "create") {
-          setForm(emptyForm());
-          setSelectedId(null);
+          if (continuation) {
+            exposeInitialCallContinuation(mayAutoOpenInitialCall);
+          } else {
+            initialCallIntentRef.current = null;
+            setForm(emptyForm());
+            setSelectedId(null);
+          }
         }
       }
       return;
@@ -762,6 +1006,9 @@ export function EfaEpisodePanel({
     queueEntriesRef.current = [];
     setPending(null);
     pendingRef.current = null;
+    initialCallIntentRef.current = null;
+    initialCallContinuationRef.current = null;
+    setInitialCallContinuation(null);
     setSelectedId(null);
     setWorkspaceEpisodeId(null);
     setVisitedWorkspaceSections(new Set());
@@ -771,6 +1018,7 @@ export function EfaEpisodePanel({
     setEpisodes(initialEpisodes);
     setNotices(initialNotices);
     setForm(emptyForm());
+    setRegisterFirstCall(true);
     setQueueError("");
     setError("");
     setSaveError("");
@@ -870,6 +1118,7 @@ export function EfaEpisodePanel({
     let preparationStage = "client helpers";
     const ticket = ownerTicketRef.current;
     if (!ticket || ticket.ownerUserId !== currentUserId) return;
+    const requestedNavigationRevision = episodeNavigationRevisionRef.current;
     void submissionGate.current
       .run(async () => {
         if (!ownerFenceRef.current?.isCurrent(ticket)) return;
@@ -897,12 +1146,26 @@ export function EfaEpisodePanel({
                 interventionNumber: normalized.interventionNumber,
               })
             : openOwnGuard
-              ? helpers.createPendingCreate(openOwnGuard.id, normalized)
+              ? helpers.createPendingCreate(openOwnGuard.id, normalized, undefined, {
+                  registerFirstCall,
+                })
               : null;
           if (!operation) {
             setSaveError("Para crear un episodio necesitas una guardia propia abierta.");
             return;
           }
+          initialCallIntentRef.current =
+            operation.kind === "create" &&
+            operation.payload.childCreateKey &&
+            operation.payload.direction === "incoming"
+              ? {
+                  ownerUserId: currentUserId,
+                  operationId: operation.operationId,
+                  guardId: operation.payload.guardId,
+                  navigationRevision: requestedNavigationRevision,
+                  form: { ...form },
+                }
+              : null;
           const entry: EpisodeQueueEntry = {
             ownerUserId: currentUserId,
             operationId: operation.operationId,
@@ -1275,7 +1538,7 @@ export function EfaEpisodePanel({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" onClickCapture={advanceEpisodeNavigationRevision}>
       <Card className="bg-indigo-100">
         <CardHeader>
           <CardTitle>Servicios de la guardia</CardTitle>
@@ -1543,6 +1806,22 @@ export function EfaEpisodePanel({
               Si no completas motivo ni dirección, el borrador se identifica por fecha y hora. El
               número de intervención conserva ceros iniciales.
             </p>
+            {!selected && openOwnGuard && (
+              <label
+                htmlFor="episode-register-first-call"
+                className="flex min-h-11 items-center gap-3 rounded-md border px-3 py-2 text-sm"
+              >
+                <input
+                  id="episode-register-first-call"
+                  type="checkbox"
+                  className="size-4 shrink-0"
+                  checked={registerFirstCall}
+                  disabled={!queueReady || busy || Boolean(pending) || Boolean(conflict)}
+                  onChange={(event) => setRegisterFirstCall(event.target.checked)}
+                />
+                <span>Registrar primera llamada</span>
+              </label>
+            )}
             <Button
               className="min-h-11 w-full sm:w-auto"
               disabled={
@@ -1555,7 +1834,7 @@ export function EfaEpisodePanel({
               }
               onClick={save}
             >
-              {selected ? "Guardar cambios" : "Guardar borrador"}
+              {episodeSaveActionLabel(Boolean(selected), registerFirstCall)}
             </Button>
             {saveError && (
               <p role="alert" className="text-sm text-destructive">
@@ -1565,6 +1844,22 @@ export function EfaEpisodePanel({
           </CardContent>
         </Card>
       )}
+
+      {initialCallContinuation &&
+        (workspaceEpisodeId !== initialCallContinuation.episodeId ||
+          activeWorkspaceSection !== "communications") && (
+          <div role="status" className="rounded-md border border-sky-300 bg-sky-50 p-3 text-sm">
+            El servicio y su primera llamada están guardados. Puedes continuar cuando quieras.
+            <Button
+              type="button"
+              variant="outline"
+              className="mt-2 min-h-11 w-full sm:w-auto"
+              onClick={continueToInitialCall}
+            >
+              Continuar al servicio y su primera llamada
+            </Button>
+          </div>
+        )}
 
       <Card>
         <CardHeader className="px-3 pt-4 sm:px-6 sm:pt-6">
@@ -1717,6 +2012,26 @@ export function EfaEpisodePanel({
                         currentUserId={currentUserId}
                         canWrite={canWrite}
                         episodeCanEdit={episode.canEdit}
+                        initialCallTarget={
+                          initialCallContinuation?.episodeId === episode.id &&
+                          activeWorkspaceSection === "communications"
+                            ? {
+                                operationId: initialCallContinuation.operationId,
+                                communicationId: initialCallContinuation.communicationId,
+                              }
+                            : null
+                        }
+                        onInitialCallSelected={(operationId, communicationId) => {
+                          setInitialCallContinuation((current) => {
+                            if (
+                              current?.operationId !== operationId ||
+                              current.communicationId !== communicationId
+                            )
+                              return current;
+                            initialCallContinuationRef.current = null;
+                            return null;
+                          });
+                        }}
                       />
                     </div>
                   )}

@@ -3,6 +3,10 @@ import type { ComponentProps } from "react";
 import { describe, expect, it, vi } from "vitest";
 import {
   createEpisodeSubmissionGate,
+  applyAfterEpisodeNavigationStable,
+  canAutoOpenInitialCallAfterRefresh,
+  episodeSaveActionLabel,
+  hasFirstCallCreateIntent,
   EfaEpisodePanel,
   formatEpisodeDate,
   type EpisodeView,
@@ -137,6 +141,66 @@ describe("EfaEpisodePanel", () => {
     expect(formatEpisodeDate("2026-10-06T09:30:00.000Z")).toContain("06:30");
   });
 
+  it("restores first-call intent only from the frozen paired incoming payload", () => {
+    expect(hasFirstCallCreateIntent({ childCreateKey: "child-key", direction: "incoming" })).toBe(
+      true,
+    );
+    expect(hasFirstCallCreateIntent({})).toBe(false);
+    expect(hasFirstCallCreateIntent({ childCreateKey: "child-key" })).toBe(false);
+  });
+
+  it("does not apply an automatic continuation after navigation changes during refresh", async () => {
+    let resolveRefresh!: (value: "refreshed") => void;
+    const refresh = new Promise<"refreshed">((resolve) => {
+      resolveRefresh = resolve;
+    });
+    let navigationRevision = 4;
+    let autoOpened = false;
+    let continuationAvailable = false;
+    const apply = applyAfterEpisodeNavigationStable(
+      refresh,
+      4,
+      () => navigationRevision,
+      () => {
+        autoOpened = true;
+      },
+    );
+
+    navigationRevision += 1;
+    continuationAvailable = true;
+    resolveRefresh("refreshed");
+
+    await expect(apply).resolves.toBe(false);
+    expect(autoOpened).toBe(false);
+    expect(continuationAvailable).toBe(true);
+  });
+
+  it("allows the selected create after refresh clears its expected pending operation", () => {
+    const eligibility = {
+      navigationStayedStable: true,
+      hasContinuation: true,
+      syncEditor: true,
+      activeOwnerMatches: true,
+      guardMatches: true,
+      selectedOperationId: "create-op",
+      pendingOperationId: "create-op",
+      expectedOperationId: "create-op",
+      intentMatches: true,
+      formMatches: true,
+    };
+
+    expect(canAutoOpenInitialCallAfterRefresh(eligibility)).toBe(true);
+    expect(canAutoOpenInitialCallAfterRefresh({ ...eligibility, pendingOperationId: null })).toBe(
+      true,
+    );
+    expect(
+      canAutoOpenInitialCallAfterRefresh({ ...eligibility, pendingOperationId: "another-op" }),
+    ).toBe(false);
+    expect(
+      canAutoOpenInitialCallAfterRefresh({ ...eligibility, selectedOperationId: "another-op" }),
+    ).toBe(false);
+  });
+
   it("keeps a revoked EFA account's active-guard services read-only", () => {
     const html = renderToStaticMarkup(
       <EfaEpisodePanel
@@ -205,8 +269,11 @@ describe("EfaEpisodePanel", () => {
     expect(html).toContain("se guardan en IndexedDB legible por este origen");
     expect(html).toContain("Nuevo episodio");
     expect(html).toMatch(/id="episode-event-at"[^>]*disabled=""/);
-    expect(html).toMatch(/Guardar borrador<\/button>/);
-    expect(html).toMatch(/disabled=""[^>]*>Guardar borrador<\/button>/);
+    expect(html).toContain("Registrar primera llamada");
+    expect(html).toMatch(/<input[^>]*type="checkbox"[^>]*checked=""/);
+    expect(html).toMatch(/disabled=""[^>]*>Abrir servicio y registrar llamada<\/button>/);
+    expect(episodeSaveActionLabel(false, false)).toBe("Abrir servicio");
+    expect(episodeSaveActionLabel(true, true)).toBe("Guardar cambios");
   });
 
   it("limits the visible workspace to the open guard and exposes explicit closure", () => {
@@ -253,7 +320,7 @@ describe("EfaEpisodePanel", () => {
     expect(html.indexOf("Activo")).toBeLessThan(html.indexOf("Cerrado"));
     expect(html).toContain("Episodio del 6/10/2026, 06:30:00");
     expect(html).toContain("Episodio del");
-    expect(html).toContain("Guardar borrador");
+    expect(html).toContain("Abrir servicio y registrar llamada");
     expect(html).not.toContain("Dejar de editar");
   });
 
