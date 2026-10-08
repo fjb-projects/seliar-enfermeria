@@ -52,7 +52,9 @@ La interfaz de la tarea C carga las marcas junto con las guardias y la dotación
 
 ## Próximo paso
 
-Integrar localmente las tres ramas y verificar el resultado integrado. Después, decidir la aplicación de la migración y el despliegue; no queda implementación de código pendiente en esta iniciativa.
+El código está completo localmente en la rama hija C, `codex/efa-mobile-arrival-03-ui`, que contiene el trabajo de las tres tareas. La rama integradora se mantiene como base y seguimiento hasta que se revisen los PR hijos; no corresponde integrar las tres ramas localmente antes de esa revisión.
+
+La publicación de los PR hijos y su mezcla en la rama integradora requieren una decisión y autorización separadas. Antes de abrir los PR de B o C, queda decidir entre `size:exception` y resegmentar. Para C, separar la captura de la edición y eliminación requeriría rehacer el comportamiento intermedio. La aplicación de la migración de base de datos y el despliegue también requieren una decisión y autorización separadas.
 
 ## Registro de commits y entrega
 
