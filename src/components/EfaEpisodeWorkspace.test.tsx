@@ -26,10 +26,19 @@ describe("EfaEpisodeWorkspace", () => {
 
     expect(html).toContain("Atención del 6 de octubre");
     expect(html).toContain('aria-label="Secciones del servicio"');
+    expect(html).toContain('aria-label="Área de trabajo del servicio Atención del 6 de octubre"');
     expect(html).toContain('aria-label="Contraer área de trabajo"');
     expect(html).toContain('aria-controls="efa-workspace-content"');
     expect(html).toContain('aria-pressed="true"');
     expect(html).toContain("Llamadas");
+    expect(html).toContain("Despachos");
+    expect(html).toContain("Coordinación");
+    expect(html).toContain("Conductas");
+    expect(html).toContain("grid min-w-0 grid-cols-2");
+    expect(html).toContain("whitespace-normal break-words");
+    expect(html).toContain("h-auto min-h-11");
+    expect(html).toContain('<span class="min-w-0 break-words">Coordinación</span>');
+    expect(html).not.toContain("overflow-x-auto");
     expect(html).toContain("Contenido de la sección activa");
   });
 

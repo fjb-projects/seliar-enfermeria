@@ -120,16 +120,18 @@ export function EfaEpisodeWorkspace({
     heading.scrollIntoView?.({ behavior: reducedMotion ? "auto" : "smooth", block: "nearest" });
   }, []);
   return (
-    <section className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/80 p-3 dark:border-slate-800 dark:bg-slate-950/30 sm:p-4">
+    <section className="space-y-3">
       <header className="flex items-start justify-between gap-3">
         <div>
-          <h4 ref={headingRef} tabIndex={-1} className="font-semibold focus:outline-none">
-            Área de trabajo · {episodeLabel}
+          <h4
+            ref={headingRef}
+            tabIndex={-1}
+            aria-label={`Área de trabajo del servicio ${episodeLabel}`}
+            className="font-semibold focus:outline-none"
+          >
+            Área de trabajo
           </h4>
-          <p className="text-sm text-muted-foreground">
-            Los registros relacionados se guardan por separado; cambiar de sección no cierra el
-            servicio.
-          </p>
+          <p className="text-sm text-muted-foreground">Registros vinculados al servicio actual.</p>
         </div>
         <Button
           type="button"
@@ -156,22 +158,25 @@ export function EfaEpisodeWorkspace({
         aria-hidden={collapsed}
         className="space-y-3"
       >
-        <nav aria-label="Secciones del servicio" className="flex gap-2 overflow-x-auto pb-1">
+        <nav
+          aria-label="Secciones del servicio"
+          className="grid min-w-0 grid-cols-2 gap-2 sm:flex sm:flex-wrap"
+        >
           {sections.map((section) => (
             <Button
               key={section.id}
               type="button"
               variant="outline"
-              className={`min-h-11 shrink-0 border ${section.style} ${activeSection === section.id ? "ring-2 ring-primary ring-offset-1" : "opacity-80"}`}
+              className={`h-auto min-h-11 w-full min-w-0 justify-start whitespace-normal break-words border px-2 text-left sm:w-auto sm:px-3 ${section.style} ${activeSection === section.id ? "ring-2 ring-primary ring-offset-1" : "opacity-80"}`}
               aria-pressed={activeSection === section.id}
               onClick={() => onSelectSection(section.id)}
             >
-              <section.Icon aria-hidden="true" className="size-4" />
-              {section.label}
+              <section.Icon aria-hidden="true" className="size-4 shrink-0" />
+              <span className="min-w-0 break-words">{section.label}</span>
             </Button>
           ))}
         </nav>
-        <div className={`rounded-md border p-3 ${sectionSurfaces[activeSection]}`}>{children}</div>
+        <div className={`border-l-2 pl-2 ${sectionSurfaces[activeSection]}`}>{children}</div>
       </div>
     </section>
   );

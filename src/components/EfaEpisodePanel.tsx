@@ -1567,10 +1567,10 @@ export function EfaEpisodePanel({
       )}
 
       <Card>
-        <CardHeader>
+        <CardHeader className="px-3 pt-4 sm:px-6 sm:pt-6">
           <CardTitle>Servicios de esta guardia</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent className="space-y-3 px-3 pb-3 pt-0 sm:px-6 sm:pb-6">
           {activeGuardEpisodes.length === 0 && (
             <p className="text-sm text-muted-foreground">
               {openOwnGuard
@@ -1581,7 +1581,7 @@ export function EfaEpisodePanel({
           {activeGuardEpisodes.map((episode) => (
             <article
               key={episode.id}
-              className={`space-y-2.5 rounded-lg border p-3 sm:p-4 ${
+              className={`space-y-2.5 rounded-lg border p-2 sm:p-4 ${
                 episode.cancelledAt
                   ? "border-rose-200 bg-rose-50/70 dark:border-rose-900 dark:bg-rose-950/20"
                   : episode.state === "closed"
