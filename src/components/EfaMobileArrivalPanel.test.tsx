@@ -39,10 +39,59 @@ describe("EfaMobileArrivalPanel", () => {
     expect(html).toContain("Conducción");
     expect(html).toContain("Medicina");
     expect(html).toContain("min-h-11");
+    expect(html).toContain("px-2 sm:px-4");
+  });
+
+  it("keeps mobile capture actions beside the role without repeating empty-state copy", () => {
+    const html = renderToStaticMarkup(
+      <EfaMobileArrivalPanel
+        guardId="guard-a"
+        bases={[base]}
+        arrivals={[]}
+        canWrite
+        onArrivalsChange={vi.fn()}
+      />,
+    );
+
+    expect(mobileArrivalEditClasses.row).toContain("grid-cols-[minmax(0,1fr)_auto]");
+    expect(mobileArrivalEditClasses.row).not.toContain("sm:grid-cols-");
+    expect(html).not.toContain("Sin ingreso registrado");
+    expect(html).toContain("Registrar ingreso");
+    expect(html).not.toContain("min-h-11 w-full sm:w-auto");
+  });
+
+  it("places sorted catalog checkboxes and selected mobile roles in one pending-aware list", () => {
+    const html = renderToStaticMarkup(
+      <EfaMobileArrivalPanel
+        guardId="guard-a"
+        bases={[{ id: "mobile-2", name: "Móvil 2", isActive: true }]}
+        availableBases={[
+          { id: "mobile-10", name: "Móvil 10", isActive: true },
+          { id: "mobile-2", name: "Móvil 2", isActive: true },
+          { id: "mobile-1", name: "Móvil 1", isActive: true },
+        ]}
+        requestedBaseIds={["mobile-2"]}
+        membershipPendingBaseIds={["mobile-2"]}
+        membershipErrors={{ "mobile-2": "No se pudo confirmar; sincroniza." }}
+        arrivals={[]}
+        canWrite
+        onBaseSelectionChange={vi.fn()}
+        onArrivalsChange={vi.fn()}
+      />,
+    );
+
+    expect((html.match(/type="checkbox"/g) ?? []).length).toBe(3);
+    expect(html.indexOf("Móvil 1")).toBeLessThan(html.indexOf("Móvil 2"));
+    expect(html.indexOf("Móvil 2")).toBeLessThan(html.indexOf("Móvil 10"));
+    expect(html).toContain("Guardando móvil…");
+    expect(html).toContain("No se pudo confirmar; sincroniza.");
+    expect(html.match(/Registrar ingreso/g)).toHaveLength(3);
+    expect(html).toMatch(/Registrar ingreso<\/button>/);
   });
 
   it("keeps the mobile edit grid and datetime control shrinkable", () => {
     expect(mobileArrivalEditClasses.row).toContain("min-w-0");
+    expect(mobileArrivalEditClasses.editingRow).toContain("grid-cols-1");
     expect(mobileArrivalEditClasses.content).toContain("min-w-0");
     expect(mobileArrivalEditClasses.form).toContain("grid-cols-1");
     expect(mobileArrivalEditClasses.form).toContain("min-w-0");
@@ -51,29 +100,20 @@ describe("EfaMobileArrivalPanel", () => {
     expect(mobileArrivalEditClasses.input).toContain("min-h-11");
   });
 
-  it("expands persisted bases only when the active guard requests it", () => {
-    const expanded = renderToStaticMarkup(
+  it("shows all selected role controls without a second disclosure click", () => {
+    const html = renderToStaticMarkup(
       <EfaMobileArrivalPanel
         guardId="guard-a"
-        bases={[base]}
+        bases={[base, { id: "base-b", name: "Norte", isActive: true }]}
         arrivals={[]}
         canWrite
-        expandBasesByDefault
-        onArrivalsChange={vi.fn()}
-      />,
-    );
-    const compact = renderToStaticMarkup(
-      <EfaMobileArrivalPanel
-        guardId="guard-a"
-        bases={[base]}
-        arrivals={[]}
-        canWrite={false}
         onArrivalsChange={vi.fn()}
       />,
     );
 
-    expect(expanded).toMatch(/<details[^>]*open=""/);
-    expect(compact).not.toMatch(/<details[^>]*open=""/);
+    expect(html).toContain("Enfermería");
+    expect(html.match(/Registrar ingreso/g)).toHaveLength(6);
+    expect(html).not.toContain("<details");
   });
 
   it("shows saved time with edit and delete actions only when the server permits changes", () => {
@@ -104,6 +144,38 @@ describe("EfaMobileArrivalPanel", () => {
     expect(html).not.toContain("Editar");
     expect(html).not.toContain("Eliminar");
     expect(html).not.toContain("Registrar ingreso");
+  });
+
+  it("shows a short active-role time with the full date available to assistive technology", () => {
+    const arrivedAt = "2026-10-07T12:08:00.000Z";
+    const arrival: MobileArrivalView = {
+      id: "arrival-a",
+      guardId: "guard-a",
+      baseId: base.id,
+      baseNameSnapshot: base.name,
+      role: "nurse",
+      arrivedAt,
+      deletedAt: null,
+      version: 1,
+      canEdit: false,
+    };
+    const html = renderToStaticMarkup(
+      <EfaMobileArrivalPanel
+        guardId="guard-a"
+        bases={[base]}
+        arrivals={[arrival]}
+        canWrite
+        onArrivalsChange={vi.fn()}
+      />,
+    );
+
+    const date = new Date(arrivedAt);
+    const shortTime = date.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
+    const fullDate = date.toLocaleString("es-AR");
+    expect(html).toContain(
+      `dateTime="${arrivedAt}" aria-label="Ingreso registrado el ${fullDate}"`,
+    );
+    expect(html).toContain(`>${shortTime}</time>`);
   });
 
   it("reuses the same operation identity for an unchanged retry payload", () => {

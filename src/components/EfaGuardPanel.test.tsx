@@ -113,11 +113,11 @@ describe("EfaGuardPanel", () => {
     expect(html).toContain("Responsable: current-user");
     expect(html).toContain("Corregir hora de cierre");
     expect(html).toContain("Dotación observada");
-    expect(html).toContain("Ingreso de móviles");
+    expect(html).toContain('aria-label="Móviles"');
     expect(html).not.toContain("Registrar ingreso");
   });
 
-  it("shows persisted mobile arrival rows below the active guard base selector", () => {
+  it("shows the single unified mobile manager for the active guard", () => {
     const html = renderToStaticMarkup(
       <EfaGuardPanel
         initialGuards={[
@@ -141,13 +141,86 @@ describe("EfaGuardPanel", () => {
     );
     const activeGuard = html.slice(0, html.indexOf("Mis guardias"));
 
-    expect(activeGuard.indexOf("Guardar bases")).toBeLessThan(
-      activeGuard.indexOf("Ingreso de móviles"),
-    );
-    expect(activeGuard).toContain("Ingreso de móviles");
+    expect(activeGuard).toContain("Gestionar móviles");
+    expect(activeGuard).not.toContain("Guardar bases");
+    expect(activeGuard).toContain("Guardia en curso · Inicio:");
+    expect(activeGuard).not.toContain("El inicio y el cierre son manuales");
+    expect(activeGuard).not.toContain("Después de iniciar la guardia");
+    expect(activeGuard).not.toContain("Presencia declarada en Central");
     expect(activeGuard.match(/Registrar ingreso/g)).toHaveLength(3);
-    expect(activeGuard).toMatch(/<details[^>]*open=""/);
-    expect((html.match(/Ingreso de móviles/g) ?? []).length).toBe(1);
+    expect(activeGuard).not.toMatch(/<details[^>]*\bopen(?:="")?/);
+    expect((html.match(/aria-label="Móviles"/g) ?? []).length).toBe(1);
+  });
+
+  it("shows one confirmed mobile summary and a collapsed unified manager for an active selection", () => {
+    const html = renderToStaticMarkup(
+      <EfaGuardPanel
+        initialGuards={[
+          {
+            id: "open-guard",
+            ownerUserId: "current-user",
+            startedAt: "2026-10-07T08:00:00.000Z",
+            endedAt: null,
+            declaredAtCentral: true,
+            version: 3,
+            bases: [
+              { id: "mobile-10", name: "Móvil 10", isActive: true },
+              { id: "mobile-2", name: "Móvil 2", isActive: true },
+            ],
+            baseEvents: [],
+          },
+        ]}
+        activeBases={[
+          { id: "mobile-10", name: "Móvil 10", isActive: true },
+          { id: "mobile-2", name: "Móvil 2", isActive: true },
+          { id: "mobile-1", name: "Móvil 1", isActive: true },
+        ]}
+        initialStaffing={{}}
+        currentUserId="current-user"
+        isAdmin={false}
+        canWrite
+      />,
+    );
+    const activeGuard = html.slice(0, html.indexOf("Mis guardias"));
+
+    expect(activeGuard).toContain("Móviles activos");
+    expect(activeGuard.indexOf("Móvil 2")).toBeLessThan(activeGuard.indexOf("Móvil 10"));
+    expect(activeGuard).toContain("Gestionar móviles");
+    expect(activeGuard).not.toContain("Guardar bases");
+    expect((html.match(/Registrar atenciones/g) ?? []).length).toBe(1);
+    expect((html.match(/aria-label="Móviles"/g) ?? []).length).toBe(1);
+    expect(activeGuard).not.toMatch(/<details[^>]*\bopen(?:="")?[^>]*>/);
+  });
+
+  it("opens the unified mobile manager when an active guard has no selected mobiles", () => {
+    const html = renderToStaticMarkup(
+      <EfaGuardPanel
+        initialGuards={[
+          {
+            id: "open-guard",
+            ownerUserId: "current-user",
+            startedAt: "2026-10-07T08:00:00.000Z",
+            endedAt: null,
+            declaredAtCentral: true,
+            version: 1,
+            bases: [],
+            baseEvents: [],
+          },
+        ]}
+        activeBases={[]}
+        initialStaffing={{}}
+        currentUserId="current-user"
+        isAdmin={false}
+        canWrite
+      />,
+    );
+
+    expect(html).toContain("Gestionar móviles");
+    expect(html).toContain("Elegir móviles es opcional.");
+    expect(html).not.toContain(
+      "Después de iniciar la guardia, registra las atenciones en episodios",
+    );
+    expect(html.match(/<details[^>]*open=""/)).not.toBeNull();
   });
 
   it("makes an open guard status obvious without hiding the episode action", () => {
@@ -187,9 +260,9 @@ describe("EfaGuardPanel", () => {
     expect(html).toContain("/episodios-efa");
     expect(html).toContain("Registrar atenciones");
     expect([...html.matchAll(/<details[^>]*>/g)].map(([tag]) => /\bopen(?:="")?/.test(tag))).toEqual(
-      [true, false],
+      [true, false, false],
     );
-    expect(html).toContain("Ocultar detalles");
+    expect(html).toContain("Ver detalles");
   });
 
   it("initializes selected bases only from the current user's open guard", () => {
@@ -232,18 +305,16 @@ describe("EfaGuardPanel", () => {
         canWrite
       />,
     );
-    const selectedBases = [
-      ...html.matchAll(/<label[^>]*><input[^>]*checked=""[^>]*>\s*<span>(.*?)<\/span>/g),
-    ].map((match) => match[1]);
-
-    expect(selectedBases).toEqual(["Central", "Norte"]);
+    expect(html).toContain("Móviles activos (2)");
+    expect(html).toContain(">Central</button>");
+    expect(html).toContain(">Norte</button>");
     expect(html).toContain("Oeste");
     expect(html).toContain("/episodios-efa");
     expect(html).toContain("Ver conductas observadas");
     expect(html).toContain("Planificación futura (solo lectura)");
     expect(html).toContain("La planificación no confirma la dotación observada");
-    expect(html).toContain("Después de iniciar la guardia, registra las atenciones en episodios");
-    expect(html).toContain("Elegir bases es opcional");
+    expect(html).not.toContain("Después de iniciar la guardia, registra las atenciones en episodios");
+    expect(html).toContain("Presencia declarada en Central");
   });
 
   it("keeps guard history visible without exposing write controls to revoked EFA", () => {
@@ -303,6 +374,8 @@ describe("EfaGuardPanel", () => {
     );
 
     expect(html).toContain("Después de iniciar la guardia, registra las atenciones en episodios");
+    expect(html).toContain("El inicio y el cierre son manuales");
+    expect(html).toContain("no usa GPS ni verifica ubicación");
     expect(html).toContain("Elegir bases es opcional");
     expect(html).not.toContain("Ir a episodios de atención");
   });

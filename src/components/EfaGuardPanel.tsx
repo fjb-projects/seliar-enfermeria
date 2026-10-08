@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { Button } from "@/components/ui/button";
@@ -26,6 +26,11 @@ import { getOperationalDateRange } from "@/lib/efa-staffing-plan.date";
 import type { DatedSlot } from "@/lib/efa-staffing-plan.server";
 import { listEfaMobileArrivalsForGuard } from "@/lib/efa-mobile-arrivals.functions";
 import { EfaMobileArrivalPanel, type MobileArrivalView } from "./EfaMobileArrivalPanel";
+import {
+  createEfaGuardMobileWorkspace,
+  sortGuardMobileBases,
+  type EfaGuardMobileWorkspaceSnapshot,
+} from "@/lib/efa-guard-mobile-workspace";
 
 export type GuardBase = { id: string; name: string; isActive: boolean };
 export type GuardEvent = {
@@ -589,22 +594,18 @@ export function EfaGuardPanel({
   const [bases, setBases] = useState(activeBases);
   const [staffingByGuard, setStaffingByGuard] = useState(initialStaffing);
   const [arrivalsByGuard, setArrivalsByGuard] = useState(initialArrivals ?? {});
-  const [selectedBaseIds, setSelectedBaseIds] = useState<string[]>(() => {
-    const openOwnGuard = initialGuards.find(
-      (guard) => guard.ownerUserId === currentUserId && !guard.endedAt,
-    );
-    return openOwnGuard?.bases.map((base) => base.id) ?? [];
-  });
   const [centralConfirmed, setCentralConfirmed] = useState(false);
   const [corrections, setCorrections] = useState<Record<string, string>>({});
   const [guardDetailsOpen, setGuardDetailsOpen] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries(
-      initialGuards.map((guard) => [
-        guard.id,
-        guard.ownerUserId === currentUserId && !guard.endedAt,
-      ]),
-    ),
+    Object.fromEntries(initialGuards.map((guard) => [guard.id, false])),
   );
+  const [mobileManagerState, setMobileManagerState] = useState<{ guardId: string; open: boolean } | null>(null);
+  const [mobileFocusState, setMobileFocusState] = useState<{
+    guardId: string;
+    baseId: string;
+    requestId: number;
+  } | null>(null);
+  const mobileFocusSequence = useRef(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -639,10 +640,6 @@ export function EfaGuardPanel({
         MobileArrivalView[]
       >,
     );
-    const open = currentGuards.find(
-      (guard) => guard.ownerUserId === currentUserId && !guard.endedAt,
-    );
-    setSelectedBaseIds(open?.bases.map((base) => base.id) ?? []);
   }
 
   async function runAction(action: () => Promise<unknown>, success: string): Promise<boolean> {
@@ -666,26 +663,102 @@ export function EfaGuardPanel({
   const openOwnGuard = guards.find(
     (guard) => guard.ownerUserId === currentUserId && !guard.endedAt,
   );
-  const selectedBasesMatchPersisted = Boolean(
-    openOwnGuard &&
-    selectedBaseIds.length === openOwnGuard.bases.length &&
-    selectedBaseIds.every((id) => openOwnGuard.bases.some((base) => base.id === id)),
-  );
+  const activeGuardRef = useRef<GuardView | undefined>(openOwnGuard);
+  activeGuardRef.current = openOwnGuard;
+  const serverFunctionsRef = useRef({ updateBases, listGuards, listArrivals });
+  serverFunctionsRef.current = { updateBases, listGuards, listArrivals };
+  const activeWorkspace = useMemo(() => {
+    if (!openOwnGuard) return null;
+    const guardId = openOwnGuard.id;
+    const workspace = createEfaGuardMobileWorkspace<GuardBase, GuardView, MobileArrivalView>({
+      initialGuard: openOwnGuard,
+      writeMembership: (input) =>
+        serverFunctionsRef.current.updateBases({ data: input }) as Promise<GuardView>,
+      readGuard: async (id) => {
+        const currentGuards = (await serverFunctionsRef.current.listGuards()) as GuardView[];
+        return currentGuards.find((guard) => guard.id === id) ?? null;
+      },
+      readArrivals: async (id) =>
+        (await serverFunctionsRef.current.listArrivals({ data: id })) as MobileArrivalView[],
+      isCurrent: (id) => {
+        const current = activeGuardRef.current;
+        return (
+          current?.id === id &&
+          current.ownerUserId === currentUserId &&
+          !current.endedAt &&
+          canWrite
+        );
+      },
+      onGuardConfirmed: (confirmed) => {
+        setGuards((current) =>
+          current.map((guard) => (guard.id === guardId ? { ...guard, ...confirmed } : guard)),
+        );
+      },
+      onArrivalsConfirmed: (id, nextArrivals) => {
+        setArrivalsByGuard((current) => ({ ...current, [id]: nextArrivals }));
+      },
+    });
+    return workspace;
+  }, [openOwnGuard?.id, currentUserId, canWrite]);
+  const [workspaceSnapshot, setWorkspaceSnapshot] = useState<{
+    guardId: string;
+    snapshot: EfaGuardMobileWorkspaceSnapshot<GuardView, GuardBase>;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!activeWorkspace || !openOwnGuard) {
+      setWorkspaceSnapshot(null);
+      return;
+    }
+    const guardId = openOwnGuard.id;
+    const updateSnapshot = () =>
+      setWorkspaceSnapshot({ guardId, snapshot: activeWorkspace.getSnapshot() });
+    updateSnapshot();
+    const unsubscribe = activeWorkspace.subscribe(updateSnapshot);
+    return () => {
+      unsubscribe();
+      activeWorkspace.dispose();
+    };
+  }, [activeWorkspace, openOwnGuard?.id]);
+
+  const activeWorkspaceState =
+    workspaceSnapshot && workspaceSnapshot.guardId === openOwnGuard?.id
+      ? workspaceSnapshot.snapshot
+      : activeWorkspace?.getSnapshot();
+  const managerOpen = openOwnGuard
+    ? mobileManagerState?.guardId === openOwnGuard.id
+      ? mobileManagerState.open
+      : openOwnGuard.bases.length === 0
+    : false;
+  const confirmedActiveGuard = activeWorkspaceState?.confirmedGuard ?? openOwnGuard;
+  const mobileCatalog = confirmedActiveGuard
+    ? [
+        ...bases,
+        ...confirmedActiveGuard.bases.filter((base) => !bases.some((item) => item.id === base.id)),
+      ]
+    : bases;
+  const confirmedMobileBases = confirmedActiveGuard
+    ? sortGuardMobileBases(confirmedActiveGuard.bases)
+    : [];
 
   return (
     <div className="space-y-4">
-      <Button asChild variant="outline" className="min-h-11">
-        <Link to="/episodios-efa">Ver episodios de atención</Link>
-      </Button>
+      {!openOwnGuard && (
+        <Button asChild variant="outline" className="min-h-11">
+          <Link to="/episodios-efa">Ver episodios de atención</Link>
+        </Button>
+      )}
       <Card>
         <CardHeader>
           <CardTitle>Guardia EFA</CardTitle>
-          <p className="text-sm text-muted-foreground">
-            El inicio y el cierre son manuales. La declaración de presencia no usa GPS ni verifica
-            ubicación.
-          </p>
+          {!openOwnGuard && (
+            <p className="text-sm text-muted-foreground">
+              El inicio y el cierre son manuales. La declaración de presencia no usa GPS ni verifica
+              ubicación.
+            </p>
+          )}
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-4 px-3 pt-0 sm:px-6">
           {error && (
             <p role="alert" className="text-sm text-destructive">
               {error}
@@ -727,122 +800,150 @@ export function EfaGuardPanel({
             </div>
           )}
           {openOwnGuard && (
-            <div className="space-y-3 rounded-lg border p-3">
-              <div>
-                <p className="font-medium">Guardia en curso</p>
-                <p className="text-sm text-muted-foreground">
-                  Inicio: {new Date(openOwnGuard.startedAt).toLocaleString()} · Presencia declarada
-                  en Central
+            <div className="space-y-3 rounded-lg border p-2 sm:p-3">
+              <p className="text-sm text-muted-foreground">
+                Guardia en curso · Inicio:{" "}
+                {new Date(openOwnGuard.startedAt).toLocaleTimeString(undefined, {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </p>
+              <section
+                aria-label="Móviles activos"
+                className="space-y-2 rounded-md bg-muted/50 p-3"
+              >
+                <p className="text-sm font-medium">
+                  Móviles activos ({confirmedMobileBases.length})
                 </p>
-              </div>
-              <div className="space-y-2 rounded-md bg-muted/50 p-3">
-                <p className="text-sm text-muted-foreground">
-                  {canWrite
-                    ? "Después de iniciar la guardia, registra las atenciones en episodios. Elegir bases es opcional."
-                    : "Puedes consultar las atenciones de esta guardia en episodios. Elegir bases es opcional."}
-                </p>
-                <Button asChild variant="outline" className="min-h-11 w-full sm:w-auto">
-                  <Link to="/episodios-efa">
-                    {canWrite ? "Registrar atenciones" : "Consultar atenciones de la guardia abierta"}
-                  </Link>
-                </Button>
-              </div>
-              <fieldset className="space-y-3" disabled={busy || !canWrite}>
-                <legend className="text-sm font-medium">Bases seguidas</legend>
-                {(canWrite ? bases : openOwnGuard.bases).map((base) => (
-                  <label
-                    key={base.id}
-                    className="flex min-h-11 items-center gap-3 rounded-md border p-3 text-sm"
-                  >
-                    <input
-                      className="size-5 accent-primary"
-                      type="checkbox"
-                      checked={selectedBaseIds.includes(base.id)}
-                      onChange={(event) =>
-                        setSelectedBaseIds((current) =>
-                          event.target.checked
-                            ? [...current, base.id]
-                            : current.filter((id) => id !== base.id),
-                        )
-                      }
-                    />
-                    <span>{base.name}</span>
-                  </label>
-                ))}
-                {canWrite && bases.length === 0 && (
+                {confirmedMobileBases.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {confirmedMobileBases.map((base) => (
+                      <Button
+                        key={base.id}
+                        type="button"
+                        variant="outline"
+                        className="min-h-11"
+                        onClick={() => {
+                          setMobileManagerState({ guardId: openOwnGuard.id, open: true });
+                          setMobileFocusState({
+                            guardId: openOwnGuard.id,
+                            baseId: base.id,
+                            requestId: ++mobileFocusSequence.current,
+                          });
+                        }}
+                      >
+                        {base.name}
+                      </Button>
+                    ))}
+                  </div>
+                ) : (
                   <p className="text-sm text-muted-foreground">
-                    No hay bases activas en el catálogo.
+                    Elegir móviles es opcional.
                   </p>
                 )}
-              </fieldset>
-              {canWrite && (
-                <>
-                  <p className="text-xs text-muted-foreground">
-                    Selecciona al menos una base. Cada alta o baja queda registrada con su autor y
-                    hora.
-                  </p>
-                  <Button
-                    variant="outline"
-                    className="min-h-11 w-full sm:w-auto"
-                    disabled={
-                      busy ||
-                      selectedBaseIds.length === 0 ||
-                      selectedBasesMatchPersisted
-                    }
-                    onClick={() =>
-                      void runAction(
-                        () =>
-                          updateBases({
-                            data: {
-                              guardId: openOwnGuard.id,
-                              expectedVersion: openOwnGuard.version,
-                              baseIds: selectedBaseIds,
-                            },
-                          }),
-                        "Las bases seguidas se actualizaron.",
-                      )
-                    }
-                  >
-                    Guardar bases
-                  </Button>
-                  {!selectedBasesMatchPersisted && (
-                    <p role="status" className="text-xs text-muted-foreground">
-                      Los ingresos se registran para las bases guardadas. Guarda las bases para
-                      actualizar esta lista.
+              </section>
+              <details
+                open={managerOpen}
+                onToggle={(event) =>
+                  setMobileManagerState({
+                    guardId: openOwnGuard.id,
+                    open: event.currentTarget.open,
+                  })
+                }
+                className="space-y-2"
+              >
+                <summary className="min-h-11 cursor-pointer py-2 text-sm font-medium">
+                  Gestionar móviles
+                </summary>
+                <div className="space-y-2">
+                  {canWrite && activeWorkspaceState?.unresolved && (
+                    <div className="space-y-2" role="alert">
+                      <p className="text-sm text-destructive">
+                        No se pudo completar la sincronización de móviles; revisa el detalle de la fila afectada.
+                      </p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="min-h-11"
+                        disabled={activeWorkspaceState.synchronizing}
+                        onClick={() => void activeWorkspace?.reconcile()}
+                      >
+                        Reintentar sincronización
+                      </Button>
+                    </div>
+                  )}
+                  {canWrite && mobileCatalog.length === 0 && (
+                    <p className="text-sm text-muted-foreground">
+                      No hay móviles disponibles en el catálogo.
                     </p>
                   )}
-                </>
-              )}
-              <EfaMobileArrivalPanel
-                key={openOwnGuard.id}
-                guardId={openOwnGuard.id}
-                bases={openOwnGuard.bases}
-                arrivals={arrivalsByGuard[openOwnGuard.id] ?? []}
-                canWrite={canWrite}
-                expandBasesByDefault
-                onArrivalsChange={(arrival) =>
-                  setArrivalsByGuard((current) => ({
-                    ...current,
-                    [openOwnGuard.id]: [
-                      ...(current[openOwnGuard.id] ?? []).filter((item) => item.id !== arrival.id),
-                      arrival,
-                    ],
-                  }))
-                }
-              />
+                  <EfaMobileArrivalPanel
+                    key={openOwnGuard.id}
+                    guardId={openOwnGuard.id}
+                    bases={confirmedActiveGuard?.bases ?? openOwnGuard.bases}
+                    availableBases={mobileCatalog}
+                    requestedBaseIds={
+                      activeWorkspaceState?.requestedBaseIds ??
+                      confirmedActiveGuard?.bases.map((base) => base.id) ??
+                      []
+                    }
+                    membershipPendingBaseIds={activeWorkspaceState?.pendingBaseIds ?? []}
+                    membershipErrors={activeWorkspaceState?.errors ?? {}}
+                    baseSelectionBlocked={!activeWorkspaceState?.canChangeBases}
+                    membershipBlocked={!activeWorkspaceState?.canCapture}
+                    focusRequest={
+                      mobileFocusState?.guardId === openOwnGuard.id
+                        ? { baseId: mobileFocusState.baseId, requestId: mobileFocusState.requestId }
+                        : null
+                    }
+                    onBaseSelectionChange={(baseId, selected) =>
+                      void activeWorkspace?.requestBaseSelection(baseId, selected)
+                    }
+                    onArrivalMutationStart={(key) => activeWorkspace?.beginArrival(key) ?? null}
+                    arrivals={arrivalsByGuard[openOwnGuard.id] ?? []}
+                    canWrite={canWrite}
+                    onArrivalsChange={(arrival) =>
+                      setArrivalsByGuard((current) => ({
+                        ...current,
+                        [openOwnGuard.id]: [
+                          ...(current[openOwnGuard.id] ?? []).filter(
+                            (item) => item.id !== arrival.id,
+                          ),
+                          arrival,
+                        ],
+                      }))
+                    }
+                  />
+                </div>
+              </details>
+              <Button asChild className="min-h-11 w-full sm:w-auto">
+                <Link to="/episodios-efa">
+                  {canWrite
+                    ? "Registrar atenciones"
+                    : "Consultar atenciones de la guardia abierta"}
+                </Link>
+              </Button>
               <Button
-                variant="destructive"
-                className="min-h-11 w-full sm:w-auto"
-                disabled={busy || !canWrite}
-                onClick={() =>
+                variant="outline"
+                className="min-h-11 w-full border-destructive text-destructive hover:bg-destructive/10 sm:w-auto"
+                disabled={busy || !canWrite || !activeWorkspaceState?.canClose}
+                onClick={() => {
+                  const workspace = activeWorkspace;
+                  if (!workspace) return;
+                  const release = workspace.beginClose();
+                  if (!release) return;
+                  const expectedVersion = workspace.getSnapshot().confirmedGuard.version;
                   void runAction(
                     () =>
                       endGuard({
-                        data: { guardId: openOwnGuard.id, expectedVersion: openOwnGuard.version },
+                        data: {
+                          guardId: openOwnGuard.id,
+                          expectedVersion,
+                        },
                       }),
                     "La guardia terminó manualmente.",
-                  )
-                }
+                  ).finally(release);
+                }}
               >
                 Terminar guardia
               </Button>
@@ -862,8 +963,7 @@ export function EfaGuardPanel({
         </CardHeader>
         <CardContent className="space-y-4">
           {guards.map((guard) => {
-            const detailsOpen =
-              guardDetailsOpen[guard.id] ?? (guard.ownerUserId === currentUserId && !guard.endedAt);
+            const detailsOpen = guardDetailsOpen[guard.id] ?? false;
             return (
               <article key={guard.id} className="space-y-3 rounded-lg border p-4">
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -1007,6 +1107,7 @@ export function EfaGuardPanel({
                   {canWrite && <PlannedCoverageReadOnly bases={guard.bases} />}
                   {guard.id !== openOwnGuard?.id && (
                     <EfaMobileArrivalPanel
+                      key={guard.id}
                       guardId={guard.id}
                       bases={guard.bases}
                       arrivals={arrivalsByGuard[guard.id] ?? []}

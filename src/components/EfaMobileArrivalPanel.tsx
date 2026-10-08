@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { Button } from "@/components/ui/button";
 import type { GuardBase } from "@/components/EfaGuardPanel";
@@ -8,6 +8,7 @@ import {
   updateEfaMobileArrival,
 } from "@/lib/efa-mobile-arrivals.functions";
 import type { MobileArrivalRole } from "@/lib/efa-mobile-arrivals.server";
+import { sortGuardMobileBases } from "@/lib/efa-guard-mobile-workspace";
 
 export type MobileArrivalView = {
   id: string;
@@ -109,7 +110,8 @@ const roles: { id: MobileArrivalRole; label: string }[] = [
 ];
 
 export const mobileArrivalEditClasses = {
-  row: "grid min-w-0 gap-2 border-t py-2 text-sm sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center",
+  row: "grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-t py-2 text-sm",
+  editingRow: "grid min-w-0 grid-cols-1 gap-2 border-t py-2 text-sm",
   content: "min-w-0",
   form: "mt-2 grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]",
   label: "grid min-w-0 gap-1 text-xs text-muted-foreground",
@@ -125,17 +127,33 @@ function toLocalDateTimeValue(value: string) {
 export function EfaMobileArrivalPanel({
   guardId,
   bases,
+  availableBases = bases,
+  requestedBaseIds,
+  membershipPendingBaseIds = [],
+  membershipErrors = {},
+  baseSelectionBlocked = false,
+  membershipBlocked = false,
+  focusRequest,
+  onBaseSelectionChange,
+  onArrivalMutationStart,
   arrivals,
   canWrite,
   onArrivalsChange,
-  expandBasesByDefault = false,
 }: {
   guardId: string;
   bases: GuardBase[];
+  availableBases?: GuardBase[];
+  requestedBaseIds?: string[];
+  membershipPendingBaseIds?: string[];
+  membershipErrors?: Record<string, string>;
+  baseSelectionBlocked?: boolean;
+  membershipBlocked?: boolean;
+  focusRequest?: { baseId: string; requestId: number } | null;
+  onBaseSelectionChange?: (baseId: string, selected: boolean) => void;
+  onArrivalMutationStart?: (key: string) => (() => void) | null;
   arrivals: MobileArrivalView[];
   canWrite: boolean;
   onArrivalsChange: (arrival: MobileArrivalView) => void;
-  expandBasesByDefault?: boolean;
 }) {
   const createArrival = useServerFn(createEfaMobileArrival);
   const updateArrival = useServerFn(updateEfaMobileArrival);
@@ -146,18 +164,29 @@ export function EfaMobileArrivalPanel({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
-  const [expandedBaseIds, setExpandedBaseIds] = useState<Set<string>>(() =>
-    expandBasesByDefault ? new Set(bases.map((base) => base.id)) : new Set(),
-  );
-  const [collapsedBaseIds, setCollapsedBaseIds] = useState<Set<string>>(() => new Set());
+  const baseRows = useRef(new Map<string, HTMLElement>());
+  const focusBaseId = focusRequest?.baseId ?? null;
+  const focusRequestId = focusRequest?.requestId ?? null;
 
   const selectedBaseIds = new Set(bases.map((base) => base.id));
+  const requested = new Set(requestedBaseIds ?? bases.map((base) => base.id));
+  const pendingBaseSet = new Set(membershipPendingBaseIds);
+  const sortedBases = sortGuardMobileBases(availableBases);
   const historicalArrivals = arrivals.filter(
     (arrival) =>
       arrival.deletedAt === null &&
       arrival.guardId === guardId &&
       !selectedBaseIds.has(arrival.baseId),
   );
+
+  useEffect(() => {
+    // Callers may rebuild the request object on unrelated renders; this pair identifies navigation intent.
+    if (focusBaseId === null || focusRequestId === null) return;
+    const row = baseRows.current.get(focusBaseId);
+    if (!row) return;
+    row.scrollIntoView?.({ behavior: "smooth", block: "nearest" });
+    row.focus();
+  }, [focusBaseId, focusRequestId]);
 
   function reportError(key: string, message: string) {
     setErrors((current) => ({ ...current, [key]: message }));
@@ -171,6 +200,14 @@ export function EfaMobileArrivalPanel({
     creationScope?: string,
   ): Promise<boolean> {
     if (inFlight.current.has(key)) return false;
+    const releaseAdmission = onArrivalMutationStart?.(key);
+    if (onArrivalMutationStart && !releaseAdmission) {
+      reportError(
+        key,
+        "Espera a que termine la sincronización de móviles antes de cambiar ingresos.",
+      );
+      return false;
+    }
     inFlight.current.add(key);
     setBusyKeys((current) => setBusyArrivalOperation(current, key, true));
     setErrors((current) => ({ ...current, [key]: "" }));
@@ -192,6 +229,7 @@ export function EfaMobileArrivalPanel({
     } finally {
       inFlight.current.delete(key);
       setBusyKeys((current) => setBusyArrivalOperation(current, key, false));
+      releaseAdmission?.();
     }
   }
 
@@ -267,8 +305,13 @@ export function EfaMobileArrivalPanel({
     const updateBusy = busyKeys.has(updateKey);
     const deleteBusy = busyKeys.has(deleteKey);
     const editable = Boolean(canWrite && arrival?.canEdit);
+    const isEditing = Boolean(arrival && editingId === arrival.id);
+    const rowBlocked = membershipBlocked || pendingBaseSet.has(base.id);
     return (
-      <div key={role.id} className={mobileArrivalEditClasses.row}>
+      <div
+        key={role.id}
+        className={isEditing ? mobileArrivalEditClasses.editingRow : mobileArrivalEditClasses.row}
+      >
         <div className={mobileArrivalEditClasses.content}>
           <p className="font-medium">{role.label}</p>
           {arrival ? (
@@ -286,7 +329,7 @@ export function EfaMobileArrivalPanel({
                 <Button
                   type="button"
                   className="min-h-11"
-                  disabled={!editValue || updateBusy}
+                  disabled={!editValue || updateBusy || rowBlocked}
                   onClick={() => saveEdit(arrival)}
                 >
                   {updateBusy ? "Guardando…" : "Guardar"}
@@ -295,20 +338,27 @@ export function EfaMobileArrivalPanel({
                   type="button"
                   variant="outline"
                   className="min-h-11"
-                  disabled={updateBusy}
+                  disabled={updateBusy || rowBlocked}
                   onClick={() => setEditingId(null)}
                 >
                   Cancelar
                 </Button>
               </div>
             ) : (
-              <time dateTime={arrival.arrivedAt} className="text-muted-foreground">
-                {new Date(arrival.arrivedAt).toLocaleString()}
+              <time
+                dateTime={arrival.arrivedAt}
+                aria-label={`Ingreso registrado el ${new Date(arrival.arrivedAt).toLocaleString("es-AR")}`}
+                className="text-muted-foreground"
+              >
+                {new Date(arrival.arrivedAt).toLocaleTimeString("es-AR", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
               </time>
             )
-          ) : (
+          ) : !canWrite ? (
             <p className="text-muted-foreground">Sin ingreso registrado</p>
-          )}
+          ) : null}
           {(errors[createKey] || errors[updateKey] || errors[deleteKey]) && (
             <p role="alert" className="mt-1 text-sm text-destructive">
               {errors[createKey] || errors[updateKey] || errors[deleteKey]}
@@ -319,20 +369,20 @@ export function EfaMobileArrivalPanel({
           <Button
             type="button"
             variant="outline"
-            className="min-h-11 w-full sm:w-auto"
-            disabled={createBusy}
+            className="min-h-11 shrink-0 px-2 sm:px-4"
+            disabled={createBusy || rowBlocked}
             onClick={() => register(base.id, role.id)}
           >
             {createBusy ? "Registrando…" : "Registrar ingreso"}
           </Button>
         )}
         {arrival && editable && editingId !== arrival.id && (
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap justify-end gap-2">
             <Button
               type="button"
               variant="outline"
-              className="min-h-11"
-              disabled={updateBusy || deleteBusy}
+              className="min-h-11 px-2 sm:px-4"
+              disabled={updateBusy || deleteBusy || rowBlocked}
               onClick={() => {
                 setEditValue(toLocalDateTimeValue(arrival.arrivedAt));
                 setEditingId(arrival.id);
@@ -344,8 +394,8 @@ export function EfaMobileArrivalPanel({
             <Button
               type="button"
               variant="destructive"
-              className="min-h-11"
-              disabled={updateBusy || deleteBusy}
+              className="min-h-11 px-2 sm:px-4"
+              disabled={updateBusy || deleteBusy || rowBlocked}
               onClick={() => remove(arrival)}
             >
               {deleteBusy ? "Eliminando…" : "Eliminar"}
@@ -357,40 +407,59 @@ export function EfaMobileArrivalPanel({
   }
 
   return (
-    <section className="space-y-2" aria-label="Ingresos por móvil">
-      <h3 className="text-sm font-medium">Ingreso de móviles</h3>
-      {bases.map((base) => (
-        <details
-          key={base.id}
-          open={
-            expandBasesByDefault ? !collapsedBaseIds.has(base.id) : expandedBaseIds.has(base.id)
-          }
-          onToggle={(event) => {
-            const nextOpen = event.currentTarget.open;
-            if (expandBasesByDefault) {
-              setCollapsedBaseIds((current) => {
-                const next = new Set(current);
-                if (nextOpen) next.delete(base.id);
-                else next.add(base.id);
-                return next;
-              });
-            } else {
-              setExpandedBaseIds((current) => {
-                const next = new Set(current);
-                if (nextOpen) next.add(base.id);
-                else next.delete(base.id);
-                return next;
-              });
-            }
-          }}
-          className="rounded-md border px-3"
-        >
-          <summary className="min-h-11 cursor-pointer py-2 text-sm font-medium">
-            {base.name}
-          </summary>
-          <div className="pb-2">{roles.map((role) => renderRoleRow(base, role))}</div>
-        </details>
-      ))}
+    <section className="space-y-2" aria-label="Móviles">
+      {sortedBases.map((base) => {
+        const selected = requested.has(base.id);
+        const membershipPending = pendingBaseSet.has(base.id);
+        return (
+          <article
+            key={base.id}
+            ref={(element) => {
+              if (element) baseRows.current.set(base.id, element);
+              else baseRows.current.delete(base.id);
+            }}
+            tabIndex={-1}
+            aria-label={`Móvil ${base.name}`}
+            className="min-w-0 rounded-md border px-2 sm:px-3"
+          >
+            <div className="flex min-h-11 min-w-0 flex-wrap items-center justify-between gap-2 py-1">
+              <label className="flex min-h-11 min-w-0 flex-1 items-center gap-3 text-sm">
+                <input
+                  className="size-5 shrink-0 accent-primary"
+                  type="checkbox"
+                  checked={selected}
+                  disabled={
+                    !canWrite ||
+                    !onBaseSelectionChange ||
+                    baseSelectionBlocked ||
+                    (!base.isActive && !selected)
+                  }
+                  onChange={(event) => onBaseSelectionChange?.(base.id, event.target.checked)}
+                />
+                <span className="min-w-0 break-words">
+                  {base.name}
+                  {!base.isActive && (
+                    <span className="ml-2 text-xs text-muted-foreground">No disponible</span>
+                  )}
+                </span>
+              </label>
+              {membershipPending && (
+                <span role="status" className="text-xs text-muted-foreground">
+                  Guardando móvil…
+                </span>
+              )}
+            </div>
+            {membershipErrors[base.id] && (
+              <p role="alert" className="pb-2 text-sm text-destructive">
+                {membershipErrors[base.id]}
+              </p>
+            )}
+            {selected && (
+              <div className="pb-2">{roles.map((role) => renderRoleRow(base, role))}</div>
+            )}
+          </article>
+        );
+      })}
       {historicalArrivals.length > 0 && (
         <details className="rounded-md border px-3">
           <summary className="min-h-11 cursor-pointer py-2 text-sm font-medium">
@@ -410,9 +479,9 @@ export function EfaMobileArrivalPanel({
           </ul>
         </details>
       )}
-      {bases.length === 0 && historicalArrivals.length === 0 && (
+      {sortedBases.length === 0 && historicalArrivals.length === 0 && (
         <p className="rounded border border-dashed p-3 text-sm text-muted-foreground">
-          No hay ingresos de móviles para esta guardia.
+          No hay móviles disponibles para esta guardia.
         </p>
       )}
     </section>
