@@ -113,6 +113,41 @@ describe("EfaGuardPanel", () => {
     expect(html).toContain("Responsable: current-user");
     expect(html).toContain("Corregir hora de cierre");
     expect(html).toContain("Dotación observada");
+    expect(html).toContain("Ingreso de móviles");
+    expect(html).not.toContain("Registrar ingreso");
+  });
+
+  it("shows persisted mobile arrival rows below the active guard base selector", () => {
+    const html = renderToStaticMarkup(
+      <EfaGuardPanel
+        initialGuards={[
+          {
+            id: "open-guard",
+            ownerUserId: "current-user",
+            startedAt: "2026-10-07T08:00:00.000Z",
+            endedAt: null,
+            declaredAtCentral: true,
+            version: 2,
+            bases: [{ id: "base-a", name: "Central", isActive: true }],
+            baseEvents: [],
+          },
+        ]}
+        activeBases={[{ id: "base-a", name: "Central", isActive: true }]}
+        initialStaffing={{}}
+        currentUserId="current-user"
+        isAdmin={false}
+        canWrite
+      />,
+    );
+    const activeGuard = html.slice(0, html.indexOf("Mis guardias"));
+
+    expect(activeGuard.indexOf("Guardar bases")).toBeLessThan(
+      activeGuard.indexOf("Ingreso de móviles"),
+    );
+    expect(activeGuard).toContain("Ingreso de móviles");
+    expect(activeGuard.match(/Registrar ingreso/g)).toHaveLength(3);
+    expect(activeGuard).toMatch(/<details[^>]*open=""/);
+    expect((html.match(/Ingreso de móviles/g) ?? []).length).toBe(1);
   });
 
   it("makes an open guard status obvious without hiding the episode action", () => {

@@ -4,6 +4,7 @@ import {
   EfaMobileArrivalPanel,
   createSecureOperationId,
   getStableArrivalOperation,
+  mobileArrivalEditClasses,
   parseLocalArrivalTimestamp,
   setBusyArrivalOperation,
   type MobileArrivalView,
@@ -38,6 +39,41 @@ describe("EfaMobileArrivalPanel", () => {
     expect(html).toContain("Conducción");
     expect(html).toContain("Medicina");
     expect(html).toContain("min-h-11");
+  });
+
+  it("keeps the mobile edit grid and datetime control shrinkable", () => {
+    expect(mobileArrivalEditClasses.row).toContain("min-w-0");
+    expect(mobileArrivalEditClasses.content).toContain("min-w-0");
+    expect(mobileArrivalEditClasses.form).toContain("grid-cols-1");
+    expect(mobileArrivalEditClasses.form).toContain("min-w-0");
+    expect(mobileArrivalEditClasses.label).toContain("min-w-0");
+    expect(mobileArrivalEditClasses.input).toContain("w-full min-w-0 max-w-full");
+    expect(mobileArrivalEditClasses.input).toContain("min-h-11");
+  });
+
+  it("expands persisted bases only when the active guard requests it", () => {
+    const expanded = renderToStaticMarkup(
+      <EfaMobileArrivalPanel
+        guardId="guard-a"
+        bases={[base]}
+        arrivals={[]}
+        canWrite
+        expandBasesByDefault
+        onArrivalsChange={vi.fn()}
+      />,
+    );
+    const compact = renderToStaticMarkup(
+      <EfaMobileArrivalPanel
+        guardId="guard-a"
+        bases={[base]}
+        arrivals={[]}
+        canWrite={false}
+        onArrivalsChange={vi.fn()}
+      />,
+    );
+
+    expect(expanded).toMatch(/<details[^>]*open=""/);
+    expect(compact).not.toMatch(/<details[^>]*open=""/);
   });
 
   it("shows saved time with edit and delete actions only when the server permits changes", () => {

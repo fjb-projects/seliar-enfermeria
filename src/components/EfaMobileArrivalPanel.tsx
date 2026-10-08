@@ -108,6 +108,15 @@ const roles: { id: MobileArrivalRole; label: string }[] = [
   { id: "doctor", label: "Medicina" },
 ];
 
+export const mobileArrivalEditClasses = {
+  row: "grid min-w-0 gap-2 border-t py-2 text-sm sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center",
+  content: "min-w-0",
+  form: "mt-2 grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]",
+  label: "grid min-w-0 gap-1 text-xs text-muted-foreground",
+  input:
+    "min-h-11 w-full min-w-0 max-w-full rounded-md border bg-background px-3 text-sm text-foreground",
+} as const;
+
 function toLocalDateTimeValue(value: string) {
   const date = new Date(value);
   return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
@@ -119,12 +128,14 @@ export function EfaMobileArrivalPanel({
   arrivals,
   canWrite,
   onArrivalsChange,
+  expandBasesByDefault = false,
 }: {
   guardId: string;
   bases: GuardBase[];
   arrivals: MobileArrivalView[];
   canWrite: boolean;
   onArrivalsChange: (arrival: MobileArrivalView) => void;
+  expandBasesByDefault?: boolean;
 }) {
   const createArrival = useServerFn(createEfaMobileArrival);
   const updateArrival = useServerFn(updateEfaMobileArrival);
@@ -135,6 +146,10 @@ export function EfaMobileArrivalPanel({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
+  const [expandedBaseIds, setExpandedBaseIds] = useState<Set<string>>(() =>
+    expandBasesByDefault ? new Set(bases.map((base) => base.id)) : new Set(),
+  );
+  const [collapsedBaseIds, setCollapsedBaseIds] = useState<Set<string>>(() => new Set());
 
   const selectedBaseIds = new Set(bases.map((base) => base.id));
   const historicalArrivals = arrivals.filter(
@@ -253,19 +268,16 @@ export function EfaMobileArrivalPanel({
     const deleteBusy = busyKeys.has(deleteKey);
     const editable = Boolean(canWrite && arrival?.canEdit);
     return (
-      <div
-        key={role.id}
-        className="grid gap-2 border-t py-2 text-sm sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
-      >
-        <div>
+      <div key={role.id} className={mobileArrivalEditClasses.row}>
+        <div className={mobileArrivalEditClasses.content}>
           <p className="font-medium">{role.label}</p>
           {arrival ? (
             editingId === arrival.id ? (
-              <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
-                <label className="grid gap-1 text-xs text-muted-foreground">
+              <div className={mobileArrivalEditClasses.form}>
+                <label className={mobileArrivalEditClasses.label}>
                   Hora de ingreso
                   <input
-                    className="min-h-11 rounded-md border bg-background px-3 text-sm text-foreground"
+                    className={mobileArrivalEditClasses.input}
                     type="datetime-local"
                     value={editValue}
                     onChange={(event) => setEditValue(event.target.value)}
@@ -348,7 +360,31 @@ export function EfaMobileArrivalPanel({
     <section className="space-y-2" aria-label="Ingresos por móvil">
       <h3 className="text-sm font-medium">Ingreso de móviles</h3>
       {bases.map((base) => (
-        <details key={base.id} className="rounded-md border px-3">
+        <details
+          key={base.id}
+          open={
+            expandBasesByDefault ? !collapsedBaseIds.has(base.id) : expandedBaseIds.has(base.id)
+          }
+          onToggle={(event) => {
+            const nextOpen = event.currentTarget.open;
+            if (expandBasesByDefault) {
+              setCollapsedBaseIds((current) => {
+                const next = new Set(current);
+                if (nextOpen) next.delete(base.id);
+                else next.add(base.id);
+                return next;
+              });
+            } else {
+              setExpandedBaseIds((current) => {
+                const next = new Set(current);
+                if (nextOpen) next.add(base.id);
+                else next.delete(base.id);
+                return next;
+              });
+            }
+          }}
+          className="rounded-md border px-3"
+        >
           <summary className="min-h-11 cursor-pointer py-2 text-sm font-medium">
             {base.name}
           </summary>

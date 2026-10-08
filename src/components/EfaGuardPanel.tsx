@@ -666,6 +666,11 @@ export function EfaGuardPanel({
   const openOwnGuard = guards.find(
     (guard) => guard.ownerUserId === currentUserId && !guard.endedAt,
   );
+  const selectedBasesMatchPersisted = Boolean(
+    openOwnGuard &&
+    selectedBaseIds.length === openOwnGuard.bases.length &&
+    selectedBaseIds.every((id) => openOwnGuard.bases.some((base) => base.id === id)),
+  );
 
   return (
     <div className="space-y-4">
@@ -782,10 +787,7 @@ export function EfaGuardPanel({
                     disabled={
                       busy ||
                       selectedBaseIds.length === 0 ||
-                      (selectedBaseIds.length === openOwnGuard.bases.length &&
-                        selectedBaseIds.every((id) =>
-                          openOwnGuard.bases.some((base) => base.id === id),
-                        ))
+                      selectedBasesMatchPersisted
                     }
                     onClick={() =>
                       void runAction(
@@ -803,8 +805,31 @@ export function EfaGuardPanel({
                   >
                     Guardar bases
                   </Button>
+                  {!selectedBasesMatchPersisted && (
+                    <p role="status" className="text-xs text-muted-foreground">
+                      Los ingresos se registran para las bases guardadas. Guarda las bases para
+                      actualizar esta lista.
+                    </p>
+                  )}
                 </>
               )}
+              <EfaMobileArrivalPanel
+                key={openOwnGuard.id}
+                guardId={openOwnGuard.id}
+                bases={openOwnGuard.bases}
+                arrivals={arrivalsByGuard[openOwnGuard.id] ?? []}
+                canWrite={canWrite}
+                expandBasesByDefault
+                onArrivalsChange={(arrival) =>
+                  setArrivalsByGuard((current) => ({
+                    ...current,
+                    [openOwnGuard.id]: [
+                      ...(current[openOwnGuard.id] ?? []).filter((item) => item.id !== arrival.id),
+                      arrival,
+                    ],
+                  }))
+                }
+              />
               <Button
                 variant="destructive"
                 className="min-h-11 w-full sm:w-auto"
@@ -980,23 +1005,23 @@ export function EfaGuardPanel({
                     </div>
                   )}
                   {canWrite && <PlannedCoverageReadOnly bases={guard.bases} />}
-                  <EfaMobileArrivalPanel
-                    guardId={guard.id}
-                    bases={guard.bases}
-                    arrivals={arrivalsByGuard[guard.id] ?? []}
-                    canWrite={
-                      canWrite && guard.ownerUserId === currentUserId && !guard.endedAt
-                    }
-                    onArrivalsChange={(arrival) =>
-                      setArrivalsByGuard((current) => ({
-                        ...current,
-                        [guard.id]: [
-                          ...(current[guard.id] ?? []).filter((item) => item.id !== arrival.id),
-                          arrival,
-                        ],
-                      }))
-                    }
-                  />
+                  {guard.id !== openOwnGuard?.id && (
+                    <EfaMobileArrivalPanel
+                      guardId={guard.id}
+                      bases={guard.bases}
+                      arrivals={arrivalsByGuard[guard.id] ?? []}
+                      canWrite={canWrite && guard.ownerUserId === currentUserId && !guard.endedAt}
+                      onArrivalsChange={(arrival) =>
+                        setArrivalsByGuard((current) => ({
+                          ...current,
+                          [guard.id]: [
+                            ...(current[guard.id] ?? []).filter((item) => item.id !== arrival.id),
+                            arrival,
+                          ],
+                        }))
+                      }
+                    />
+                  )}
                   <ObservedStaffingPanel
                     guardId={guard.id}
                     periods={staffingByGuard[guard.id] ?? []}
