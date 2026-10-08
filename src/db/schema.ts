@@ -347,6 +347,127 @@ export const efaGuardBaseEvent = pgTable(
   ],
 );
 
+export const efaMobileArrival = pgTable(
+  "efa_mobile_arrival",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    guardId: uuid("guard_id")
+      .notNull()
+      .references(() => efaGuard.id, { onDelete: "restrict" }),
+    baseId: uuid("base_id")
+      .notNull()
+      .references(() => efaBase.id, { onDelete: "restrict" }),
+    baseNameSnapshot: text("base_name_snapshot").notNull(),
+    role: text("role").notNull(),
+    arrivedAt: timestamp("arrived_at").notNull(),
+    deletedAt: timestamp("deleted_at"),
+    clientCreationKey: uuid("client_creation_key").notNull(),
+    version: integer("version").notNull().default(1),
+    createdByUserId: text("created_by_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => [
+    unique("efa_mobile_arrival_id_guard_unique").on(table.id, table.guardId),
+    unique("efa_mobile_arrival_guard_base_role_unique").on(table.guardId, table.baseId, table.role),
+    unique("efa_mobile_arrival_guard_creation_key_unique").on(
+      table.guardId,
+      table.clientCreationKey,
+    ),
+    check("efa_mobile_arrival_role_allowed", sql`${table.role} in ('nurse', 'driver', 'doctor')`),
+    check("efa_mobile_arrival_version_positive", sql`${table.version} > 0`),
+    check(
+      "efa_mobile_arrival_base_name_snapshot_valid",
+      sql`char_length(btrim(${table.baseNameSnapshot})) between 1 and 120`,
+    ),
+  ],
+);
+
+export const efaMobileArrivalAudit = pgTable(
+  "efa_mobile_arrival_audit",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    arrivalId: uuid("arrival_id").notNull(),
+    guardId: uuid("guard_id").notNull(),
+    actorUserId: text("actor_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    operationId: uuid("operation_id").notNull(),
+    action: text("action").notNull(),
+    versionBefore: integer("version_before"),
+    versionAfter: integer("version_after").notNull(),
+    beforeState: jsonb("before_state").$type<{
+      arrivedAt: string;
+      deletedAt: string | null;
+    } | null>(),
+    afterState: jsonb("after_state")
+      .$type<{ arrivedAt: string; deletedAt: string | null }>()
+      .notNull(),
+    occurredAt: timestamp("occurred_at").notNull().defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: "efa_mobile_arrival_audit_arrival_guard_fk",
+      columns: [table.arrivalId, table.guardId],
+      foreignColumns: [efaMobileArrival.id, efaMobileArrival.guardId],
+    }).onDelete("restrict"),
+    unique("efa_mobile_arrival_audit_version_unique").on(table.arrivalId, table.versionAfter),
+    check(
+      "efa_mobile_arrival_audit_action_allowed",
+      sql`${table.action} in ('created', 'updated', 'deleted', 'restored')`,
+    ),
+    check(
+      "efa_mobile_arrival_audit_version_transition_valid",
+      sql`(${table.versionBefore} is null and ${table.versionAfter} = 1) or (${table.versionBefore} > 0 and ${table.versionAfter} = ${table.versionBefore} + 1)`,
+    ),
+    check(
+      "efa_mobile_arrival_audit_action_version_valid",
+      sql`(${table.action} = 'created' and ${table.versionBefore} is null and ${table.versionAfter} = 1) or (${table.action} in ('updated', 'deleted', 'restored') and ${table.versionBefore} is not null and ${table.versionAfter} = ${table.versionBefore} + 1)`,
+    ),
+    check(
+      "efa_mobile_arrival_audit_state_valid",
+      sql`jsonb_typeof(${table.afterState}) = 'object' and (${table.beforeState} is null or jsonb_typeof(${table.beforeState}) = 'object') and (${table.afterState} - 'arrivedAt' - 'deletedAt') = '{}'::jsonb and (${table.beforeState} is null or (${table.beforeState} - 'arrivedAt' - 'deletedAt') = '{}'::jsonb)`,
+    ),
+  ],
+);
+
+export const efaMobileArrivalOperation = pgTable(
+  "efa_mobile_arrival_operation",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    arrivalId: uuid("arrival_id").notNull(),
+    guardId: uuid("guard_id").notNull(),
+    actorUserId: text("actor_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    clientOperationId: uuid("client_operation_id").notNull(),
+    action: text("action").notNull(),
+    requestHash: text("request_hash").notNull(),
+    appliedVersion: integer("applied_version").notNull(),
+    changed: boolean("changed").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: "efa_mobile_arrival_operation_arrival_guard_fk",
+      columns: [table.arrivalId, table.guardId],
+      foreignColumns: [efaMobileArrival.id, efaMobileArrival.guardId],
+    }).onDelete("restrict"),
+    unique("efa_mobile_arrival_guard_operation_unique").on(table.guardId, table.clientOperationId),
+    check(
+      "efa_mobile_arrival_operation_action_allowed",
+      sql`${table.action} in ('created', 'updated', 'deleted')`,
+    ),
+    check("efa_mobile_arrival_operation_version_positive", sql`${table.appliedVersion} > 0`),
+    check(
+      "efa_mobile_arrival_operation_request_hash_valid",
+      sql`${table.requestHash} ~ '^[0-9a-f]{64}$'`,
+    ),
+  ],
+);
+
 export const efaStaffingPeriod = pgTable(
   "efa_staffing_period",
   {

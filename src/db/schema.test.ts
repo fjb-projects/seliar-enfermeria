@@ -49,6 +49,9 @@ import {
   efaObservationAudit,
   efaObservationOperation,
   efaObservationNotice,
+  efaMobileArrival,
+  efaMobileArrivalAudit,
+  efaMobileArrivalOperation,
 } from "./schema";
 
 describe("ambulance dispatch persistence", () => {
@@ -207,6 +210,34 @@ describe("EFA conduct observation persistence", () => {
     expect(migration).toContain("efa_observation_audit_append_only");
     expect(migration).toContain("efa_observation_operation_append_only");
     expect(migration).toContain("ON CONFLICT (key) DO NOTHING");
+  });
+});
+
+describe("EFA mobile arrival persistence", () => {
+  it("stores one versioned role mark per guard and base with append-only audit and operation records", () => {
+    expect(getTableName(efaMobileArrival)).toBe("efa_mobile_arrival");
+    expect(getTableName(efaMobileArrivalAudit)).toBe("efa_mobile_arrival_audit");
+    expect(getTableName(efaMobileArrivalOperation)).toBe("efa_mobile_arrival_operation");
+    const arrival = getTableConfig(efaMobileArrival);
+    expect(arrival.uniqueConstraints.map((item) => item.name)).toEqual(
+      expect.arrayContaining([
+        "efa_mobile_arrival_guard_base_role_unique",
+        "efa_mobile_arrival_guard_creation_key_unique",
+      ]),
+    );
+    expect(arrival.checks.map((item) => item.name)).toEqual(
+      expect.arrayContaining([
+        "efa_mobile_arrival_role_allowed",
+        "efa_mobile_arrival_version_positive",
+      ]),
+    );
+    const migration = readFileSync(
+      resolve(process.cwd(), "drizzle/0021_efa_mobile_arrivals.sql"),
+      "utf8",
+    );
+    expect(migration).toContain("efa_mobile_arrival_audit_append_only");
+    expect(migration).toContain("efa_mobile_arrival_operation_append_only");
+    expect(migration).toContain('CONSTRAINT "efa_mobile_arrival_guard_base_role_unique" UNIQUE');
   });
 });
 
