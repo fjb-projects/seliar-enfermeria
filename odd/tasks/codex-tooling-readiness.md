@@ -33,7 +33,7 @@ The user requested that unused tooling be diagnosed and resolved before UI imple
 | ID | Outcome | Route | Status | Checks |
 | --- | --- | --- | --- | --- |
 | T1 | Restore jq availability for Git Bash | Delegated; installation and environment verification | Complete: 91ddd86 | WinGet verified the official 1.8.2 package hash and installed per-user; managed binary and Git Bash printed `jq-1.8.2`; synthetic JSON returned `true`; no hook executed |
-| T2 | Install local RTK instructions for Codex | Delegated; two instruction files and structural readback | Verified | `rtk init --codex` generated RTK.md; the original AGENTS content was preserved and the RTK reference plus explicit wrapper instruction were appended; `rtk git status --short` succeeded |
+| T2 | Install local RTK instructions for Codex | Delegated; two instruction files and structural readback | Complete: 09db659 | `rtk init --codex` generated RTK.md; the original AGENTS content was preserved and the RTK reference plus explicit wrapper instruction were appended; `rtk git status --short` succeeded |
 | T3 | Verify host registration and Engram readiness | Host-owned registration, then agent verification only after authoritative handoff | Blocked on host | Same-session authoritative successful handoff; no invented identity or agent registration |
 
 ## Verification policy
@@ -48,7 +48,7 @@ Independent final verification passed: Git Bash resolved jq 1.8.2 and parsed syn
 - Strategy: feature-branch-chain; forecast below 400 authored lines.
 - Commit each verified work unit locally with a Conventional Commit message. No push or PR.
 - T1 commit: 91ddd86, 57 authored lines; dependency repair and independent verification recorded.
-- T2 instructions and independent verification are complete; commit identity is recorded after commit.
+- T2 commit: 09db659, 42 authored lines; local RTK instructions and independent verification recorded. Total T1/T2: 99 authored lines, excluding administrative closure.
 
 ## Progress
 
