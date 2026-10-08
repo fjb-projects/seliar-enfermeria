@@ -3,6 +3,10 @@ import { History, LockKeyhole, PanelsTopLeft, Pencil } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { createClientOnlyFn, useServerFn } from "@tanstack/react-start";
 import { Button } from "@/components/ui/button";
+import {
+  EfaActionConfirmation,
+  isActionConfirmationCurrent,
+} from "@/components/EfaActionConfirmation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -262,6 +266,10 @@ export function EfaEpisodePanel({
   const [pending, setPending] = useState<PendingEpisodeOperation | null>(null);
   const [conflict, setConflict] = useState<ActiveEpisodeConflict | null>(null);
   const [busy, setBusy] = useState(false);
+  const [closingServiceTarget, setClosingServiceTarget] = useState<{
+    key: string;
+    episodeId: string;
+  } | null>(null);
   const [error, setError] = useState("");
   const [saveError, setSaveError] = useState("");
   const [message, setMessage] = useState("");
@@ -338,6 +346,17 @@ export function EfaEpisodePanel({
   }
 
   const selected = episodes.find((episode) => episode.id === selectedId) ?? null;
+  const episodeCloseTargetKey = (episode: EpisodeView) =>
+    [
+      currentUserId,
+      openOwnGuard?.id ?? "no-guard",
+      workspaceEpisodeId ?? "no-workspace",
+      ownerTicketRef.current?.generation ?? "no-owner-ticket",
+      episode.ownerUserId,
+      episode.originGuardId,
+      episode.id,
+      episode.version,
+    ].join(":");
   const activeGuardEpisodes = selectGuardWorkspaceEpisodes(episodes, openOwnGuard?.id ?? null);
   const pendingQueueEntry = pending
     ? (queueEntries.find(
@@ -1204,9 +1223,14 @@ export function EfaEpisodePanel({
       });
   }
 
-  function closeService(episode: EpisodeView) {
+  function closeService(episodeId: string, confirmedTargetKey: string) {
+    const episode = episodesRef.current.find((item) => item.id === episodeId);
+    const currentTargetKey = episode ? episodeCloseTargetKey(episode) : null;
     if (
-      !canWrite ||
+      !isActionConfirmationCurrent(confirmedTargetKey, currentTargetKey) ||
+      !canWriteRef.current ||
+      activeUserRef.current !== currentUserId ||
+      !episode ||
       !episode.canEdit ||
       episode.state !== "draft" ||
       !queueReady ||
@@ -1217,14 +1241,13 @@ export function EfaEpisodePanel({
       formDirty
     )
       return;
+    const ticket = ownerTicketRef.current;
     if (
-      !window.confirm(
-        "¿Cerrar este servicio? El cierre no afecta la guardia ni sus llamadas, despachos u otros registros. No hay una opción para reabrirlo.",
-      )
+      !ticket ||
+      ticket.ownerUserId !== currentUserId ||
+      ownerFenceRef.current?.isCurrent(ticket) !== true
     )
       return;
-    const ticket = ownerTicketRef.current;
-    if (!ticket || ticket.ownerUserId !== currentUserId) return;
     void submissionGate.current
       .run(async () => {
         if (!ownerFenceRef.current?.isCurrent(ticket)) return;
@@ -1933,13 +1956,34 @@ export function EfaEpisodePanel({
                         formDirty ||
                         Boolean(serverConfirmedOperationId)
                       }
-                      onClick={() => closeService(episode)}
+                      onClick={() =>
+                        setClosingServiceTarget({
+                          key: episodeCloseTargetKey(episode),
+                          episodeId: episode.id,
+                        })
+                      }
                     >
                       <LockKeyhole aria-hidden="true" className="size-4" />
                       Cerrar servicio
                     </Button>
                   )}
                 </div>
+                <EfaActionConfirmation
+                  open={closingServiceTarget?.episodeId === episode.id}
+                  onOpenChange={(open) => {
+                    if (!open) setClosingServiceTarget(null);
+                  }}
+                  capturedTargetKey={
+                    closingServiceTarget?.episodeId === episode.id
+                      ? closingServiceTarget.key
+                      : null
+                  }
+                  currentTargetKey={episodeCloseTargetKey(episode)}
+                  title="Cerrar servicio"
+                  description="El servicio quedará cerrado y no podrá reabrirse. La guardia y sus llamadas, despachos y otros registros se conservarán sin cambios."
+                  confirmLabel="Cerrar servicio"
+                  onConfirm={(targetKey) => closeService(episode.id, targetKey)}
+                />
                 <details className="border-t pt-2">
                   <summary className="min-h-11 cursor-pointer py-3 font-medium">
                     Ver detalles

@@ -5,6 +5,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  EfaActionConfirmation,
+  isActionConfirmationCurrent,
+} from "@/components/EfaActionConfirmation";
+import {
   createEfaCommunication,
   cancelEfaCommunication,
   finalizeEfaCommunication,
@@ -293,6 +297,7 @@ export function EfaCommunicationPanel({
   const [confirmingLifecycle, setConfirmingLifecycle] = useState<"cancel" | "reactivate" | null>(
     null,
   );
+  const [finalizeConfirmationTarget, setFinalizeConfirmationTarget] = useState<string | null>(null);
   const [refreshWarning, setRefreshWarning] = useState("");
   const [dirty, setDirty] = useState(false);
   const activeRef = useRef(true);
@@ -907,14 +912,22 @@ export function EfaCommunicationPanel({
     }
   }
 
-  async function finalizeCurrent() {
+  async function finalizeCurrent(confirmedTargetKey: string) {
+    const currentTargetKey = selected
+      ? `${currentUserId}:${episodeId}:${selected.id}:${selected.version}`
+      : null;
     if (
+      !isActionConfirmationCurrent(confirmedTargetKey, currentTargetKey) ||
       !canWrite ||
+      !currentContext() ||
       !callsReady ||
       !selected ||
+      selectedCallRef.current?.id !== selected.id ||
+      selectedCallRef.current?.version !== selected.version ||
       !canEditCommunication(canWrite, selected) ||
       dirty ||
       pendingRef.current ||
+      busyRef.current ||
       selected.state !== "draft" ||
       !priority
     )
@@ -1736,7 +1749,11 @@ export function EfaCommunicationPanel({
                     dirty ||
                     !priority
                   }
-                  onClick={() => void finalizeCurrent()}
+                  onClick={() =>
+                    setFinalizeConfirmationTarget(
+                      `${currentUserId}:${episodeId}:${selected.id}:${selected.version}`,
+                    )
+                  }
                 >
                   Finalizar llamada
                 </Button>
@@ -1798,6 +1815,20 @@ export function EfaCommunicationPanel({
           </CardContent>
         </Card>
       )}
+      <EfaActionConfirmation
+        open={finalizeConfirmationTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setFinalizeConfirmationTarget(null);
+        }}
+        capturedTargetKey={finalizeConfirmationTarget}
+        currentTargetKey={selected
+          ? `${currentUserId}:${episodeId}:${selected.id}:${selected.version}`
+          : null}
+        title="Finalizar llamada"
+        description="La llamada pasará a estado finalizada. Se conservarán la prioridad y los horarios registrados."
+        confirmLabel="Finalizar llamada"
+        onConfirm={(targetKey) => void finalizeCurrent(targetKey)}
+      />
     </div>
   );
 }

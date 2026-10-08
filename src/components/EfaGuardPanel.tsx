@@ -2,6 +2,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { Button } from "@/components/ui/button";
+import {
+  EfaActionConfirmation,
+  isActionConfirmationCurrent,
+} from "@/components/EfaActionConfirmation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { EfaObservationPanel } from "@/components/EfaObservationPanel";
@@ -610,6 +614,7 @@ export function EfaGuardPanel({
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [observationGuardId, setObservationGuardId] = useState<string | null>(null);
+  const [endingGuardTarget, setEndingGuardTarget] = useState<string | null>(null);
 
   async function refresh() {
     const [nextGuards, nextBases] = await Promise.all([
@@ -725,6 +730,44 @@ export function EfaGuardPanel({
     workspaceSnapshot && workspaceSnapshot.guardId === openOwnGuard?.id
       ? workspaceSnapshot.snapshot
       : activeWorkspace?.getSnapshot();
+  const guardEndTargetKey =
+    openOwnGuard && activeWorkspaceState
+      ? `${currentUserId}:${openOwnGuard.id}:${activeWorkspaceState.confirmedGuard.version}`
+      : null;
+  const confirmEndGuard = (confirmedTargetKey: string) => {
+    const workspace = activeWorkspace;
+    const currentGuard = activeGuardRef.current;
+    const snapshot = workspace?.getSnapshot();
+    const currentTargetKey =
+      currentGuard && snapshot
+        ? `${currentUserId}:${currentGuard.id}:${snapshot.confirmedGuard.version}`
+        : null;
+    if (
+      !isActionConfirmationCurrent(confirmedTargetKey, currentTargetKey) ||
+      !canWrite ||
+      busy ||
+      !workspace ||
+      !currentGuard ||
+      currentGuard.ownerUserId !== currentUserId ||
+      currentGuard.endedAt ||
+      !activeWorkspaceState?.canClose ||
+      !snapshot?.canClose ||
+      snapshot.confirmedGuard.id !== currentGuard.id
+    )
+      return;
+    const release = workspace.beginClose();
+    if (!release) return;
+    void runAction(
+      () =>
+        endGuard({
+          data: {
+            guardId: currentGuard.id,
+            expectedVersion: snapshot.confirmedGuard.version,
+          },
+        }),
+      "La guardia terminó manualmente.",
+    ).finally(release);
+  };
   const managerOpen = openOwnGuard
     ? mobileManagerState?.guardId === openOwnGuard.id
       ? mobileManagerState.open
@@ -927,26 +970,22 @@ export function EfaGuardPanel({
                 variant="outline"
                 className="min-h-11 w-full border-destructive text-destructive hover:bg-destructive/10 sm:w-auto"
                 disabled={busy || !canWrite || !activeWorkspaceState?.canClose}
-                onClick={() => {
-                  const workspace = activeWorkspace;
-                  if (!workspace) return;
-                  const release = workspace.beginClose();
-                  if (!release) return;
-                  const expectedVersion = workspace.getSnapshot().confirmedGuard.version;
-                  void runAction(
-                    () =>
-                      endGuard({
-                        data: {
-                          guardId: openOwnGuard.id,
-                          expectedVersion,
-                        },
-                      }),
-                    "La guardia terminó manualmente.",
-                  ).finally(release);
-                }}
+                onClick={() => setEndingGuardTarget(guardEndTargetKey)}
               >
                 Terminar guardia
               </Button>
+              <EfaActionConfirmation
+                open={endingGuardTarget !== null}
+                onOpenChange={(open) => {
+                  if (!open) setEndingGuardTarget(null);
+                }}
+                capturedTargetKey={endingGuardTarget}
+                currentTargetKey={guardEndTargetKey}
+                title="Terminar guardia"
+                description="La guardia finalizará con la hora actual y no admitirá nuevos registros. El historial seguirá disponible."
+                confirmLabel="Terminar guardia"
+                onConfirm={confirmEndGuard}
+              />
             </div>
           )}
         </CardContent>

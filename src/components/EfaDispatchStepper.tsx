@@ -1,4 +1,8 @@
 import { useEffect, useRef, useState, type ComponentType } from "react";
+import {
+  EfaActionConfirmation,
+  isActionConfirmationCurrent,
+} from "@/components/EfaActionConfirmation";
 import { createClientOnlyFn, useServerFn } from "@tanstack/react-start";
 import { listEfaBases } from "@/lib/efa-bases.functions";
 import { listEfaCommunicationsForEpisode } from "@/lib/efa-communications.functions";
@@ -410,6 +414,7 @@ export function EfaDispatchStepper({
   const [form, setFormState] = useState<DispatchForm>(emptyDispatchForm);
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [finalizeConfirmationTarget, setFinalizeConfirmationTarget] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
   const [errorSurface, setErrorSurface] = useState<DispatchErrorSurface>("global");
@@ -1366,15 +1371,40 @@ export function EfaDispatchStepper({
       } as unknown as DispatchQueueEntry["payload"]);
   };
 
-  const finalize = async () => {
-    if (!selected || !editable || dirty || !form.priority || !form.result || busy) return;
+  const finalize = async (confirmedTargetKey: string) => {
+    const currentTargetKey = selected
+      ? `${currentUserId}:${episodeId}:${selected.id}:${selected.version}`
+      : null;
+    const latest = selectedIdRef.current
+      ? rowsRef.current.find((row) => row.id === selectedIdRef.current) ?? null
+      : null;
+    const latestForm = editorRef.current.form;
+    if (
+      !isActionConfirmationCurrent(confirmedTargetKey, currentTargetKey) ||
+      !mounted.current ||
+      owner.current !== currentUserId ||
+      !canWriteRef.current ||
+      !episodeCanEditRef.current ||
+      !selected ||
+      !latest ||
+      latest.id !== selected.id ||
+      latest.version !== selected.version ||
+      selectedIdRef.current !== selected.id ||
+      !editable ||
+      editorRef.current.dirty ||
+      !latestForm.priority ||
+      !latestForm.result ||
+      queueLocked ||
+      busyRef.current
+    )
+      return;
     await freeze("finalize", {
-      dispatchId: selected.id,
-      expectedVersion: selected.version,
+      dispatchId: latest.id,
+      expectedVersion: latest.version,
       operationId: crypto.randomUUID(),
-      priority: form.priority,
-      result: form.result,
-      resultClarification: form.resultClarification || null,
+      priority: latestForm.priority,
+      result: latestForm.result,
+      resultClarification: latestForm.resultClarification || null,
     });
   };
 
@@ -1950,7 +1980,12 @@ export function EfaDispatchStepper({
                   type="button"
                   className="min-h-11 rounded border px-4"
                   disabled={busy || !form.priority || !form.result || !selected || dirty}
-                  onClick={() => void finalize()}
+                  onClick={() =>
+                    selected &&
+                    setFinalizeConfirmationTarget(
+                      `${currentUserId}:${episodeId}:${selected.id}:${selected.version}`,
+                    )
+                  }
                 >
                   Finalizar despacho
                 </button>
@@ -2310,6 +2345,20 @@ export function EfaDispatchStepper({
             </button>
           </div>
         )}
+        <EfaActionConfirmation
+          open={finalizeConfirmationTarget !== null}
+          onOpenChange={(open) => {
+            if (!open) setFinalizeConfirmationTarget(null);
+          }}
+          capturedTargetKey={finalizeConfirmationTarget}
+          currentTargetKey={selected
+            ? `${currentUserId}:${episodeId}:${selected.id}:${selected.version}`
+            : null}
+          title="Finalizar despacho"
+          description="El despacho pasará a estado finalizado con el resultado registrado."
+          confirmLabel="Finalizar despacho"
+          onConfirm={(targetKey) => void finalize(targetKey)}
+        />
       </section>
     </div>
   );
