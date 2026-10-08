@@ -16,7 +16,7 @@ export const guardBasesSchema = z
   .object({
     guardId: guardIdSchema,
     expectedVersion,
-    baseIds: z.array(z.string().uuid()).min(1).max(100),
+    baseIds: z.array(z.string().uuid()).min(0).max(100),
   })
   .strict();
 export const guardCorrectionSchema = z

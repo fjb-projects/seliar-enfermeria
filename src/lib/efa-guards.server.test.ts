@@ -190,6 +190,68 @@ describe("EFA guard lifecycle service", () => {
     });
   });
 
+  it("returns authoritative membership for empty, changed, and unchanged selections", async () => {
+    const db = createStore();
+    const service = createEfaGuardsService(db.store, { newId: () => "guard-1" });
+    await service.start("user-1", { declaredAtCentral: true });
+
+    const initiallyEmpty = await service.setBases("user-1", {
+      guardId: "guard-1",
+      expectedVersion: 1,
+      baseIds: [],
+    });
+    expect(initiallyEmpty).toMatchObject({ id: "guard-1", version: 1, bases: [], baseEvents: [] });
+    expect(db.events).toHaveLength(0);
+
+    const selected = await service.setBases("user-1", {
+      guardId: "guard-1",
+      expectedVersion: 1,
+      baseIds: ["base-a"],
+    });
+    expect(selected).toMatchObject({
+      id: "guard-1",
+      version: 2,
+      bases: [{ id: "base-a", name: "Central", isActive: true }],
+      baseEvents: [{ baseId: "base-a", sequence: 2, action: "added" }],
+    });
+    const auditAfterSelection = [...db.guardAudit];
+
+    const unchanged = await service.setBases("user-1", {
+      guardId: "guard-1",
+      expectedVersion: 2,
+      baseIds: ["base-a"],
+    });
+    expect(unchanged).toEqual(selected);
+    expect(db.guards[0]!.version).toBe(2);
+    expect(db.events).toHaveLength(1);
+    expect(db.guardAudit).toEqual(auditAfterSelection);
+
+    const removedAll = await service.setBases("user-1", {
+      guardId: "guard-1",
+      expectedVersion: 2,
+      baseIds: [],
+    });
+    expect(removedAll).toMatchObject({
+      id: "guard-1",
+      version: 3,
+      bases: [],
+      baseEvents: [
+        { baseId: "base-a", sequence: 2, action: "added" },
+        { baseId: "base-a", sequence: 3, action: "removed" },
+      ],
+    });
+    expect(db.guards[0]!.version).toBe(3);
+    expect(db.events).toHaveLength(2);
+    expect(db.guardAudit).toEqual(auditAfterSelection);
+
+    await expect(
+      service.setBases("user-1", { guardId: "guard-1", expectedVersion: 2, baseIds: [] }),
+    ).rejects.toThrow(/cambi/i);
+    await expect(
+      service.setBases("user-1", { guardId: "guard-1", expectedVersion: 3, baseIds: ["base-c"] }),
+    ).rejects.toThrow(/activas/i);
+  });
+
   it("replays membership by serialized mutation order when transaction timestamps arrive out of order", async () => {
     const db = createStore();
     const service = createEfaGuardsService(db.store, { newId: () => "guard-1" });
@@ -287,6 +349,10 @@ describe("EFA guard lifecycle service", () => {
       versionBefore: 1,
       versionAfter: 2,
     });
+    await expect(
+      service.setBases("user-1", { guardId: "guard-1", expectedVersion: 2, baseIds: [] }),
+    ).rejects.toThrow(/terminada/i);
+    expect(db.events).toHaveLength(0);
   });
 
   it("lets only administrators correct a retained end time and audits the previous value", async () => {

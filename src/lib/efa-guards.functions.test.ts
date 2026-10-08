@@ -43,8 +43,18 @@ describe("EFA guard function inputs", () => {
       guardBasesSchema.safeParse({ guardId, expectedVersion: 1, baseIds: [guardId] }).success,
     ).toBe(true);
     expect(guardBasesSchema.safeParse({ guardId, expectedVersion: 1, baseIds: [] }).success).toBe(
-      false,
+      true,
     );
+    expect(
+      guardBasesSchema.safeParse({
+        guardId,
+        expectedVersion: 1,
+        baseIds: Array.from({ length: 101 }, () => guardId),
+      }).success,
+    ).toBe(false);
+    expect(
+      guardBasesSchema.safeParse({ guardId, expectedVersion: 1, baseIds: ["not-a-uuid"] }).success,
+    ).toBe(false);
     expect(guardEndSchema.safeParse({ guardId, expectedVersion: 0 }).success).toBe(false);
   });
 });

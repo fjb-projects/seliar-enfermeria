@@ -194,7 +194,6 @@ export function createEfaGuardsService(
         assertVersion(guard, input.expectedVersion);
         if (guard.endedAt) throw new Error("No se pueden cambiar bases de una guardia terminada.");
         const requested = [...new Set(input.baseIds)];
-        if (!requested.length) throw new Error("Selecciona al menos una base activa.");
         const activeBases = await tx.listBases(true);
         if (requested.some((id) => !activeBases.some((base) => base.id === id))) {
           throw new Error("Solo puedes seguir bases activas del catálogo.");
@@ -208,7 +207,7 @@ export function createEfaGuardsService(
         const next = new Set(requested);
         const add = requested.filter((id) => !current.has(id));
         const remove = [...current].filter((id) => !next.has(id));
-        if (!add.length && !remove.length) return;
+        if (!add.length && !remove.length) return withEvents(tx, guard);
         let sequence = guard.version;
         for (const baseId of [...add, ...remove]) {
           sequence += 1;
@@ -225,6 +224,7 @@ export function createEfaGuardsService(
             action: add.includes(baseId) ? "added" : "removed",
           });
         }
+        return withEvents(tx, { ...guard, endedAt: null, version: sequence });
       });
     },
 
