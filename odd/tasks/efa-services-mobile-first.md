@@ -22,7 +22,7 @@ The supplied screenshot and current code show repeated episode headings, several
 
 - [x] A — Flatten the service/workspace hierarchy and make all four section choices visible on mobile. Preserve episode context, section state and safe navigation. Focused tests: 11 passed; typecheck and diff check passed. Independent verification found fixed-height/anonymous flex label wrapping, corrected with automatic height and a shrinkable span; focused recheck closed the finding. Parent reran the focused suite. Commit boundary contains workspace, episode panel, their tests and this document.
 - [x] B — Compact Communications and Coordination panels and forms; retain service context and visible workflow feedback. Included in the five-panel 42-test check and final six-component 47-test parent check; typecheck, build, scoped formatting and diff check passed. Independent verification found no remaining issues.
-- [ ] C — Compact Dispatch form and route save, lifecycle, contact/support and queue feedback to the originating controls. Verify action-feedback routing regression and typecheck.
+- [x] C — Compact Dispatch form and route save, lifecycle, contact/support and queue feedback to the originating controls. Focused action-routing tests passed; queue comparison/discard targets corrected after independent review. Final Dispatch/Observation suite: 20 tests; parent six-component suite: 47 tests. Typecheck, build, scoped formatting and diff check passed; independent recheck closed the findings.
 - [ ] D — Compact Observation within EpisodePanel, preserve standalone behavior and route submit, queue, history and notice feedback to their origins. Verify read-only compact SSR behavior and typecheck.
 
 ## Verification policy
@@ -38,6 +38,8 @@ Use RED/GREEN where a meaningful runnable deterministic behavior regression exis
 5. Expand history, technical details or privacy guidance when needed. Unsent fields are not a backup, and offline submissions retain the existing private local queue behavior.
 
 ## Progress and next step
+
+Task B committed as `8bd5649` on `codex/efa-services-05-mobile-forms` (122 authored changed lines, including flow documentation). Task C now closes on `codex/efa-services-06-dispatch-feedback`; Observation integration remains for D. All final source bytes passed independent verification and the parent's 47-test check. Actual browser QA remains pending.
 
 Task A committed as `8186f4f` on `codex/efa-services-04-mobile-workspace` (76 authored changed lines, including this document). Assessment was unassessable due unrelated untracked inventory, treated as high; RDD remains off. Independent review and parent focused test rerun passed. Initial forms presentation is on `codex/efa-services-05-mobile-forms`, based on A. Independent verification kept B/C/D pending after finding compact read-only history and action-feedback routing gaps. The writer restored the compact empty-history caveat, routed Observation and Dispatch feedback by source, added unavailable-target regression coverage, and collapsed Dispatch history to keep the save workflow easy to reach. After the final corrections, Dispatch and Observation tests passed (2 files, 20 tests); typecheck, production build, scoped Prettier and `git diff --check` passed. The earlier all-five panel suite passed (42 tests) before the last targeted regressions. Build emitted existing route-test-file and deprecated `inputValidator` warnings. Independent verification and parent-owned slicing/commits remain pending.
 

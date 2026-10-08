@@ -50,6 +50,15 @@ type DispatchView = DispatchForm & {
 type DispatchMutationDto = Omit<DispatchView, "contactAttempts"> & {
   contactAttempts?: DispatchView["contactAttempts"];
 };
+type DispatchErrorSurface = "global" | "form" | "lifecycle" | "contact" | "support" | "queue";
+// eslint-disable-next-line react-refresh/only-export-components -- Shared with focused feedback-routing regression tests.
+export function dispatchErrorSurfaceForKind(
+  kind: DispatchQueueEntry["kind"],
+): DispatchErrorSurface {
+  if (kind === "contact-attempt") return "contact";
+  if (kind === "support-create" || kind === "support-update") return "support";
+  return "form";
+}
 function isDispatchMutationDto(value: unknown): value is DispatchMutationDto {
   if (!value || typeof value !== "object") return false;
   const dto = value as Record<string, unknown>;
@@ -250,7 +259,7 @@ export function FirstResponseRoleSelect({
   const legacyValue = value && !firstResponseRoleValues.some((role) => role === value);
   return (
     <select
-      className="mt-1 h-11 w-full rounded border px-3"
+      className="mt-1 h-11 w-full min-w-0 max-w-full rounded border px-3"
       aria-label="Rol anónimo de primera respuesta"
       value={value}
       onChange={(event) => onChange(event.target.value)}
@@ -403,7 +412,9 @@ export function EfaDispatchStepper({
   const [busy, setBusy] = useState(false);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
+  const [errorSurface, setErrorSurface] = useState<DispatchErrorSurface>("global");
   const [message, setMessage] = useState("");
+  const [messageSurface, setMessageSurface] = useState<DispatchErrorSurface>("global");
   const [history, setHistory] = useState<
     Array<{
       action: string;
@@ -466,6 +477,7 @@ export function EfaDispatchStepper({
   rowsRef.current = rows;
   supportRequestsRef.current = supportRequests;
   const selected = rows.find((row) => row.id === selectedId) ?? null;
+  const selectedCall = calls.find((call) => call.id === form.communicationId) ?? null;
   const selectedQueueEntry =
     queueEntries.find((entry) => entry.operationId === selectedQueueId) ?? null;
   const editable = canWrite && (selected ? selected.canEdit : episodeCanEdit);
@@ -579,6 +591,7 @@ export function EfaDispatchStepper({
       )
       .catch((reason: unknown) => {
         if (active && owner.current === ticket) {
+          setErrorSurface("global");
           setError(
             reason instanceof Error ? reason.message : "No se pudieron cargar los despachos.",
           );
@@ -640,7 +653,9 @@ export function EfaDispatchStepper({
     busyRef.current = true;
     setBusy(true);
     setError("");
+    setErrorSurface(dispatchErrorSurfaceForKind(kind));
     setMessage("");
+    setMessageSurface(dispatchErrorSurfaceForKind(kind));
     const operationId =
       "operationId" in payload
         ? payload.operationId
@@ -684,7 +699,7 @@ export function EfaDispatchStepper({
           ? existing
           : [...existing, entry],
       );
-      await runEntry(entry);
+      await runEntry(entry, dispatchErrorSurfaceForKind(kind));
     } catch (reason) {
       setStorageRetry(entry);
       setError(
@@ -948,10 +963,17 @@ export function EfaDispatchStepper({
     }
   };
 
-  const runEntry = async (entry: DispatchQueueEntry) => {
+  const runEntry = async (
+    entry: DispatchQueueEntry,
+    feedbackSurface: DispatchErrorSurface = "queue",
+  ) => {
     const key = JSON.stringify([currentUserId, episodeId, entry.operationId]);
     if (inFlightOperations.current.has(key)) return;
     inFlightOperations.current.add(key);
+    setErrorSurface(feedbackSurface);
+    setError("");
+    setMessage("");
+    setMessageSurface(feedbackSurface);
     try {
       await executeEntry(entry);
     } catch (reason) {
@@ -967,6 +989,10 @@ export function EfaDispatchStepper({
   const selectQueueEntry = async (entry: DispatchQueueEntry) => {
     const targetOwner = currentUserId;
     const targetEpisode = episodeId;
+    setErrorSurface("queue");
+    setError("");
+    setMessage("");
+    setMessageSurface("queue");
     selectedQueueRef.current = entry.operationId;
     setSelectedQueueId(entry.operationId);
     setConflictSnapshot(null);
@@ -1077,8 +1103,12 @@ export function EfaDispatchStepper({
         });
       } else return;
     } catch (reason) {
-      if (isCurrent())
+      if (isCurrent()) {
+        setErrorSurface("queue");
+        setMessageSurface("queue");
+        setMessage("");
         setError(reason instanceof Error ? reason.message : "No se pudo comparar con el servidor.");
+      }
     }
   };
 
@@ -1356,6 +1386,8 @@ export function EfaDispatchStepper({
         ? "¿Anular este despacho? Se conservarán sus datos, resultado y vínculos."
         : "¿Reactivar este despacho y restaurar su estado anterior?";
     if (!window.confirm(prompt)) return;
+    setErrorSurface("lifecycle");
+    setMessageSurface("lifecycle");
     const helpers = await loadClient();
     const pendingOperation = helpers.reuseDispatchLifecycleOperation(
       lifecycleRetryRef.current,
@@ -1367,6 +1399,7 @@ export function EfaDispatchStepper({
     lifecycleRetryRef.current = pendingOperation;
     setBusy(true);
     setError("");
+    setMessage("");
     try {
       const input = {
         dispatchId: selected.id,
@@ -1413,16 +1446,25 @@ export function EfaDispatchStepper({
             : "Revisión";
 
   return (
-    <div className="space-y-3">
-      <section
-        className="space-y-3 rounded-lg border p-3"
-        aria-label={`Despachos del episodio ${episodeLabel}`}
-      >
-        <h2 className="text-lg font-semibold">Despachos · {episodeLabel}</h2>
+    <div className="min-w-0 space-y-3">
+      <section className="min-w-0 space-y-3" aria-label={`Despachos del episodio ${episodeLabel}`}>
+        <h2 className="text-lg font-semibold">Despachos</h2>
         {!canWrite && <p role="status">Solo lectura: el acceso EFA no está vigente.</p>}
         {!ready && <p role="status">Cargando despachos…</p>}
-        {error && <p role="alert">{error}</p>}
-        {message && <p role="status">{message}</p>}
+        {error &&
+          (errorSurface === "global" ||
+            !editable ||
+            (errorSurface === "queue" && queueEntries.length === 0)) && (
+            <p role="alert" className="text-sm text-destructive">
+              {error}
+            </p>
+          )}
+        {message &&
+          (messageSurface === "global" ||
+            !editable ||
+            (messageSurface === "queue" && queueEntries.length === 0)) && (
+            <p role="status">{message}</p>
+          )}
         {notices
           .filter(
             (n) =>
@@ -1442,12 +1484,12 @@ export function EfaDispatchStepper({
               </button>
             </p>
           ))}
-        <div className="space-y-2">
+        <div className="min-w-0 space-y-2">
           {rows.map((row) => (
             <button
               key={row.id}
               type="button"
-              className="w-full rounded border p-3 text-left"
+              className="min-h-11 w-full min-w-0 rounded border p-3 text-left"
               aria-pressed={selectedId === row.id}
               onClick={() => {
                 selectedIdRef.current = row.id;
@@ -1469,6 +1511,7 @@ export function EfaDispatchStepper({
               {row.t0At && (
                 <span className="block text-sm">Despacho: {formatDispatchDate(row.t0At)}</span>
               )}
+              <span className="block break-all text-xs text-muted-foreground">ID {row.id}</span>
               {row.institutionName && (
                 <span className="block text-sm">
                   Destino: {row.institutionName}
@@ -1477,6 +1520,11 @@ export function EfaDispatchStepper({
               )}
             </button>
           ))}
+          {rows.length === 0 && (
+            <p className="text-sm text-muted-foreground">
+              Todavía no hay despachos; el formulario permite registrar el primero.
+            </p>
+          )}
         </div>
         {selected?.canManage && canWrite && episodeCanEdit && (
           <div className="flex flex-wrap gap-2" aria-label="Estado del despacho">
@@ -1503,6 +1551,16 @@ export function EfaDispatchStepper({
               <p role="status" className="self-center text-sm">
                 Anulado el {formatDispatchDate(selected.cancelledAt)}; reactivá para editar o
                 finalizar.
+              </p>
+            )}
+            {error && errorSurface === "lifecycle" && (
+              <p role="alert" className="w-full text-sm text-destructive" aria-live="assertive">
+                {error}
+              </p>
+            )}
+            {message && messageSurface === "lifecycle" && (
+              <p role="status" className="w-full text-sm" aria-live="polite">
+                {message}
               </p>
             )}
           </div>
@@ -1546,53 +1604,58 @@ export function EfaDispatchStepper({
           </button>
         )}
         {selected && (
-          <div className="space-y-2 border-t pt-3">
-            <h3 className="font-medium">Historial del despacho</h3>
-            {history.map((item, index) => (
-              <div key={`${item.versionAfter}-${index}`} className="text-sm">
-                {item.action} · versión {item.versionBefore ?? "—"} → {item.versionAfter} ·{" "}
-                {formatDispatchDate(item.occurredAt)}
-                <details className="mt-1">
-                  <summary className="cursor-pointer">Ver valores anteriores y nuevos</summary>
-                  <dl className="grid gap-2 sm:grid-cols-2">
-                    {[
-                      "baseId",
-                      "communicationId",
-                      "priority",
-                      "t0At",
-                      "t1At",
-                      "t2At",
-                      "t3At",
-                      "t4At",
-                      "t5At",
-                      "t6At",
-                      "firstResponseRole",
-                      "firstResponseAt",
-                      "note",
-                      "result",
-                      "resultClarification",
-                    ].map((key) => (
-                      <div key={key}>
-                        <dt className="font-medium">{key}</dt>
-                        <dd>
-                          Antes: {String(item.beforeState?.[key] ?? "—")} · Después:{" "}
-                          {String(item.afterState?.[key] ?? "—")}
-                        </dd>
-                      </div>
-                    ))}
-                  </dl>
-                </details>
-              </div>
-            ))}
-            {selected.contactAttempts.map((item) => (
-              <p key={item.id} className="text-sm">
-                Intento de contacto · {formatDispatchDate(item.occurredAt)} {item.note}
-              </p>
-            ))}
-          </div>
+          <details className="min-w-0 border-t pt-3">
+            <summary className="min-h-11 cursor-pointer py-2 font-medium">
+              Historial del despacho · {history.length} cambios, {selected.contactAttempts.length}{" "}
+              intentos
+            </summary>
+            <div className="space-y-2">
+              {history.map((item, index) => (
+                <div key={`${item.versionAfter}-${index}`} className="text-sm">
+                  {item.action} · versión {item.versionBefore ?? "—"} → {item.versionAfter} ·{" "}
+                  {formatDispatchDate(item.occurredAt)}
+                  <details className="mt-1">
+                    <summary className="cursor-pointer">Ver valores anteriores y nuevos</summary>
+                    <dl className="grid gap-2 sm:grid-cols-2">
+                      {[
+                        "baseId",
+                        "communicationId",
+                        "priority",
+                        "t0At",
+                        "t1At",
+                        "t2At",
+                        "t3At",
+                        "t4At",
+                        "t5At",
+                        "t6At",
+                        "firstResponseRole",
+                        "firstResponseAt",
+                        "note",
+                        "result",
+                        "resultClarification",
+                      ].map((key) => (
+                        <div key={key}>
+                          <dt className="font-medium">{key}</dt>
+                          <dd>
+                            Antes: {String(item.beforeState?.[key] ?? "—")} · Después:{" "}
+                            {String(item.afterState?.[key] ?? "—")}
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </details>
+                </div>
+              ))}
+              {selected.contactAttempts.map((item) => (
+                <p key={item.id} className="text-sm">
+                  Intento de contacto · {formatDispatchDate(item.occurredAt)} {item.note}
+                </p>
+              ))}
+            </div>
+          </details>
         )}
         {editable && (
-          <fieldset disabled={queueLocked} className="space-y-3 border-t pt-3">
+          <fieldset disabled={queueLocked} className="min-w-0 space-y-3 border-t pt-3">
             <div className="flex flex-wrap gap-2" aria-label="Progreso del despacho">
               {[
                 "Base",
@@ -1620,7 +1683,7 @@ export function EfaDispatchStepper({
                 <label className="block">
                   Base / móvil
                   <select
-                    className="mt-1 h-11 w-full rounded border px-3"
+                    className="mt-1 h-11 w-full min-w-0 max-w-full rounded border px-3"
                     value={form.baseId}
                     onChange={(event) => setForm({ ...form, baseId: event.target.value })}
                   >
@@ -1638,7 +1701,7 @@ export function EfaDispatchStepper({
                 <label className="block">
                   Llamada vinculada
                   <select
-                    className="mt-1 h-11 w-full rounded border px-3"
+                    className="mt-1 h-11 w-full min-w-0 max-w-full rounded border px-3"
                     value={form.communicationId}
                     onChange={(event) => {
                       const call = calls.find((item) => item.id === event.target.value);
@@ -1653,13 +1716,28 @@ export function EfaDispatchStepper({
                     {availableDispatchOrigins(calls, selected?.communicationId ?? null).map(
                       (call) => (
                         <option key={call.id} value={call.id}>
-                          Llamada {call.id.slice(0, 8)}
-                          {call.state === "cancelled" ? " · anulada (vínculo histórico)" : ""} ·
+                          Llamada {call.id.slice(0, 8)} ·{" "}
+                          {call.state === "cancelled"
+                            ? "anulada · "
+                            : call.state === "finalized"
+                              ? "finalizada · "
+                              : "en curso · "}
                           prioridad {call.priority ?? "sin prioridad"}
                         </option>
                       ),
                     )}
                   </select>
+                  {selectedCall && (
+                    <p className="break-words text-sm text-muted-foreground">
+                      Llamada vinculada: {selectedCall.id} ·{" "}
+                      {selectedCall.state === "cancelled"
+                        ? "anulada"
+                        : selectedCall.state === "finalized"
+                          ? "finalizada"
+                          : "en curso"}{" "}
+                      · prioridad {selectedCall.priority ?? "sin prioridad"}
+                    </p>
+                  )}
                 </label>
                 <p className="text-sm">
                   Al crear desde una llamada, su prioridad se copia una vez. Después se puede
@@ -1677,7 +1755,7 @@ export function EfaDispatchStepper({
                   <input
                     type="datetime-local"
                     step="0.001"
-                    className="mt-1 h-11 w-full rounded border px-3"
+                    className="mt-1 h-11 w-full min-w-0 max-w-full rounded border px-3"
                     value={form.firstResponseAt}
                     onChange={(event) => setForm({ ...form, firstResponseAt: event.target.value })}
                   />
@@ -1706,7 +1784,7 @@ export function EfaDispatchStepper({
                         <input
                           type="datetime-local"
                           step="0.001"
-                          className="mt-1 h-12 w-full rounded border px-3"
+                          className="mt-1 h-12 w-full min-w-0 max-w-full rounded border px-3"
                           value={form[key]}
                           onChange={(event) =>
                             setForm({
@@ -1731,7 +1809,7 @@ export function EfaDispatchStepper({
                       <label className="block">
                         Estado
                         <select
-                          className="mt-1 h-11 w-full rounded border px-3"
+                          className="mt-1 h-11 w-full min-w-0 max-w-full rounded border px-3"
                           value={form[statusKey]}
                           onChange={(event) =>
                             setForm({
@@ -1781,7 +1859,7 @@ export function EfaDispatchStepper({
               <div className="space-y-3">
                 <h3>Prioridad</h3>
                 <select
-                  className="h-12 w-full rounded border px-3"
+                  className="h-12 w-full min-w-0 max-w-full rounded border px-3"
                   value={form.priority}
                   onChange={(event) =>
                     setForm({ ...form, priority: event.target.value as DispatchForm["priority"] })
@@ -1793,7 +1871,7 @@ export function EfaDispatchStepper({
                   <option value="green">Verde</option>
                 </select>
                 <textarea
-                  className="min-h-24 w-full rounded border p-3"
+                  className="min-h-24 w-full min-w-0 max-w-full rounded border p-3"
                   placeholder="Nota operativa opcional"
                   value={form.note}
                   onChange={(event) => setForm({ ...form, note: event.target.value })}
@@ -1804,7 +1882,7 @@ export function EfaDispatchStepper({
               <div className="space-y-3">
                 <h3>Resultado</h3>
                 <select
-                  className="h-12 w-full rounded border px-3"
+                  className="h-12 w-full min-w-0 max-w-full rounded border px-3"
                   value={form.result}
                   onChange={(event) =>
                     setForm({ ...form, result: event.target.value as DispatchForm["result"] })
@@ -1818,7 +1896,7 @@ export function EfaDispatchStepper({
                   ))}
                 </select>
                 <textarea
-                  className="min-h-24 w-full rounded border p-3"
+                  className="min-h-24 w-full min-w-0 max-w-full rounded border p-3"
                   placeholder="Aclaración breve opcional"
                   value={form.resultClarification}
                   onChange={(event) =>
@@ -1842,7 +1920,7 @@ export function EfaDispatchStepper({
                 )}
               </div>
             )}
-            <div className="flex flex-wrap gap-2">
+            <div className="min-w-0 space-y-2 sm:space-y-0 sm:flex sm:flex-wrap sm:gap-2">
               <button
                 type="button"
                 disabled={step === 0}
@@ -1861,7 +1939,7 @@ export function EfaDispatchStepper({
               </button>
               <button
                 type="button"
-                className="min-h-11 rounded bg-primary px-4 text-primary-foreground"
+                className="min-h-11 w-full rounded bg-primary px-4 text-primary-foreground sm:w-auto"
                 disabled={busy || !queueReady || !form.baseId}
                 onClick={() => void save()}
               >
@@ -1878,6 +1956,16 @@ export function EfaDispatchStepper({
                 </button>
               )}
             </div>
+            {error && errorSurface === "form" && (
+              <p role="alert" className="text-sm text-destructive">
+                {error}
+              </p>
+            )}
+            {message && messageSurface === "form" && (
+              <p role="status" className="text-sm">
+                {message}
+              </p>
+            )}
           </fieldset>
         )}
         {selected && editable && (
@@ -1886,7 +1974,7 @@ export function EfaDispatchStepper({
             <label className="block">
               Nota del intento de contacto
               <input
-                className="mt-1 h-11 w-full rounded border px-3"
+                className="mt-1 h-11 w-full min-w-0 max-w-full rounded border px-3"
                 value={contactNote}
                 onChange={(event) => setContactNote(event.target.value)}
               />
@@ -1896,7 +1984,7 @@ export function EfaDispatchStepper({
               <input
                 type="datetime-local"
                 step="0.001"
-                className="mt-1 h-11 w-full rounded border px-3"
+                className="mt-1 h-11 w-full min-w-0 max-w-full rounded border px-3"
                 value={contactAt}
                 onChange={(event) => setContactAt(event.target.value)}
               />
@@ -1930,10 +2018,20 @@ export function EfaDispatchStepper({
             >
               Registrar intento con hora ingresada
             </button>
+            {error && errorSurface === "contact" && (
+              <p role="alert" className="text-sm text-destructive" aria-live="assertive">
+                {error}
+              </p>
+            )}
+            {message && messageSurface === "contact" && (
+              <p role="status" className="text-sm" aria-live="polite">
+                {message}
+              </p>
+            )}
             <label className="block">
               Motivo de apoyo
               <input
-                className="mt-1 h-11 w-full rounded border px-3"
+                className="mt-1 h-11 w-full min-w-0 max-w-full rounded border px-3"
                 value={supportReason}
                 onChange={(event) => setSupportReason(event.target.value)}
               />
@@ -1943,7 +2041,7 @@ export function EfaDispatchStepper({
               <input
                 type="datetime-local"
                 step="0.001"
-                className="mt-1 h-11 w-full rounded border px-3"
+                className="mt-1 h-11 w-full min-w-0 max-w-full rounded border px-3"
                 value={supportAt}
                 onChange={(event) => setSupportAt(event.target.value)}
               />
@@ -1979,6 +2077,16 @@ export function EfaDispatchStepper({
             >
               Solicitar apoyo con hora ingresada
             </button>
+            {error && errorSurface === "support" && (
+              <p role="alert" className="text-sm text-destructive" aria-live="assertive">
+                {error}
+              </p>
+            )}
+            {message && messageSurface === "support" && (
+              <p role="status" className="text-sm" aria-live="polite">
+                {message}
+              </p>
+            )}
             {supportRequests.map((request) => (
               <div key={request.id} className="rounded border p-3">
                 <p>
@@ -1987,7 +2095,7 @@ export function EfaDispatchStepper({
                 <label className="mt-2 block">
                   Despacho de respuesta
                   <select
-                    className="mt-1 h-11 w-full rounded border px-3"
+                    className="mt-1 h-11 w-full min-w-0 max-w-full rounded border px-3"
                     value={request.responseDispatchId ?? ""}
                     disabled={
                       busy ||
@@ -2041,6 +2149,16 @@ export function EfaDispatchStepper({
         {queueEntries.length > 0 && (
           <div className="space-y-2 border-t pt-3">
             <h3>Operaciones locales pendientes</h3>
+            {error && errorSurface === "queue" && (
+              <p role="alert" className="text-sm text-destructive" aria-live="assertive">
+                {error}
+              </p>
+            )}
+            {message && messageSurface === "queue" && (
+              <p role="status" className="text-sm" aria-live="polite">
+                {message}
+              </p>
+            )}
             {queueEntries.map((entry) => (
               <div
                 key={entry.operationId}
@@ -2088,6 +2206,10 @@ export function EfaDispatchStepper({
                         )
                       )
                         return;
+                      setErrorSurface("queue");
+                      setMessageSurface("queue");
+                      setError("");
+                      setMessage("");
                       const targetOwner = currentUserId;
                       void queueStore.current
                         ?.remove(targetOwner, episodeId, entry.operationId)

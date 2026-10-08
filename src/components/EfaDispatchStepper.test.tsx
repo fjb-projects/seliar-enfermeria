@@ -4,6 +4,7 @@ import {
   availableDispatchOrigins,
   canEditSupportAssociation,
   captureActionTimestamp,
+  dispatchErrorSurfaceForKind,
   DispatchInstitutionField,
   EfaDispatchStepper,
   FirstResponseRoleSelect,
@@ -38,6 +39,15 @@ vi.mock("@/lib/efa-institutions.functions", () => ({
 }));
 
 describe("EfaDispatchStepper", () => {
+  it("keeps dispatch action failures beside the control that can retry them", () => {
+    expect(dispatchErrorSurfaceForKind("create")).toBe("form");
+    expect(dispatchErrorSurfaceForKind("update")).toBe("form");
+    expect(dispatchErrorSurfaceForKind("finalize")).toBe("form");
+    expect(dispatchErrorSurfaceForKind("contact-attempt")).toBe("contact");
+    expect(dispatchErrorSurfaceForKind("support-create")).toBe("support");
+    expect(dispatchErrorSurfaceForKind("support-update")).toBe("support");
+  });
+
   it("hides cancelled communication origins except an existing historical link", () => {
     const communications = [
       { id: "active", state: "finalized" },
@@ -89,7 +99,9 @@ describe("EfaDispatchStepper", () => {
         episodeCanEdit={false}
       />,
     );
-    expect(html).toContain("Despachos · Turno 1");
+    expect(html).toContain('aria-label="Despachos del episodio Turno 1"');
+    expect(html).toContain(">Despachos</h2>");
+    expect(html).not.toContain("Despachos · Turno 1");
     expect(html).toContain("Solo lectura");
     expect(html).toContain("<section");
   });
