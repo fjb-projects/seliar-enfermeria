@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
 import {
+  createInitialIncomingCommunicationOnTransaction,
   createEfaCommunicationsService,
   type EfaCommunicationAuditRecord,
   type EfaCommunicationRecord,
@@ -21,6 +23,7 @@ const preciseStart = "2026-10-06T09:30:12.345Z";
 function createStore() {
   const actors = new Map([
     [owner, { isActive: true, roles: ["efa"] as Array<"efa" | "admin"> }],
+    ["other", { isActive: true, roles: ["efa"] as Array<"efa" | "admin"> }],
     [admin, { isActive: true, roles: ["admin"] as Array<"efa" | "admin"> }],
     [revoked, { isActive: true, roles: [] as Array<"efa" | "admin"> }],
     ["disabled", { isActive: false, roles: ["efa"] as Array<"efa" | "admin"> }],
@@ -108,6 +111,9 @@ function createStore() {
         (item) => item.ownerUserId === ownerUserId && item.clientCreationKey === key,
       );
       return found ? detach(found) : null;
+    },
+    async lockCreationKey(ownerUserId: string, key: string) {
+      lockOrder.push(`creation-lock:${ownerUserId}:${key}`);
     },
     async findOperation(communicationId: string, operationId: string) {
       lockOrder.push("operation-lookup");
@@ -238,6 +244,74 @@ const createInput = (overrides: Record<string, unknown> = {}) => ({
 });
 
 describe("EFA phone communication persistence", () => {
+  it("replays an initial call after another owner uses the same creation key", async () => {
+    const db = createStore();
+    let id = 0;
+    const key = "22222222-2222-4222-8222-222222222222";
+    const createInitial = () =>
+      db.store.transaction((tx) =>
+        createInitialIncomingCommunicationOnTransaction(
+          {
+            findActor: (userId) => tx.findActor(userId),
+            findEpisodeForCommunication: (id, lock) => tx.findEpisode(id, lock),
+            lockCreationKey: (ownerUserId, creationKey) =>
+              tx.lockCreationKey(ownerUserId, creationKey),
+            findCommunicationByCreationKey: (ownerUserId, creationKey) =>
+              tx.findCommunicationByCreationKey(ownerUserId, creationKey),
+            findCreationOperation: (communicationId, creationKey) =>
+              tx.findOperation(communicationId, creationKey),
+            insertCommunication: (input) => tx.insertCommunication(input),
+            appendCreationAudit: (input) => tx.appendAudit(input),
+            insertCreationOperation: (input) => tx.insertOperation(input),
+            findCommunication: (communicationId) => tx.findCommunication(communicationId),
+          },
+          owner,
+          episodeId,
+          key,
+          () => `communication-${++id}`,
+        ),
+      );
+    const first = await createInitial();
+    const service = createEfaCommunicationsService(db.store, {
+      newId: () => `communication-${++id}`,
+    });
+    const otherOwnersCall = await service.create(
+      "other",
+      createInput({ episodeId: "episode-other", clientCreationKey: key }),
+    );
+    const replayed = await createInitial();
+
+    expect(otherOwnersCall.communication.id).not.toBe(first.communication.id);
+    expect(replayed.communication.id).toBe(first.communication.id);
+    expect(replayed.creationReceipt).toEqual(first.creationReceipt);
+    expect(replayed.replayed).toBe(true);
+    expect(db.communications).toHaveLength(2);
+  });
+
+  it("keeps public outgoing creation with precise times and priority", async () => {
+    const db = createStore();
+    const service = createEfaCommunicationsService(db.store, { newId: () => "communication-1" });
+    const created = await service.create(
+      owner,
+      createInput({
+        direction: "outgoing",
+        startedAt: preciseStart,
+        endedAt: "2026-10-06T09:45:12.345Z",
+        priority: "red",
+      }),
+    );
+
+    expect(created.communication).toMatchObject({
+      direction: "outgoing",
+      startedAt: preciseStart,
+      endedAt: "2026-10-06T09:45:12.345Z",
+      priority: "red",
+      state: "draft",
+    });
+    expect(created.operation).toMatchObject({ action: "created", changed: true, replayed: false });
+    expect(db.audits[0]?.afterState).toMatchObject({ direction: "outgoing", priority: "red" });
+  });
+
   it("cancels and reactivates a communication with its exact prior state and idempotent audit receipts", async () => {
     const db = createStore();
     let id = 0;
@@ -680,6 +754,22 @@ describe("EFA phone communication persistence", () => {
     expect(db.audits).toHaveLength(1);
     expect(db.operations).toHaveLength(1);
     expect(db.operations[0]?.requestHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(db.operations[0]?.requestHash).toBe(
+      createHash("sha256")
+        .update(
+          JSON.stringify({
+            action: "created",
+            actorUserId: owner,
+            clientCreationKey: createInput().clientCreationKey,
+            episodeId,
+            direction: "incoming",
+            startedAt: preciseStart,
+            endedAt: null,
+            priority: null,
+          }),
+        )
+        .digest("hex"),
+    );
     expect(Object.keys(db.operations[0] ?? {})).not.toContain("address");
   });
 
@@ -687,7 +777,11 @@ describe("EFA phone communication persistence", () => {
     const db = createStore();
     const service = createEfaCommunicationsService(db.store, { newId: () => "communication-1" });
     const created = await service.create(owner, createInput());
-    expect(db.lockOrder.slice(0, 2)).toEqual(["episode-lock", "creation-key-lookup"]);
+    expect(db.lockOrder.slice(0, 3)).toEqual([
+      "episode-lock",
+      `creation-lock:${owner}:${createInput().clientCreationKey}`,
+      "creation-key-lookup",
+    ]);
 
     const beforeUpdate = db.lockOrder.length;
     await service.update(owner, {
