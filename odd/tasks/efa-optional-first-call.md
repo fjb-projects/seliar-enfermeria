@@ -24,7 +24,7 @@ RDD remains off by clone-local preference. Assessment failure is high risk; inde
 ## Tasks
 
 - [x] A1 — Shared transaction-bound communication creation. Branch `codex/efa-first-call-08-atomic-create`. Communication server/core and regression tests preserve public API behavior and owner-scoped idempotency. Independent review passed after correcting global key lookup; parent reran all three backend files with 41 passing tests. Typecheck, formatting and diff check passed.
-- [ ] A2 — Optional atomic episode/first-call creation and immutable receipt. Branch `codex/efa-first-call-09-linked-create`. Episode server/functions and tests verify rollback, authorization/audits, exact retry idempotency, mismatched child keys, legacy hash/replay and absence of manufactured call data.
+- [x] A2 — Optional atomic episode/first-call creation and immutable receipt. Branch `codex/efa-first-call-09-linked-create`. Episode server/functions and tests verify rollback, authorization/audits, exact retry idempotency, mismatched child keys, legacy hash/replay and absence of manufactured call data. All three backend files passed 41 tests, typecheck, formatting and diff check; independent verification passed. No live PostgreSQL integration check was available.
 - [ ] B — Durable offline payload and proof. Branch `codex/efa-first-call-10-offline`. Surfaces: episode client/queue and their tests. Verify checkbox intent and child key persist unchanged, old entries load normally, a partial/wrong receipt cannot complete the operation, and retries cannot create duplicates.
 - [ ] C — Default option and call continuation. Branch `codex/efa-first-call-11-ui`. Surfaces: EpisodePanel and CommunicationStepper and their tests. Verify checked/unchecked/edit flows, matching-operation navigation, initial-call selection and protection against stale responses or newer edits.
 
@@ -33,6 +33,8 @@ RDD remains off by clone-local preference. Assessment failure is high risk; inde
 Use meaningful observed RED → GREEN for behavior regressions, then normalize final source bytes before functional checks. Each task runs its focused Vitest files, typecheck and diff check; production build at final UI closure. Independent verification reviews risky behavior and runs focused tests. Runtime browser inventory was previously empty, so actual mobile/interactive QA is pending unless a browser becomes available. Database transaction code/fault-injection tests do not substitute for real PostgreSQL integration; record availability honestly.
 
 Backend implementation and independent verification are complete. One coherent slicing pass separates shared communication creation (404 authored source/test lines) from episode integration (414 source/test lines). Documentation increases both ranges; preserve their behavior/proof rather than making artificial splits. A size exception is recommended and required before opening an oversized PR; no PR or remote publication is requested. Initial forecast is now exceeded by the backend and remaining offline/UI work.
+
+A1 committed as `d5e19f5` on `codex/efa-first-call-08-atomic-create`, 452 authored changed lines including the initial task document. A2 closes on `codex/efa-first-call-09-linked-create`. These ranges have been structurally checked for independent imports; intermediate revision compilation was not separately run.
 
 ### A progress — atomic creation
 

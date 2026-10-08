@@ -36,6 +36,26 @@ describe("EFA episode server function inputs", () => {
     });
   });
 
+  it("accepts an incoming first-call key only as a paired optional field", () => {
+    expect(
+      episodeCreateSchema.safeParse({
+        ...validCreate,
+        childCreateKey: "44444444-4444-4444-8444-444444444444",
+        direction: "incoming",
+      }).success,
+    ).toBe(true);
+    expect(
+      episodeCreateSchema.safeParse({ ...validCreate, childCreateKey: episodeId }).success,
+    ).toBe(false);
+    expect(
+      episodeCreateSchema.safeParse({
+        ...validCreate,
+        childCreateKey: episodeId,
+        direction: "outgoing",
+      }).success,
+    ).toBe(false);
+  });
+
   it("requires stable UUIDs and an expected version for updates", () => {
     const input = {
       episodeId,

@@ -13,11 +13,16 @@ const interventionNumber = z.string().trim().max(100).nullable().optional();
 export const episodeCreateSchema = z
   .object({
     clientCreationKey: z.string().uuid(),
+    childCreateKey: z.string().uuid().optional(),
+    direction: z.literal("incoming").optional(),
     guardId: z.string().uuid(),
     eventAt,
     motive,
     address,
     interventionNumber,
+  })
+  .refine((input) => (input.childCreateKey === undefined) === (input.direction === undefined), {
+    message: "La clave y dirección de la llamada inicial deben enviarse juntas.",
   })
   .strict();
 export const episodeUpdateSchema = z
@@ -80,9 +85,13 @@ export const createEfaEpisode = createServerFn({ method: "POST" })
   .validator((data: unknown) => episodeCreateSchema.parse(data))
   .handler(async ({ data }) => {
     const access = requireEfa(await currentAccessSession());
+    const { childCreateKey, direction, ...episodeData } = data;
     return getService().then((service) =>
       service.create(access.userId, {
-        ...data,
+        ...episodeData,
+        ...(childCreateKey !== undefined && direction !== undefined
+          ? { childCreateKey, direction }
+          : {}),
         motive: data.motive ?? null,
         address: data.address?.trim() ?? null,
         interventionNumber: data.interventionNumber ?? null,

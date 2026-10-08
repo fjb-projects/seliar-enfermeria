@@ -6,6 +6,10 @@ import {
   type EfaEpisodeRecord,
   type EfaEpisodeTransaction,
 } from "./efa-episodes.server";
+import type {
+  EfaCommunicationRecord,
+  EfaCommunicationOperationRecord,
+} from "./efa-communications.server";
 
 const opened = new Date("2026-10-06T08:00:00.000Z");
 const eventTime = new Date("2026-10-06T09:30:00.000Z");
@@ -36,6 +40,9 @@ function createStore() {
   const episodes: EfaEpisodeRecord[] = [];
   const audits: EfaEpisodeAuditRecord[] = [];
   const notices: EfaEpisodeNoticeRecord[] = [];
+  const communications: EfaCommunicationRecord[] = [];
+  const communicationAudits: Array<Record<string, unknown>> = [];
+  const communicationOperations: EfaCommunicationOperationRecord[] = [];
   const operationLookup: Array<{
     id: string;
     episodeId: string;
@@ -54,6 +61,7 @@ function createStore() {
   const episodeLocks: string[] = [];
   let auditNumber = 0;
   let noticeNumber = 0;
+  let failCommunicationReceipt = false;
   const detachEpisode = (episode: EfaEpisodeRecord): EfaEpisodeRecord => ({
     ...episode,
     eventAt: new Date(episode.eventAt),
@@ -63,6 +71,71 @@ function createStore() {
     updatedAt: new Date(episode.updatedAt),
   });
   const tx = {
+    communicationCreation: {
+      async findActor(userId: string) {
+        return actors.get(userId) ?? null;
+      },
+      async findEpisodeForCommunication(id: string) {
+        const episode = episodes.find((item) => item.id === id);
+        return episode
+          ? { id: episode.id, ownerUserId: episode.ownerUserId, cancelledAt: episode.cancelledAt }
+          : null;
+      },
+      async lockCreationKey() {},
+      async findCommunicationByCreationKey(userId: string, key: string) {
+        return (
+          communications.find(
+            (item) => item.ownerUserId === userId && item.clientCreationKey === key,
+          ) ?? null
+        );
+      },
+      async findCreationOperation(id: string, key: string) {
+        return (
+          communicationOperations.find(
+            (item) => item.communicationId === id && item.clientOperationId === key,
+          ) ?? null
+        );
+      },
+      async insertCommunication(
+        input: Omit<
+          EfaCommunicationRecord,
+          | "version"
+          | "createdAt"
+          | "updatedAt"
+          | "finalizedAt"
+          | "cancelledAt"
+          | "cancelledFromState"
+        >,
+      ) {
+        const now = new Date("2026-10-06T10:00:00.000Z");
+        communications.push({
+          ...input,
+          version: 1,
+          createdAt: now,
+          updatedAt: now,
+          finalizedAt: null,
+          cancelledAt: null,
+          cancelledFromState: null,
+        });
+      },
+      async appendCreationAudit(input: Record<string, unknown>) {
+        communicationAudits.push(input);
+        return `communication-audit-${communicationAudits.length}`;
+      },
+      async insertCreationOperation(input: Omit<EfaCommunicationOperationRecord, "id">) {
+        if (failCommunicationReceipt) {
+          failCommunicationReceipt = false;
+          throw new Error("communication-receipt-fault");
+        }
+        communicationOperations.push({
+          ...input,
+          id: `communication-operation-${communicationOperations.length + 1}`,
+        });
+      },
+      async findCommunication(id: string) {
+        return communications.find((item) => item.id === id) ?? null;
+      },
+    },
     async findActor(userId: string) {
       return actors.get(userId) ?? null;
     },
@@ -174,8 +247,24 @@ function createStore() {
           release = resolve;
         });
         await previous;
+        const lengths = [
+          episodes.length,
+          audits.length,
+          operationLookup.length,
+          communications.length,
+          communicationAudits.length,
+          communicationOperations.length,
+        ];
         try {
           return await work(tx);
+        } catch (error) {
+          episodes.length = lengths[0]!;
+          audits.length = lengths[1]!;
+          operationLookup.length = lengths[2]!;
+          communications.length = lengths[3]!;
+          communicationAudits.length = lengths[4]!;
+          communicationOperations.length = lengths[5]!;
+          throw error;
         } finally {
           release();
         }
@@ -185,6 +274,9 @@ function createStore() {
     audits,
     notices,
     operationLookup,
+    communications,
+    communicationAudits,
+    communicationOperations,
     guardLocks,
     episodeLocks,
     guards,
@@ -202,6 +294,9 @@ function createStore() {
     closeGuard(id: string) {
       guards.get(id)!.endedAt = new Date("2026-10-06T18:00:00.000Z");
     },
+    failNextCommunicationReceipt() {
+      failCommunicationReceipt = true;
+    },
   };
 }
 
@@ -216,6 +311,120 @@ const createInput = (overrides: Record<string, unknown> = {}) => ({
 });
 
 describe("EFA episode draft persistence", () => {
+  it("creates an incoming first-call draft with a verifiable immutable receipt", async () => {
+    const db = createStore();
+    const service = createEfaEpisodesService(db.store, { newId: () => "episode-1" });
+    const result = await service.create(
+      owner,
+      createInput({
+        childCreateKey: "22222222-2222-4222-8222-222222222222",
+        direction: "incoming",
+      }),
+    );
+
+    expect(result.initialCall).toMatchObject({
+      communication: {
+        episodeId: result.episode.id,
+        clientCreationKey: "22222222-2222-4222-8222-222222222222",
+        direction: "incoming",
+        startedAt: null,
+        endedAt: null,
+        priority: null,
+        state: "draft",
+      },
+      creationReceipt: {
+        episodeId: result.episode.id,
+        clientCreationKey: "22222222-2222-4222-8222-222222222222",
+        action: "created",
+        appliedVersion: 1,
+        changed: true,
+      },
+    });
+  });
+
+  it("replays the original first-call receipt after the call and episode change", async () => {
+    const db = createStore();
+    const service = createEfaEpisodesService(db.store, {
+      newId: (() => {
+        let id = 0;
+        return () => `record-${++id}`;
+      })(),
+    });
+    const input = createInput({
+      childCreateKey: "22222222-2222-4222-8222-222222222222",
+      direction: "incoming",
+    });
+    const first = await service.create(owner, input);
+    const call = db.communications[0]!;
+    Object.assign(call, {
+      direction: "outgoing",
+      startedAt: new Date("2026-10-06T12:00:00.000Z"),
+      state: "finalized",
+      version: 2,
+    });
+    Object.assign(db.episodes[0]!, {
+      cancelledAt: new Date("2026-10-07T12:00:00.000Z"),
+      state: "closed",
+    });
+
+    const replayed = await service.create(owner, input);
+    expect(replayed.initialCall?.creationReceipt).toEqual(first.initialCall?.creationReceipt);
+    expect(replayed.initialCall?.replayed).toBe(true);
+    expect(replayed.initialCall?.communication).toMatchObject({
+      direction: "outgoing",
+      state: "finalized",
+      version: 2,
+    });
+  });
+
+  it("rolls back episode, call, audits and receipts when the call receipt write fails", async () => {
+    const db = createStore();
+    const service = createEfaEpisodesService(db.store, { newId: () => "episode-1" });
+    db.failNextCommunicationReceipt();
+
+    await expect(
+      service.create(
+        owner,
+        createInput({
+          childCreateKey: "22222222-2222-4222-8222-222222222222",
+          direction: "incoming",
+        }),
+      ),
+    ).rejects.toThrow("communication-receipt-fault");
+    expect(db.episodes).toHaveLength(0);
+    expect(db.audits).toHaveLength(0);
+    expect(db.operationLookup).toHaveLength(0);
+    expect(db.communications).toHaveLength(0);
+    expect(db.communicationAudits).toHaveLength(0);
+    expect(db.communicationOperations).toHaveLength(0);
+  });
+
+  it("rejects a child key already bound to another episode and rolls back the new episode", async () => {
+    const db = createStore();
+    const service = createEfaEpisodesService(
+      db.store,
+      (() => {
+        let id = 0;
+        return { newId: () => `record-${++id}` };
+      })(),
+    );
+    const childCreateKey = "22222222-2222-4222-8222-222222222222";
+    await service.create(owner, createInput({ childCreateKey, direction: "incoming" }));
+
+    await expect(
+      service.create(
+        owner,
+        createInput({
+          clientCreationKey: "33333333-3333-4333-8333-333333333333",
+          childCreateKey,
+          direction: "incoming",
+        }),
+      ),
+    ).rejects.toThrow("La clave de llamada ya pertenece a otro episodio o usuario.");
+    expect(db.episodes).toHaveLength(1);
+    expect(db.communications).toHaveLength(1);
+  });
+
   it("stores event time separately from capture time and returns a safe caller-bound DTO", async () => {
     const db = createStore();
     const service = createEfaEpisodesService(db.store, { newId: () => "episode-1" });

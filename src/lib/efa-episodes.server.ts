@@ -9,10 +9,18 @@ import {
   efaEpisodeNotice,
   efaEpisodeOperation,
   efaCommunication,
+  efaCommunicationAudit,
+  efaCommunicationOperation,
   efaDispatch,
   efaGuard,
 } from "../db/schema";
 import { effectiveRoles, type AccountRole } from "./access";
+import {
+  createInitialIncomingCommunicationOnTransaction,
+  type EfaCommunicationCreationTransaction,
+  type EfaInitialCommunicationReceipt,
+  type EfaCommunicationView,
+} from "./efa-communications.server";
 
 export type EfaEpisodeState = {
   eventAt: string;
@@ -124,6 +132,7 @@ export interface EfaEpisodeTransaction {
   listAudits(episodeId: string): Promise<EfaEpisodeAuditRecord[]>;
   listNotices(recipientUserId: string): Promise<EfaEpisodeNoticeRecord[]>;
   markNoticeRead(noticeId: string, recipientUserId: string): Promise<EfaEpisodeNoticeRecord | null>;
+  communicationCreation: EfaCommunicationCreationTransaction;
 }
 export interface EfaEpisodeStore {
   transaction<T>(work: (tx: EfaEpisodeTransaction) => Promise<T>): Promise<T>;
@@ -143,6 +152,11 @@ export type EfaEpisodeView = Omit<
 };
 export type EfaEpisodeMutationResult = {
   episode: EfaEpisodeView;
+  initialCall?: {
+    communication: EfaCommunicationView;
+    creationReceipt: EfaInitialCommunicationReceipt;
+    replayed: boolean;
+  };
   operation: {
     id: string;
     action: "created" | "updated" | "closed" | "cancelled" | "reactivated";
@@ -323,13 +337,15 @@ export function createEfaEpisodesService(
         motive?: string | null;
         address?: string | null;
         interventionNumber?: string | null;
+        childCreateKey?: string;
+        direction?: "incoming";
       },
     ) {
       const eventAt = asDate(input.eventAt);
       const motive = cleanOptional(input.motive);
       const address = cleanOptional(input.address);
       const interventionNumber = cleanOptional(input.interventionNumber);
-      const hash = requestHash("created", {
+      const hashValues: Record<string, unknown> = {
         actorUserId: userId,
         clientCreationKey: input.clientCreationKey,
         guardId: input.guardId,
@@ -337,14 +353,49 @@ export function createEfaEpisodesService(
         motive,
         address,
         interventionNumber,
-      });
+      };
+      if (input.childCreateKey !== undefined && input.direction === "incoming") {
+        hashValues["initialCall"] = {
+          childCreateKey: input.childCreateKey,
+          direction: input.direction,
+        };
+      } else if (input.childCreateKey !== undefined || input.direction !== undefined) {
+        throw new Error("La llamada inicial requiere clave y dirección entrantes.");
+      }
+      const hash = requestHash("created", hashValues);
       return store.transaction(async (tx) => {
         await actor(tx, userId, true);
         const replayExisting = async (existing: EfaEpisodeRecord | null) => {
           if (!existing) return null;
           const operation = await tx.findOperation(existing.id, input.clientCreationKey);
           assertOperation(operation, userId, "created", hash);
-          return replayResult(existing, operation);
+          const result = replayResult(existing, operation);
+          if (input.childCreateKey && input.direction === "incoming") {
+            const createdCall = await createInitialIncomingCommunicationOnTransaction(
+              tx.communicationCreation,
+              userId,
+              existing.id,
+              input.childCreateKey,
+              newId,
+            );
+            const communication = createdCall.communication;
+            result["initialCall"] = {
+              communication: {
+                ...communication,
+                startedAt: communication.startedAt?.toISOString() ?? null,
+                endedAt: communication.endedAt?.toISOString() ?? null,
+                finalizedAt: communication.finalizedAt?.toISOString() ?? null,
+                cancelledAt: communication.cancelledAt?.toISOString() ?? null,
+                createdAt: communication.createdAt.toISOString(),
+                updatedAt: communication.updatedAt.toISOString(),
+                canEdit: communication.state !== "cancelled",
+                canManageLifecycle: true,
+              },
+              creationReceipt: createdCall.creationReceipt,
+              replayed: true,
+            };
+          }
+          return result;
         };
         const prior = await replayExisting(
           await tx.findEpisodeByCreationKey(userId, input.clientCreationKey),
@@ -394,10 +445,37 @@ export function createEfaEpisodesService(
           appliedVersion: 1,
           changed: true,
         });
+        let initialCall: EfaEpisodeMutationResult["initialCall"];
+        if (input.childCreateKey && input.direction === "incoming") {
+          const createdCall = await createInitialIncomingCommunicationOnTransaction(
+            tx.communicationCreation,
+            userId,
+            id,
+            input.childCreateKey,
+            newId,
+          );
+          const communication = createdCall.communication;
+          initialCall = {
+            communication: {
+              ...communication,
+              startedAt: communication.startedAt?.toISOString() ?? null,
+              endedAt: communication.endedAt?.toISOString() ?? null,
+              finalizedAt: communication.finalizedAt?.toISOString() ?? null,
+              cancelledAt: communication.cancelledAt?.toISOString() ?? null,
+              createdAt: communication.createdAt.toISOString(),
+              updatedAt: communication.updatedAt.toISOString(),
+              canEdit: true,
+              canManageLifecycle: true,
+            },
+            creationReceipt: createdCall.creationReceipt,
+            replayed: createdCall.replayed,
+          };
+        }
         const inserted = await tx.findEpisode(id);
         if (!inserted) throw new Error("No se pudo confirmar el episodio guardado.");
         return {
           episode: view(inserted, true),
+          ...(initialCall ? { initialCall } : {}),
           operation: {
             id: input.clientCreationKey,
             action: "created" as const,
@@ -770,6 +848,96 @@ const drizzleStore: EfaEpisodeStore = {
   async transaction(work) {
     return getDatabase().transaction(async (db) => {
       const tx: EfaEpisodeTransaction = {
+        communicationCreation: {
+          async findActor(userId) {
+            const rows = await db
+              .select({ isActive: accountAccess.isActive, role: accountRoleGrant.role })
+              .from(accountAccess)
+              .leftJoin(accountRoleGrant, eq(accountRoleGrant.userId, accountAccess.userId))
+              .where(eq(accountAccess.userId, userId));
+            if (!rows.length) return null;
+            return {
+              isActive: rows[0]!.isActive,
+              roles: rows.flatMap((row) => (row.role ? [row.role as AccountRole] : [])),
+            };
+          },
+          async findEpisodeForCommunication(episodeId, lock = false) {
+            let query = db
+              .select({
+                id: efaEpisode.id,
+                ownerUserId: efaEpisode.ownerUserId,
+                cancelledAt: efaEpisode.cancelledAt,
+              })
+              .from(efaEpisode)
+              .where(eq(efaEpisode.id, episodeId))
+              .limit(1);
+            if (lock) query = query.for("update") as typeof query;
+            return (await query)[0] ?? null;
+          },
+          async lockCreationKey(ownerUserId, key) {
+            await db.execute(
+              sql`select pg_advisory_xact_lock(hashtextextended(${ownerUserId} || ':' || ${key}, 0))`,
+            );
+          },
+          async findCommunicationByCreationKey(ownerUserId, key) {
+            const rows = await db
+              .select()
+              .from(efaCommunication)
+              .where(
+                and(
+                  eq(efaCommunication.ownerUserId, ownerUserId),
+                  eq(efaCommunication.clientCreationKey, key),
+                ),
+              )
+              .limit(1);
+            return (
+              (rows[0] as
+                import("./efa-communications.server").EfaCommunicationRecord | undefined) ?? null
+            );
+          },
+          async findCreationOperation(communicationId, key) {
+            const rows = await db
+              .select()
+              .from(efaCommunicationOperation)
+              .where(
+                and(
+                  eq(efaCommunicationOperation.communicationId, communicationId),
+                  eq(efaCommunicationOperation.clientOperationId, key),
+                ),
+              )
+              .limit(1);
+            return (
+              (rows[0] as
+                | import("./efa-communications.server").EfaCommunicationOperationRecord
+                | undefined) ?? null
+            );
+          },
+          async insertCommunication(input) {
+            await db.insert(efaCommunication).values(input);
+          },
+          async appendCreationAudit(input) {
+            const rows = await db
+              .insert(efaCommunicationAudit)
+              .values(input)
+              .returning({ id: efaCommunicationAudit.id });
+            if (!rows[0]) throw new Error("No se pudo confirmar el historial de la llamada.");
+            return rows[0].id;
+          },
+          async insertCreationOperation(input) {
+            await db.insert(efaCommunicationOperation).values(input);
+          },
+          async findCommunication(communicationId) {
+            const rows = await db
+              .select()
+              .from(efaCommunication)
+              .where(eq(efaCommunication.id, communicationId))
+              .limit(1);
+            return (
+              (rows[0] as
+                import("./efa-communications.server").EfaCommunicationRecord | undefined) ?? null
+            );
+          },
+        },
         async findActor(userId) {
           const rows = await db
             .select({ isActive: accountAccess.isActive, role: accountRoleGrant.role })
