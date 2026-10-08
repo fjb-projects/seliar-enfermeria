@@ -25,7 +25,7 @@ RDD remains off by clone-local preference. Assessment failure is high risk; inde
 
 - [x] A1 — Shared transaction-bound communication creation. Branch `codex/efa-first-call-08-atomic-create`. Communication server/core and regression tests preserve public API behavior and owner-scoped idempotency. Independent review passed after correcting global key lookup; parent reran all three backend files with 41 passing tests. Typecheck, formatting and diff check passed.
 - [x] A2 — Optional atomic episode/first-call creation and immutable receipt. Branch `codex/efa-first-call-09-linked-create`. Episode server/functions and tests verify rollback, authorization/audits, exact retry idempotency, mismatched child keys, legacy hash/replay and absence of manufactured call data. All three backend files passed 41 tests, typecheck, formatting and diff check; independent verification passed. No live PostgreSQL integration check was available.
-- [ ] B — Durable offline payload and proof. Branch `codex/efa-first-call-10-offline`. Surfaces: episode client/queue and their tests. Verify checkbox intent and child key persist unchanged, old entries load normally, a partial/wrong receipt cannot complete the operation, and retries cannot create duplicates.
+- [x] B — Durable offline payload and proof. Branch `codex/efa-first-call-10-offline`. Intent and child key persist unchanged; legacy entries retain their old payload. Incomplete/wrong proof pauses the operation and retains its queue entry. Focused tests: 39 passed; typecheck, formatting and diff check passed. Independent review closed both identity findings; parent reran the focused command.
 - [ ] C — Default option and call continuation. Branch `codex/efa-first-call-11-ui`. Surfaces: EpisodePanel and CommunicationStepper and their tests. Verify checked/unchecked/edit flows, matching-operation navigation, initial-call selection and protection against stale responses or newer edits.
 
 ## Checks and progress
@@ -35,6 +35,8 @@ Use meaningful observed RED → GREEN for behavior regressions, then normalize f
 Backend implementation and independent verification are complete. One coherent slicing pass separates shared communication creation (404 authored source/test lines) from episode integration (414 source/test lines). Documentation increases both ranges; preserve their behavior/proof rather than making artificial splits. A size exception is recommended and required before opening an oversized PR; no PR or remote publication is requested. Initial forecast is now exceeded by the backend and remaining offline/UI work.
 
 A1 committed as `d5e19f5` on `codex/efa-first-call-08-atomic-create`, 452 authored changed lines including the initial task document. A2 closes on `codex/efa-first-call-09-linked-create`. These ranges have been structurally checked for independent imports; intermediate revision compilation was not separately run.
+
+A2 committed as `44a71f8`, 418 authored changed lines. B closes on `codex/efa-first-call-10-offline`; next is the default checkbox and selected-call continuation on C.
 
 ### A progress — atomic creation
 
@@ -48,3 +50,11 @@ A1 committed as `d5e19f5` on `codex/efa-first-call-08-atomic-create`, 452 author
 - Route: delegated direct (one writer), triggered by cross-service transaction reuse across multiple non-trivial files. Source/tests changed 818 authored lines (731 additions, 87 deletions), above the 400-line advisory. One slicing pass can separate the shared communication-create core and regression proof from the episode opt-in integration and rollback/replay proof; parent will derive commit boundaries. Task progress adds 13 lines.
 - No live PostgreSQL integration check was run; rollback evidence comes from the transaction fault-injection adapter test.
 - No commit was created; the parent owns work-unit commit and native review.
+
+### B progress — offline intent and receipt proof
+
+- [x] Backward-compatible client API: `createPendingCreate(guardId, form, makeId, { registerFirstCall: true })` opts in. Omitted/false options preserve legacy payloads; opt-in generates the child key once and freezes it with `direction: "incoming"` for reloads and retries. UI callers should pass `registerFirstCall: true` for the checked default and restore the checkbox from the frozen payload pair; old entries remain unchecked.
+- [x] Queue validation requires paired child intent and verifies the parent create identity plus immutable `initialCall.creationReceipt` identity, action, version, direction and hash before completing/navigation. It deliberately does not compare mutable current call state, direction, timing or priority, so valid replay after edits/finalization/cancellation remains acceptable.
+- [x] Parent episode ownership and origin guard must be present and exact; both current communication ID and immutable receipt communication ID must be nonempty and equal. Regression cases use matching parent operation IDs so each missing identity is independently rejected.
+- [x] RED observed: focused tests failed because the client omitted the child fields and partial intent was accepted. GREEN: `npm.cmd run test -- src/lib/efa-episodes.client.test.ts src/lib/efa-episodes.queue.test.ts` passed 39 tests; `npm.cmd run typecheck`, scoped Prettier check and `git diff --check` passed.
+- Authored source/test diff: 204 additions and 1 deletion (205 changed lines). No UI work, commit or live database test was performed in B.

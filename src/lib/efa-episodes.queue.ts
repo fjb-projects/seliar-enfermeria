@@ -53,6 +53,17 @@ const payloadOperationId = (entry: EpisodeQueueEntry) => {
     .operationId;
 };
 
+function hasValidFirstCallIntent(entry: EpisodeQueueEntry): boolean {
+  if (entry.kind !== "create") return true;
+  const payload = entry.payload as PendingEpisodeCreate["payload"];
+  const childCreateKey = payload.childCreateKey;
+  const direction = payload.direction;
+  return (
+    (childCreateKey === undefined && direction === undefined) ||
+    (typeof childCreateKey === "string" && childCreateKey.length > 0 && direction === "incoming")
+  );
+}
+
 export type RestoredEpisodeQueueEntry = {
   operation: PendingEpisodeOperation;
   form: EpisodeFormValues | null;
@@ -142,9 +153,52 @@ export function isValidEpisodeQueueReceipt(entry: EpisodeQueueEntry, result: unk
   const mutation = result as {
     operation?: Record<string, unknown>;
     episode?: Record<string, unknown>;
+    initialCall?: Record<string, unknown>;
   };
   const operation = mutation.operation;
   if (operation?.["id"] !== entry.operationId) return false;
+  if (entry.kind === "create") {
+    const payload = entry.payload as PendingEpisodeCreate["payload"];
+    const childCreateKey = payload.childCreateKey;
+    if (childCreateKey === undefined && payload.direction === undefined) return true;
+    if (!hasValidFirstCallIntent(entry)) return false;
+    const episode = mutation.episode;
+    const episodeId = episode?.["id"];
+    const initialCall = mutation.initialCall;
+    const communication = initialCall?.["communication"] as Record<string, unknown> | undefined;
+    const receipt = initialCall?.["creationReceipt"] as Record<string, unknown> | undefined;
+    const ownerMatches = episode?.["ownerUserId"] === entry.ownerUserId;
+    const guardMatches = episode?.["originGuardId"] === payload.guardId;
+    return Boolean(
+      operation["action"] === "created" &&
+      operation["appliedVersion"] === 1 &&
+      operation["changed"] === true &&
+      typeof operation["replayed"] === "boolean" &&
+      payload.clientCreationKey === entry.operationId &&
+      typeof episodeId === "string" &&
+      episodeId.length > 0 &&
+      ownerMatches &&
+      guardMatches &&
+      typeof communication?.["id"] === "string" &&
+      communication["id"].length > 0 &&
+      typeof receipt?.["communicationId"] === "string" &&
+      receipt["communicationId"].length > 0 &&
+      communication?.["id"] === receipt?.["communicationId"] &&
+      communication?.["episodeId"] === episodeId &&
+      communication?.["ownerUserId"] === entry.ownerUserId &&
+      communication?.["clientCreationKey"] === childCreateKey &&
+      receipt?.["episodeId"] === episodeId &&
+      receipt?.["ownerUserId"] === entry.ownerUserId &&
+      receipt?.["clientCreationKey"] === childCreateKey &&
+      receipt?.["operationId"] === childCreateKey &&
+      receipt?.["direction"] === "incoming" &&
+      receipt?.["action"] === "created" &&
+      receipt?.["appliedVersion"] === 1 &&
+      receipt?.["changed"] === true &&
+      typeof receipt?.["requestHash"] === "string" &&
+      /^[0-9a-f]{64}$/.test(receipt["requestHash"] as string),
+    );
+  }
   if (entry.kind !== "close") return true;
 
   const payload = entry.payload as PendingEpisodeClose["payload"];
@@ -278,6 +332,7 @@ export function createEpisodeQueueController<TResult extends { operation?: { id?
       const persisted = await store.get(entry.ownerUserId, entry.operationId);
       if (!persisted) return { status: "missing", entry };
       if (!samePayload(persisted, entry)) throw new Error("Operation payload is immutable.");
+      if (!hasValidFirstCallIntent(persisted)) return pauseMismatched(persisted);
 
       const confirmed = confirmedResults.get(key);
       if (confirmed) return cleanConfirmed(persisted, confirmed);
@@ -323,6 +378,9 @@ export function createEpisodeQueueController<TResult extends { operation?: { id?
     async enqueue(entry: EpisodeQueueEntry): Promise<EpisodeQueueOutcome<TResult>> {
       if (!entry.ownerUserId || payloadOperationId(entry) !== entry.operationId) {
         throw new Error("Queued operation identity does not match its payload.");
+      }
+      if (!hasValidFirstCallIntent(entry)) {
+        throw new Error("First-call child key and incoming direction must be supplied together.");
       }
       const persisted = await store.put(freezeEntry(entry));
       if (!samePayload(persisted, entry)) throw new Error("Operation payload is immutable.");

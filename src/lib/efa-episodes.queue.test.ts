@@ -64,6 +64,62 @@ function closeReceipt(operationId: string, overrides: Record<string, unknown> = 
   };
 }
 
+function firstCallEntry(
+  operationId = "first-call-op",
+  childCreateKey = "child-key-1",
+): EpisodeQueueEntry {
+  const base = entry("owner-a", operationId);
+  return {
+    ...base,
+    payload: { ...base.payload, childCreateKey, direction: "incoming" },
+  } as EpisodeQueueEntry;
+}
+
+function firstCallReceipt(queued: EpisodeQueueEntry, overrides: Record<string, unknown> = {}) {
+  const payload = queued.payload as { childCreateKey: string; guardId: string };
+  return {
+    episode: {
+      id: "episode-created",
+      ownerUserId: queued.ownerUserId,
+      originGuardId: payload.guardId,
+    },
+    operation: {
+      id: queued.operationId,
+      action: "created",
+      appliedVersion: 1,
+      changed: true,
+      replayed: true,
+    },
+    initialCall: {
+      communication: {
+        id: "call-created",
+        episodeId: "episode-created",
+        ownerUserId: queued.ownerUserId,
+        clientCreationKey: payload.childCreateKey,
+        direction: "outgoing",
+        state: "finalized",
+        startedAt: "2026-10-06T10:00:00.000Z",
+        endedAt: "2026-10-06T10:30:00.000Z",
+        priority: "red",
+      },
+      creationReceipt: {
+        communicationId: "call-created",
+        episodeId: "episode-created",
+        ownerUserId: queued.ownerUserId,
+        clientCreationKey: payload.childCreateKey,
+        operationId: payload.childCreateKey,
+        direction: "incoming",
+        action: "created",
+        requestHash: "a".repeat(64),
+        appliedVersion: 1,
+        changed: true,
+      },
+      replayed: true,
+    },
+    ...overrides,
+  };
+}
+
 function fakeStore(initial: EpisodeQueueEntry[] = []) {
   const records = new Map<string, EpisodeQueueEntry>();
   const key = (owner: string, operationId: string) => `${owner}:${operationId}`;
@@ -115,6 +171,92 @@ function fakeStore(initial: EpisodeQueueEntry[] = []) {
 }
 
 describe("EFA episode browser queue controller", () => {
+  it("restores child intent and accepts its immutable receipt after mutable call edits", async () => {
+    const legacy = entry("owner-a", "legacy-create");
+    expect(restoreQueuedEpisode(legacy).operation).toMatchObject({ payload: legacy.payload });
+    const queued = firstCallEntry();
+    const restored = restoreQueuedEpisode(queued);
+    expect(restored.operation).toMatchObject({ payload: queued.payload });
+    const reloaded = { ...queued, payload: restored.operation.payload } as EpisodeQueueEntry;
+    const db = fakeStore([queued]);
+    const dispatch = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("network timeout"))
+      .mockImplementationOnce(async (item: EpisodeQueueEntry) => firstCallReceipt(item));
+    const controller = createEpisodeQueueController(db.store, dispatch);
+
+    expect((await controller.retry(reloaded)).status).toBe("uncertain");
+    expect((await controller.retry(reloaded)).status).toBe("confirmed");
+    expect(dispatch).toHaveBeenCalledTimes(2);
+    expect(
+      dispatch.mock.calls.map(
+        ([item]) => (item.payload as { childCreateKey: string }).childCreateKey,
+      ),
+    ).toEqual(["child-key-1", "child-key-1"]);
+    expect(await db.store.get("owner-a", queued.operationId)).toBeNull();
+  });
+
+  it("pauses checked creation when parent ownership or child target proof is missing", async () => {
+    const cases: Array<(receipt: ReturnType<typeof firstCallReceipt>) => unknown> = [
+      (receipt) => ({ ...receipt, initialCall: undefined }),
+      (receipt) => ({
+        ...receipt,
+        initialCall: {
+          ...(receipt.initialCall as Record<string, unknown>),
+          creationReceipt: { communicationId: "wrong-call" },
+        },
+      }),
+      (receipt) => ({
+        ...receipt,
+        episode: { ...(receipt.episode as Record<string, unknown>), ownerUserId: undefined },
+      }),
+      (receipt) => ({
+        ...receipt,
+        episode: { ...(receipt.episode as Record<string, unknown>), originGuardId: undefined },
+      }),
+      (receipt) => ({
+        ...receipt,
+        initialCall: {
+          ...(receipt.initialCall as Record<string, unknown>),
+          communication: {
+            ...(receipt.initialCall as { communication: Record<string, unknown> }).communication,
+            id: undefined,
+          },
+          creationReceipt: {
+            ...(receipt.initialCall as { creationReceipt: Record<string, unknown> })
+              .creationReceipt,
+            communicationId: undefined,
+          },
+        },
+      }),
+    ];
+    for (const [index, makeMalformed] of cases.entries()) {
+      const item = firstCallEntry(`first-call-bad-${index}`);
+      const result = makeMalformed(firstCallReceipt(item)) as { operation?: { id?: string } };
+      const db = fakeStore([item]);
+      const controller = createEpisodeQueueController(db.store, async () => result);
+      expect((await controller.retry(item)).status).toBe("mismatched");
+      expect(await db.store.get("owner-a", item.operationId)).toMatchObject({
+        status: "paused-mismatch",
+      });
+    }
+  });
+
+  it("rejects a partial first-call payload before storing or dispatching it", async () => {
+    const base = entry("owner-a", "first-call-partial");
+    const queued = {
+      ...base,
+      payload: { ...base.payload, childCreateKey: "child-key-1" },
+    } as EpisodeQueueEntry;
+    const db = fakeStore();
+    const dispatch = vi.fn();
+    const controller = createEpisodeQueueController(db.store, dispatch);
+
+    await expect(controller.enqueue(queued)).rejects.toThrow(/first call|child key|direction/i);
+    expect(await db.store.get("owner-a", queued.operationId)).toBeNull();
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
   it("persists the exact payload before dispatch and never replaces the same key", async () => {
     const db = fakeStore();
     const events: string[] = [];

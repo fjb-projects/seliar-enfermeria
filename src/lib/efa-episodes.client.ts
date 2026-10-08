@@ -15,6 +15,8 @@ export type PendingEpisodeCreate = {
     motive: string;
     address: string;
     interventionNumber: string;
+    childCreateKey?: string;
+    direction?: "incoming";
   }>;
 };
 
@@ -42,6 +44,7 @@ export type PendingEpisodeClose = {
 };
 export type PendingEpisodeOperation =
   PendingEpisodeCreate | PendingEpisodeUpdate | PendingEpisodeClose;
+export type PendingEpisodeCreateOptions = { registerFirstCall?: boolean };
 export type EpisodeFormSource = {
   id: string;
   version: number;
@@ -141,12 +144,16 @@ export function createPendingCreate(
   guardId: string,
   form: EpisodeFormValues,
   makeId: () => string = createOperationId,
+  options: PendingEpisodeCreateOptions = {},
 ): PendingEpisodeCreate {
   const operationId = makeId();
+  const firstCall = options.registerFirstCall
+    ? { childCreateKey: makeId(), direction: "incoming" as const }
+    : {};
   return {
     kind: "create",
     operationId,
-    payload: Object.freeze({ clientCreationKey: operationId, guardId, ...form }),
+    payload: Object.freeze({ clientCreationKey: operationId, guardId, ...form, ...firstCall }),
   };
 }
 

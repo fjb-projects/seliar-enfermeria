@@ -139,6 +139,28 @@ describe("EFA episode client operation helpers", () => {
     expect(Object.isFrozen(first.payload)).toBe(true);
   });
 
+  it("freezes one paired first-call key only when requested", () => {
+    const ids = ["episode-create-id", "first-call-create-id"];
+    const create = createPendingCreate(
+      "guard-1",
+      {
+        eventAt: "2026-10-06T09:30:00.000Z",
+        motive: "",
+        address: "",
+        interventionNumber: "",
+      },
+      () => ids.shift()!,
+      { registerFirstCall: true },
+    );
+
+    expect(create.payload).toMatchObject({
+      clientCreationKey: "episode-create-id",
+      childCreateKey: "first-call-create-id",
+      direction: "incoming",
+    });
+    expect(Object.isFrozen(create.payload)).toBe(true);
+  });
+
   it("creates a secure unique UUID when randomUUID is unavailable", () => {
     let nextByte = 1;
     vi.stubGlobal("crypto", {
