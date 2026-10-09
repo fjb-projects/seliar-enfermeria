@@ -85,6 +85,8 @@ Topic: odd/efa-mobile-workspace-ux/tasks. The host supplied the registered ident
 
 ## Final verification and consolidation
 
+U6 source commit: `299de19` (1,100 authored lines including verification tracking). The integrator `codex/efa-ui-mobile-integrator` was fast-forwarded from `7946e7e` through U1–U6 without rewriting history. Running work-unit authored count: 2,988. All unrelated modified files and staged deletions were preserved. No push or PR was performed. Rollback boundary: U6 workspace/tab styling, step focus/menu presentation, service/guard wrapping and datetime sizing; earlier unit commits remain separate.
+
 The final independent source review passed: 8 Vitest files / 75 tests, typecheck and diff check. Writer build passed with the already reported route-test, inputValidator and vite-tsconfig-paths warnings. The parent repeated diff check. RDD remains clone-local off; assessment is unavailable/high because of unrelated untracked inventory, so independent verification is the checking evidence, not a native approval.
 
 Actual CUA checks passed at 390/320px: all four views fit; document client/scroll width at 320 was 305/305 (native scrollbar); call, observation, new-service and coordination event datetime controls were 44px. Calls keep five numbered steps; navigation focuses the new heading around y80. Dispatch and Coordination close their jump menus after selection. Saved Coordination association/events were rendered and checked. Observation text and selected conduct survive tab switches; catalog calls remain one across selection/input/tab renders. Service warning opens with Cancel focused, 288px width/x16 at 320, and cancellation produces zero writes. Earlier call/dispatch confirmations each produced one confirmed operation; revoked permission/stale identity produced none.
@@ -94,6 +96,8 @@ The synthetic fixture's session DTO initially omitted top-level roles and expiry
 Remaining browser proof is blocked by the existing native cross-service confirmation: openWorkspace calls window.confirm on every change of service ID, independently of dirty state. The code is unchanged from the base. The browser's input dispatch stopped responding at that point, and getJsDialog returned no actionable dialog; this is not evidence of a new component loop. Switching services and successful service/guard closure after the fixture repair remain unverified. Preserve the fixture for recovery and do not mark U6 fully complete until those checks run.
 
 Next requested UI task: recognizable human titles in dependent linked-call selectors while retaining priority/state, and a compact service header with the close CTA aligned at the opposite edge. This task is separate from the current verified source candidate.
+
+Visual artifact: `C:/Users/Fernando/.codex/visualizations/2026/10/07/01a118ba-6430-7b90-9b4c-9b7bd317d1df/efa-mobile-320-review-2026-10-09.jpg`. The ignored fixture is retained for the blocked interaction checks. Its session and request-scoping fixes are not repository production changes.
 
 ## Work-unit Completion Evidence
 
