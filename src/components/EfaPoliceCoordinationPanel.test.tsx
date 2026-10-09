@@ -40,6 +40,40 @@ describe("EfaPoliceCoordinationPanel", () => {
     notes,
   });
 
+  it("keeps all three coordination steps available from compact navigation", () => {
+    const html = renderToStaticMarkup(
+      <EfaPoliceCoordinationPanel
+        episodeId="episode-1"
+        episodeLabel="Episodio de prueba"
+        currentUserId="owner"
+        canWrite={true}
+        episodeCanEdit={true}
+      />,
+    );
+
+    expect(html).toContain("Ver pasos");
+    expect(html).toContain('aria-label="Ir a Datos"');
+    expect(html).toContain('aria-label="Ir a Despachos"');
+    expect(html).toContain('aria-label="Ir a Eventos e historial"');
+    expect(html.match(/aria-current="step"/g)).toHaveLength(1);
+  });
+
+  it("places the coordination step controls after the Datos fields", () => {
+    const html = renderToStaticMarkup(
+      <EfaPoliceCoordinationPanel
+        episodeId="episode-1"
+        episodeLabel="Episodio de prueba"
+        currentUserId="owner"
+        canWrite={true}
+        episodeCanEdit={true}
+      />,
+    );
+
+    expect(html.indexOf("Iniciador")).toBeLessThan(html.indexOf("Ver pasos"));
+    expect(html.indexOf("Ver pasos")).toBeLessThan(html.indexOf(">Anterior</button>"));
+    expect(html.match(/aria-label="Pasos de coordinación"/g)).toHaveLength(1);
+  });
+
   it("clears only the coordination fields included in a confirmed save", () => {
     expect(
       acknowledgePoliceCoordinationSave(
