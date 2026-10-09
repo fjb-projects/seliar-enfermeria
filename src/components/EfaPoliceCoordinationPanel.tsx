@@ -1463,7 +1463,7 @@ export function EfaPoliceCoordinationPanel({
   return (
     <Card className="min-w-0 border-0 bg-transparent p-0 shadow-none">
       <CardHeader className="space-y-2 p-0 pb-1">
-        <CardTitle>Coordinación</CardTitle>
+        <CardTitle>Apoyo policial</CardTitle>
         <p className="text-sm text-muted-foreground">
           {canWrite ? "Acceso EFA vigente" : "Solo lectura"}
         </p>
@@ -1471,7 +1471,7 @@ export function EfaPoliceCoordinationPanel({
       <CardContent
         className="min-w-0 space-y-3 p-0"
         role="region"
-        aria-label={"Coordinación policial del episodio " + episodeLabel}
+        aria-label={"Apoyo policial del episodio " + episodeLabel}
       >
         {loading && <p className="text-sm text-muted-foreground">Cargando coordinación…</p>}
         {!loading && (

@@ -43,7 +43,7 @@ const sections = [
   },
   {
     id: "police",
-    label: "Coordinación",
+    label: "Apoyo policial",
     Icon: Shield,
   },
   {

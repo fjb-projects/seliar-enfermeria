@@ -141,7 +141,7 @@ const contextLabels: Record<ContextKind, string> = {
   episode: "Episodio",
   communication: "Llamada",
   dispatch: "Despacho",
-  coordination: "Coordinación",
+  coordination: "Apoyo policial",
   police_event: "Evento policial",
 };
 const groupLabels: Record<ObservationCatalogItem["group"], string> = {
@@ -1480,7 +1480,7 @@ export function EfaObservationPanel({
           ? "Ambulancia"
           : null;
     return [
-      "Coordinación",
+      "Apoyo policial",
       place,
       String(item["meetingReference"] ?? "").trim() || null,
       initiator,
@@ -1592,14 +1592,156 @@ export function EfaObservationPanel({
   const selectedEpisodeLabel = selectedEpisode
     ? String(selectedEpisode["motive"] ?? selectedEpisode["address"] ?? selectedEpisode["id"])
     : contextEpisodeId;
+  const contextTypeSelector = activeEpisodeId ? (
+    <div className="grid min-w-0 gap-1">
+      <Label
+        htmlFor={`observation-context-${root.guardId}`}
+        className="text-xs font-normal text-muted-foreground"
+      >
+        Tipo de contexto
+      </Label>
+      <select
+        id={`observation-context-${root.guardId}`}
+        className="h-11 min-h-11 w-full min-w-0 max-w-full rounded-md border bg-background px-3"
+        value={contextType}
+        disabled={busy || Boolean(pendingOperationId) || Boolean(editing)}
+        onChange={(event) => handleContextType(event.target.value as ContextKind)}
+      >
+        {!root.episodeId && <option value="guard">Guardia</option>}
+        <option value="episode">Episodio</option>
+        <option value="communication">Llamada</option>
+        <option value="dispatch">Despacho</option>
+        <option value="coordination">Apoyo policial</option>
+        <option value="police_event">Evento policial</option>
+      </select>
+    </div>
+  ) : null;
+  const contextControls = (
+    <>
+      {!root.episodeId && (
+        <div className="min-w-0 space-y-2">
+          <Label htmlFor={`observation-episode-${root.guardId}`}>
+            Episodio de esta guardia (opcional)
+          </Label>
+          <select
+            id={`observation-episode-${root.guardId}`}
+            className="min-h-11 w-full min-w-0 max-w-full rounded-md border bg-background px-3"
+            value={contextEpisodeId}
+            disabled={busy || Boolean(pendingOperationId) || Boolean(editing)}
+            onChange={(event) => selectEpisode(event.target.value)}
+          >
+            <option value="">Solo guardia</option>
+            {episodes.map((episode) => (
+              <option key={String(episode["id"])} value={String(episode["id"])}>
+                Episodio {String(episode["id"]).slice(0, 8)} ·{" "}
+                {String(episode["motive"] ?? episode["address"] ?? episode["id"])}
+              </option>
+            ))}
+          </select>
+          {contextEpisodeId && (
+            <p className="break-words text-sm text-muted-foreground">
+              Servicio seleccionado: {selectedEpisodeLabel} · ID {selectedEpisodeId}
+            </p>
+          )}
+        </div>
+      )}
+      {contextType === "communication" && (
+        <ContextSelect
+          id={`observation-leaf-${root.guardId}`}
+          label="Llamada"
+          value={leafId}
+          rows={communications}
+          disabled={Boolean(editing)}
+          onChange={setLeafId}
+          renderLabel={(item) => {
+            const direction =
+              item["direction"] === "incoming"
+                ? "Entrante"
+                : item["direction"] === "outgoing"
+                  ? "Saliente"
+                  : "Llamada";
+            const time =
+              linkedOptionDate(item["startedAt"]) ?? linkedOptionDate(item["createdAt"]);
+            return [
+              direction,
+              time,
+              linkedOptionState(item["state"]),
+              linkedOptionPriority(item["priority"]),
+            ]
+              .filter(Boolean)
+              .join(" · ");
+          }}
+        />
+      )}
+      {contextType === "dispatch" && (
+        <ContextSelect
+          id={`observation-leaf-${root.guardId}`}
+          label="Despacho"
+          value={leafId}
+          rows={dispatches}
+          disabled={Boolean(editing)}
+          onChange={setLeafId}
+          renderLabel={dispatchLabelFor}
+        />
+      )}
+      {(contextType === "coordination" || contextType === "police_event") && (
+        <ContextSelect
+          id={`observation-coordination-${root.guardId}`}
+          label="Apoyo policial"
+          value={coordinationId}
+          rows={coordinations}
+          disabled={Boolean(editing)}
+          onChange={(id) => {
+            setCoordinationId(id);
+            setLeafId("");
+          }}
+          renderLabel={coordinationLabelFor}
+        />
+      )}
+      {contextType === "police_event" && coordinationId && (
+        <ContextSelect
+          id={`observation-event-${root.guardId}`}
+          label="Evento policial"
+          value={leafId}
+          rows={events}
+          disabled={Boolean(editing)}
+          onChange={setLeafId}
+          renderLabel={(item) => `Evento · ${String(item["kind"] ?? "registro")}`}
+        />
+      )}
+      {contextType === "police_event" && !coordinationId && (
+        <p className="text-sm text-muted-foreground">
+          Selecciona un registro de apoyo policial para ver sus eventos.
+        </p>
+      )}
+      {!guardIsOpen && (
+        <p className="text-sm text-muted-foreground">
+          La guardia terminó: puedes leer el historial y corregir observaciones existentes con
+          permisos vigentes, pero no agregar nuevas.
+        </p>
+      )}
+      {effectiveCanWrite && !isRootOwner && !editing && (
+        <p className="text-sm text-muted-foreground">
+          Solo el responsable del contexto puede crear observaciones; la administración conserva
+          autoría original al corregir registros existentes.
+        </p>
+      )}
+    </>
+  );
 
   return (
     <Card className={compact ? "min-w-0 border-0 bg-transparent p-0 shadow-none" : undefined}>
       <CardHeader className={compact ? "space-y-2 p-0 pb-1" : undefined}>
-        <CardTitle>{title}</CardTitle>
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+          <CardTitle>{title}</CardTitle>
+          {!effectiveCanWrite && (
+            <span role="status" className="text-sm text-muted-foreground">
+              Solo lectura
+            </span>
+          )}
+        </div>
         <p className="text-sm text-muted-foreground">
-          {effectiveCanWrite ? "Acceso de escritura vigente" : "Solo lectura"} · Capturas
-          opcionales, anónimas y sin evaluación de personas.
+          Registro opcional y anónimo; no evalúa personas.
         </p>
       </CardHeader>
       <CardContent className={compact ? "min-w-0 space-y-3 p-0" : "space-y-4"}>
@@ -1617,178 +1759,53 @@ export function EfaObservationPanel({
           </p>
         )}
         {loading && <p className="text-sm text-muted-foreground">Cargando catálogo e historial…</p>}
-        {compact &&
-          visibleObservations.length === 0 &&
-          (!effectiveCanWrite || (!canCreateHere && !editing?.canEdit)) && (
-            <p className="text-sm text-muted-foreground">
-              Registrar es opcional; la ausencia de registros no evalúa a ninguna persona.
-            </p>
-          )}
         {!loading && (
           <>
             <section className={compact ? "min-w-0 space-y-2" : "space-y-3 rounded-md border p-3"}>
-              <h3 className="font-medium">Contexto de observación</h3>
-              {!root.episodeId && (
-                <div className="space-y-2">
-                  <Label htmlFor={`observation-episode-${root.guardId}`}>
-                    Episodio de esta guardia (opcional)
-                  </Label>
-                  <select
-                    id={`observation-episode-${root.guardId}`}
-                    className="min-h-11 w-full min-w-0 max-w-full rounded-md border bg-background px-3"
-                    value={contextEpisodeId}
-                    disabled={busy || Boolean(pendingOperationId) || Boolean(editing)}
-                    onChange={(event) => selectEpisode(event.target.value)}
+              <div
+                className={
+                  activeEpisodeId && canRenderObservationForm
+                    ? "grid min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-end gap-2 max-[280px]:grid-cols-1"
+                    : "flex min-w-0 flex-wrap items-center justify-between gap-2"
+                }
+              >
+                <h3
+                  className={
+                    canRenderObservationForm
+                      ? "min-w-0 text-base font-semibold leading-snug"
+                      : "min-w-0 font-medium"
+                  }
+                >
+                  {canRenderObservationForm
+                    ? editing
+                      ? `Corregir observación · v${editing.version}`
+                      : "Agregar una observación"
+                    : "Contexto de observación"}
+                </h3>
+                {contextTypeSelector}
+                {canRenderObservationForm && editing && canCreateHere && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className={
+                      activeEpisodeId && canRenderObservationForm
+                        ? "col-span-2 min-h-11 w-fit max-w-full max-[280px]:col-span-1"
+                        : "min-h-11"
+                    }
+                    disabled={busy || Boolean(pendingOperationId)}
+                    onClick={startNewObservation}
                   >
-                    <option value="">Solo guardia</option>
-                    {episodes.map((episode) => (
-                      <option key={String(episode["id"])} value={String(episode["id"])}>
-                        Episodio {String(episode["id"]).slice(0, 8)} ·{" "}
-                        {String(episode["motive"] ?? episode["address"] ?? episode["id"])}
-                      </option>
-                    ))}
-                  </select>
-                  {contextEpisodeId && (
-                    <p className="break-words text-sm text-muted-foreground">
-                      Servicio seleccionado: {selectedEpisodeLabel} · ID {selectedEpisodeId}
-                    </p>
-                  )}
-                </div>
-              )}
-              {activeEpisodeId && (
-                <div className="space-y-2">
-                  <Label htmlFor={`observation-context-${root.guardId}`}>Tipo de contexto</Label>
-                  <select
-                    id={`observation-context-${root.guardId}`}
-                    className="min-h-11 w-full min-w-0 max-w-full rounded-md border bg-background px-3"
-                    value={contextType}
-                    disabled={busy || Boolean(pendingOperationId) || Boolean(editing)}
-                    onChange={(event) => handleContextType(event.target.value as ContextKind)}
-                  >
-                    {!root.episodeId && <option value="guard">Guardia</option>}
-                    <option value="episode">Episodio</option>
-                    <option value="communication">Llamada</option>
-                    <option value="dispatch">Despacho</option>
-                    <option value="coordination">Coordinación</option>
-                    <option value="police_event">Evento policial</option>
-                  </select>
-                </div>
-              )}
-              {contextType === "communication" && (
-                <ContextSelect
-                  id={`observation-leaf-${root.guardId}`}
-                  label="Llamada"
-                  value={leafId}
-                  rows={communications}
-                  disabled={Boolean(editing)}
-                  onChange={setLeafId}
-                  renderLabel={(item) => {
-                    const direction =
-                      item["direction"] === "incoming"
-                        ? "Entrante"
-                        : item["direction"] === "outgoing"
-                          ? "Saliente"
-                          : "Llamada";
-                    const time =
-                      linkedOptionDate(item["startedAt"]) ??
-                      linkedOptionDate(item["createdAt"]);
-                    return [
-                      direction,
-                      time,
-                      linkedOptionState(item["state"]),
-                      linkedOptionPriority(item["priority"]),
-                    ]
-                      .filter(Boolean)
-                      .join(" · ");
-                  }}
-                />
-              )}
-              {contextType === "dispatch" && (
-                <ContextSelect
-                  id={`observation-leaf-${root.guardId}`}
-                  label="Despacho"
-                  value={leafId}
-                  rows={dispatches}
-                  disabled={Boolean(editing)}
-                  onChange={setLeafId}
-                  renderLabel={dispatchLabelFor}
-                />
-              )}
-              {(contextType === "coordination" || contextType === "police_event") && (
-                <ContextSelect
-                  id={`observation-coordination-${root.guardId}`}
-                  label="Coordinación"
-                  value={coordinationId}
-                  rows={coordinations}
-                  disabled={Boolean(editing)}
-                  onChange={(id) => {
-                    setCoordinationId(id);
-                    setLeafId("");
-                  }}
-                  renderLabel={coordinationLabelFor}
-                />
-              )}
-              {contextType === "police_event" && coordinationId && (
-                <ContextSelect
-                  id={`observation-event-${root.guardId}`}
-                  label="Evento policial"
-                  value={leafId}
-                  rows={events}
-                  disabled={Boolean(editing)}
-                  onChange={setLeafId}
-                  renderLabel={(item) => `Evento · ${String(item["kind"] ?? "registro")}`}
-                />
-              )}
-              {contextType === "police_event" && !coordinationId && (
-                <p className="text-sm text-muted-foreground">
-                  Selecciona una coordinación para ver sus eventos.
-                </p>
-              )}
-              {!guardIsOpen && (
-                <p className="text-sm text-muted-foreground">
-                  La guardia terminó: puedes leer el historial y corregir observaciones existentes
-                  con permisos vigentes, pero no agregar nuevas.
-                </p>
-              )}
+                    Nueva observación
+                  </Button>
+                )}
+              </div>
+              <div className="min-w-0 space-y-3">{contextControls}</div>
             </section>
-
-            {effectiveCanWrite && !guardIsOpen && !editing && (
-              <p className="text-sm text-muted-foreground">
-                La guardia cerrada no admite observaciones nuevas.
-              </p>
-            )}
-            {effectiveCanWrite && !isRootOwner && !editing && (
-              <p className="text-sm text-muted-foreground">
-                Solo el responsable del contexto puede crear observaciones; la administración
-                conserva autoría original al corregir registros existentes.
-              </p>
-            )}
 
             {canRenderObservationForm && (
               <section
                 className={compact ? "min-w-0 space-y-2" : "space-y-3 rounded-md border p-3"}
               >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h3 className="font-medium">
-                    {editing
-                      ? `Corregir observación · v${editing.version}`
-                      : "Agregar una observación"}
-                  </h3>
-                  {editing && canCreateHere && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="min-h-11"
-                      disabled={busy || Boolean(pendingOperationId)}
-                      onClick={startNewObservation}
-                    >
-                      Nueva observación
-                    </Button>
-                  )}
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  Registro opcional y anónimo: describe conductas observadas, no evalúa personas.
-                </p>
                 <div className="space-y-2">
                   <Label htmlFor={`observation-item-${root.guardId}`}>Conducta concreta</Label>
                   <select
@@ -1813,8 +1830,8 @@ export function EfaObservationPanel({
                     <option value="other">Otra conducta</option>
                   </select>
                 </div>
-                <details className="min-w-0 rounded-md border px-3">
-                  <summary className="flex min-h-11 cursor-pointer items-center text-sm font-medium">
+                <details className="min-w-0 border-t pt-1">
+                  <summary className="flex min-h-11 cursor-pointer items-center text-sm font-normal text-muted-foreground">
                     {groupFilter === "all"
                       ? "Filtrar catálogo por grupo (opcional)"
                       : `Grupo del catálogo · ${groupLabels[groupFilter]}`}
@@ -1917,8 +1934,8 @@ export function EfaObservationPanel({
                     </label>
                   </div>
                 </fieldset>
-                <details className="min-w-0 rounded-md border px-3">
-                  <summary className="flex min-h-11 cursor-pointer items-center text-sm font-medium">
+                <details className="min-w-0 border-t pt-1">
+                  <summary className="flex min-h-11 cursor-pointer items-center text-sm font-normal text-muted-foreground">
                     Hora y comentario opcionales
                   </summary>
                   <div className="space-y-3 pb-3">
@@ -1973,7 +1990,7 @@ export function EfaObservationPanel({
                 )}
                 <Button
                   type="button"
-                  className="min-h-11 w-full sm:w-auto"
+                  className="min-h-11 w-fit max-w-full"
                   disabled={
                     !canSubmit ||
                     !queueReady ||
@@ -2156,8 +2173,16 @@ export function EfaObservationPanel({
               </section>
             )}
 
-            <section className={compact ? "min-w-0 space-y-3" : "space-y-3 rounded-md border p-4"}>
-              <h3 className="font-medium">Historial de conductas observadas</h3>
+            <section
+              className={
+                compact
+                  ? "min-w-0 space-y-3 border-t pt-3"
+                  : "space-y-3 rounded-md border p-4"
+              }
+            >
+              <h3 className="text-sm font-medium text-muted-foreground">
+                Historial de conductas observadas ({visibleObservations.length})
+              </h3>
               {visibleObservations.length === 0 && !compact && (
                 <p className="text-sm text-muted-foreground">
                   No hay observaciones en este contexto. La ausencia de registros no es una
