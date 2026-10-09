@@ -105,7 +105,7 @@ describe("EfaGuardPanel", () => {
 
     expect(html).toContain("Finalizada");
     expect(html).toContain("2026-10-07");
-    expect(html).toContain('<details class="space-y-3">');
+    expect(html).toContain('<details class="min-w-0 space-y-3">');
     expect(html).not.toMatch(/<details[^>]*\bopen(?:="")?[^>]*>/);
     expect(html).toContain("Ver detalles");
     expect(html).toContain("Presencia declarada en Central · versión 3");
@@ -259,9 +259,9 @@ describe("EfaGuardPanel", () => {
     expect(html).toContain("Guardia en curso");
     expect(html).toContain("/episodios-efa");
     expect(html).toContain("Registrar atenciones");
-    expect([...html.matchAll(/<details[^>]*>/g)].map(([tag]) => /\bopen(?:="")?/.test(tag))).toEqual(
-      [true, false, false],
-    );
+    expect(
+      [...html.matchAll(/<details[^>]*>/g)].map(([tag]) => /\bopen(?:="")?/.test(tag)),
+    ).toEqual([true, false, false]);
     expect(html).toContain("Ver detalles");
   });
 
@@ -313,7 +313,9 @@ describe("EfaGuardPanel", () => {
     expect(html).toContain("Ver conductas observadas");
     expect(html).toContain("Planificación futura (solo lectura)");
     expect(html).toContain("La planificación no confirma la dotación observada");
-    expect(html).not.toContain("Después de iniciar la guardia, registra las atenciones en episodios");
+    expect(html).not.toContain(
+      "Después de iniciar la guardia, registra las atenciones en episodios",
+    );
     expect(html).toContain("Presencia declarada en Central");
   });
 
@@ -338,16 +340,18 @@ describe("EfaGuardPanel", () => {
   it("keeps open-guard episodes consultable but does not label them as registration when access is revoked", () => {
     const html = renderToStaticMarkup(
       <EfaGuardPanel
-        initialGuards={[{
-          id: "own-open-guard",
-          ownerUserId: "current-user",
-          startedAt: "2026-10-07T08:00:00.000Z",
-          endedAt: null,
-          declaredAtCentral: false,
-          version: 1,
-          bases: [],
-          baseEvents: [],
-        }]}
+        initialGuards={[
+          {
+            id: "own-open-guard",
+            ownerUserId: "current-user",
+            startedAt: "2026-10-07T08:00:00.000Z",
+            endedAt: null,
+            declaredAtCentral: false,
+            version: 1,
+            bases: [],
+            baseEvents: [],
+          },
+        ]}
         activeBases={[]}
         initialStaffing={{}}
         currentUserId="current-user"

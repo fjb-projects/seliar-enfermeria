@@ -402,6 +402,19 @@ export function EfaPoliceCoordinationPanel({
   const [eventEdits, setEventEdits] = useState<Record<string, EventForm>>({});
   const [auditRows, setAuditRows] = useState<Array<Record<string, unknown>>>([]);
   const [activeStep, setActiveStep] = useState(0);
+  const activeStepTargetRef = useRef<HTMLElement>(null);
+  const previousActiveStepRef = useRef(activeStep);
+  useEffect(() => {
+    if (previousActiveStepRef.current === activeStep) return;
+    previousActiveStepRef.current = activeStep;
+    const target = activeStepTargetRef.current;
+    if (!target) return;
+    target.focus({ preventScroll: true });
+    target.scrollIntoView({
+      block: "start",
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+    });
+  }, [activeStep]);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
@@ -1427,9 +1440,7 @@ export function EfaPoliceCoordinationPanel({
               </Button>
             ))}
             {items.length === 0 && (
-              <p className="text-sm text-muted-foreground">
-                Sin coordinaciones registradas. Puedes iniciar una con el botón anterior.
-              </p>
+              <p className="text-sm text-muted-foreground">Sin coordinaciones registradas.</p>
             )}
           </div>
         )}
@@ -1519,7 +1530,13 @@ export function EfaPoliceCoordinationPanel({
         activeStep === 0 &&
         (selectedId === "" ? writeAllowed : current?.canEdit && writeAllowed) ? (
           <section className="min-w-0 space-y-3">
-            <h3 className="font-medium">
+            <h3
+              ref={(node) => {
+                activeStepTargetRef.current = node;
+              }}
+              tabIndex={-1}
+              className="scroll-mt-20 font-medium outline-none"
+            >
               {current ? "Editar coordinación" : "Nueva coordinación"}
             </h3>
             <fieldset disabled={busy || Boolean(pendingOperationId)} className="space-y-4">
@@ -1649,6 +1666,31 @@ export function EfaPoliceCoordinationPanel({
             <CoordinationStepNavigation activeStep={activeStep} onStepChange={setActiveStep} />
           </section>
         ) : null}
+        {!current && activeStep > 0 && (
+          <section className="min-w-0 space-y-2 rounded-md border p-3">
+            <p
+              ref={(node) => {
+                activeStepTargetRef.current = node;
+              }}
+              tabIndex={-1}
+              className="scroll-mt-20 text-sm outline-none"
+            >
+              {selectedId
+                ? "La coordinación seleccionada no está disponible."
+                : writeAllowed
+                  ? "Guarda la coordinación en Datos para habilitar despachos y eventos."
+                  : "No hay una coordinación guardada; se requieren permisos vigentes para crearla."}
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              className="min-h-11"
+              onClick={() => setActiveStep(0)}
+            >
+              Volver a Datos
+            </Button>
+          </section>
+        )}
         {activeStep === 0 &&
           (selectedId === "" || current) &&
           (!writeAllowed || Boolean(current && !current.canEdit)) && (
@@ -1662,7 +1704,15 @@ export function EfaPoliceCoordinationPanel({
         {current && activeStep === 1 && (
           <section className="min-w-0 space-y-3 border-t pt-3">
             <fieldset disabled={busy || Boolean(pendingOperationId)} className="min-w-0 space-y-2">
-              <legend className="font-medium">Despachos asociados</legend>
+              <legend
+                ref={(node) => {
+                  activeStepTargetRef.current = node;
+                }}
+                tabIndex={-1}
+                className="scroll-mt-20 font-medium outline-none"
+              >
+                Despachos asociados
+              </legend>
               <p className="text-sm text-muted-foreground">
                 La coordinación guardada permite asociar los despachos de este episodio.
               </p>
@@ -1722,7 +1772,15 @@ export function EfaPoliceCoordinationPanel({
         {current && activeStep === 2 && (
           <>
             <section className="min-w-0 space-y-3 border-t pt-3">
-              <h3 className="font-medium">Registrar evento de coordinación</h3>
+              <h3
+                ref={(node) => {
+                  activeStepTargetRef.current = node;
+                }}
+                tabIndex={-1}
+                className="scroll-mt-20 font-medium outline-none"
+              >
+                Registrar evento de coordinación
+              </h3>
               <p className="text-sm text-muted-foreground">
                 Los eventos por despacho requieren asociarlo primero en el paso Despachos.
               </p>

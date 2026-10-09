@@ -121,11 +121,11 @@ function PlannedCoverageReadOnly({ bases }: { bases: GuardBase[] }) {
           La planificación no confirma la dotación observada ni la disponibilidad del móvil.
         </p>
       </div>
-      <div className="grid gap-3 sm:grid-cols-3">
-        <label className="grid gap-1 text-sm">
+      <div className="grid min-w-0 gap-3 sm:grid-cols-3">
+        <label className="grid min-w-0 gap-1 text-sm">
           Base
           <select
-            className="min-h-11 rounded-md border bg-background px-3"
+            className="min-h-11 w-full min-w-0 max-w-full rounded-md border bg-background px-3"
             value={baseId}
             onChange={(event) => setBaseId(event.target.value)}
           >
@@ -136,7 +136,7 @@ function PlannedCoverageReadOnly({ bases }: { bases: GuardBase[] }) {
             ))}
           </select>
         </label>
-        <label className="grid gap-1 text-sm">
+        <label className="grid min-w-0 gap-1 text-sm">
           Desde
           <input
             className="min-h-11 rounded-md border bg-background px-3"
@@ -145,7 +145,7 @@ function PlannedCoverageReadOnly({ bases }: { bases: GuardBase[] }) {
             onChange={(event) => setFrom(event.target.value)}
           />
         </label>
-        <label className="grid gap-1 text-sm">
+        <label className="grid min-w-0 gap-1 text-sm">
           Hasta
           <input
             className="min-h-11 rounded-md border bg-background px-3"
@@ -603,7 +603,10 @@ export function EfaGuardPanel({
   const [guardDetailsOpen, setGuardDetailsOpen] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(initialGuards.map((guard) => [guard.id, false])),
   );
-  const [mobileManagerState, setMobileManagerState] = useState<{ guardId: string; open: boolean } | null>(null);
+  const [mobileManagerState, setMobileManagerState] = useState<{
+    guardId: string;
+    open: boolean;
+  } | null>(null);
   const [mobileFocusState, setMobileFocusState] = useState<{
     guardId: string;
     baseId: string;
@@ -625,9 +628,7 @@ export function EfaGuardPanel({
     const guardEntries = await Promise.all(
       currentGuards.map(async (guard) => {
         const arrivals = await listArrivals({ data: guard.id });
-        const staffing = canWrite
-          ? await listStaffing({ data: { guardId: guard.id } })
-          : [];
+        const staffing = canWrite ? await listStaffing({ data: { guardId: guard.id } }) : [];
         return { id: guard.id, staffing, arrivals };
       }),
     );
@@ -785,7 +786,7 @@ export function EfaGuardPanel({
     : [];
 
   return (
-    <div className="space-y-4">
+    <div className="min-w-0 space-y-4">
       {!openOwnGuard && (
         <Button asChild variant="outline" className="min-h-11">
           <Link to="/episodios-efa">Ver episodios de atención</Link>
@@ -837,13 +838,13 @@ export function EfaGuardPanel({
                 Iniciar guardia
               </Button>
               <p className="text-sm text-muted-foreground">
-                Después de iniciar la guardia, registra las atenciones en episodios. Elegir bases
-                es opcional.
+                Después de iniciar la guardia, registra las atenciones en episodios. Elegir bases es
+                opcional.
               </p>
             </div>
           )}
           {openOwnGuard && (
-            <div className="space-y-3 rounded-lg border p-2 sm:p-3">
+            <div className="min-w-0 space-y-3 rounded-lg border p-2 sm:p-3">
               <p className="text-sm text-muted-foreground">
                 Guardia en curso · Inicio:{" "}
                 {new Date(openOwnGuard.startedAt).toLocaleTimeString(undefined, {
@@ -853,7 +854,7 @@ export function EfaGuardPanel({
               </p>
               <section
                 aria-label="Móviles activos"
-                className="space-y-2 rounded-md bg-muted/50 p-3"
+                className="min-w-0 space-y-2 rounded-md bg-muted/50 p-3"
               >
                 <p className="text-sm font-medium">
                   Móviles activos ({confirmedMobileBases.length})
@@ -865,7 +866,7 @@ export function EfaGuardPanel({
                         key={base.id}
                         type="button"
                         variant="outline"
-                        className="min-h-11"
+                        className="min-h-11 min-w-0 max-w-full whitespace-normal break-words text-left"
                         onClick={() => {
                           setMobileManagerState({ guardId: openOwnGuard.id, open: true });
                           setMobileFocusState({
@@ -880,9 +881,7 @@ export function EfaGuardPanel({
                     ))}
                   </div>
                 ) : (
-                  <p className="text-sm text-muted-foreground">
-                    Elegir móviles es opcional.
-                  </p>
+                  <p className="text-sm text-muted-foreground">Elegir móviles es opcional.</p>
                 )}
               </section>
               <details
@@ -893,16 +892,17 @@ export function EfaGuardPanel({
                     open: event.currentTarget.open,
                   })
                 }
-                className="space-y-2"
+                className="min-w-0 space-y-2"
               >
                 <summary className="min-h-11 cursor-pointer py-2 text-sm font-medium">
                   Gestionar móviles
                 </summary>
-                <div className="space-y-2">
+                <div className="min-w-0 space-y-2">
                   {canWrite && activeWorkspaceState?.unresolved && (
                     <div className="space-y-2" role="alert">
                       <p className="text-sm text-destructive">
-                        No se pudo completar la sincronización de móviles; revisa el detalle de la fila afectada.
+                        No se pudo completar la sincronización de móviles; revisa el detalle de la
+                        fila afectada.
                       </p>
                       <Button
                         type="button"
@@ -961,9 +961,7 @@ export function EfaGuardPanel({
               </details>
               <Button asChild className="min-h-11 w-full sm:w-auto">
                 <Link to="/episodios-efa">
-                  {canWrite
-                    ? "Registrar atenciones"
-                    : "Consultar atenciones de la guardia abierta"}
+                  {canWrite ? "Registrar atenciones" : "Consultar atenciones de la guardia abierta"}
                 </Link>
               </Button>
               <Button
@@ -1004,7 +1002,7 @@ export function EfaGuardPanel({
           {guards.map((guard) => {
             const detailsOpen = guardDetailsOpen[guard.id] ?? false;
             return (
-              <article key={guard.id} className="space-y-3 rounded-lg border p-4">
+              <article key={guard.id} className="min-w-0 space-y-3 rounded-lg border p-4">
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                   <span
                     className={`inline-flex min-h-7 items-center rounded-full px-2 text-xs font-medium ${
@@ -1021,7 +1019,7 @@ export function EfaGuardPanel({
                   </p>
                 </div>
                 <details
-                  className="space-y-3"
+                  className="min-w-0 space-y-3"
                   open={detailsOpen}
                   onToggle={(event) => {
                     const nextOpen = event.currentTarget.open;
@@ -1035,7 +1033,7 @@ export function EfaGuardPanel({
                   <summary className="min-h-11 cursor-pointer py-2 text-sm font-medium">
                     {detailsOpen ? "Ocultar detalles" : "Ver detalles"}
                   </summary>
-                  <div className="space-y-3">
+                  <div className="min-w-0 space-y-3">
                     <div className="text-sm">
                       {isAdmin && <p className="font-medium">Responsable: {guard.ownerUserId}</p>}
                       <p>Inicio: {new Date(guard.startedAt).toLocaleString()}</p>
@@ -1044,134 +1042,137 @@ export function EfaGuardPanel({
                         Presencia declarada en Central · versión {guard.version}
                       </p>
                     </div>
-                  <div className="space-y-1 text-sm">
-                    <p className="font-medium">Bases seguidas</p>
-                    <p>
-                      {guard.bases.length
-                        ? guard.bases.map((base) => base.name).join(", ")
-                        : "Sin base activa"}
-                    </p>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="min-h-11"
-                    onClick={() => setObservationGuardId(guard.id)}
-                  >
-                    Ver conductas observadas
-                  </Button>
-                  {observationGuardId === guard.id && (
-                    <section key={`${currentUserId}:${guard.id}`} className="space-y-3">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="min-h-11"
-                        onClick={() => setObservationGuardId(null)}
-                      >
-                        Cerrar conductas observadas
-                      </Button>
-                      <EfaObservationPanel
-                        root={{
-                          guardId: guard.id,
-                          ownerUserId: guard.ownerUserId,
-                          guardEndedAt: guard.endedAt,
-                        }}
-                        title="Conductas observadas de la guardia"
-                        currentUserId={currentUserId}
-                        canWrite={canWrite && (isAdmin || guard.ownerUserId === currentUserId)}
-                        isAdmin={isAdmin}
-                      />
-                    </section>
-                  )}
-                  {guard.baseEvents.length > 0 && (
-                    <details>
-                      <summary className="min-h-11 cursor-pointer py-2 text-sm font-medium">
-                        Historial de cambios de base
-                      </summary>
-                      <ul className="space-y-2 pl-5 text-sm">
-                        {guard.baseEvents.map((event, index) => (
-                          <li key={`${event.baseId}-${event.action}-${index}`}>
-                            {event.action === "added" ? "Agregó" : "Quitó"} {event.baseName} ·{" "}
-                            {new Date(event.occurredAt).toLocaleString()} · actor {event.actorUserId}
-                          </li>
-                        ))}
-                      </ul>
-                    </details>
-                  )}
-                  {isAdmin && canWrite && guard.endedAt && (
-                    <div className="space-y-2 border-t pt-3">
-                      <Label htmlFor={`guard-end-${guard.id}`}>Corregir hora de cierre</Label>
-                      <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-                        <input
-                          id={`guard-end-${guard.id}`}
-                          className="min-h-11 rounded-md border bg-background px-3 text-sm"
-                          type="datetime-local"
-                          value={corrections[guard.id] ?? toLocalDateTimeValue(guard.endedAt)}
-                          onChange={(event) =>
-                            setCorrections((current) => ({
-                              ...current,
-                              [guard.id]: event.target.value,
-                            }))
-                          }
-                        />
+                    <div className="min-w-0 space-y-1 text-sm">
+                      <p className="font-medium">Bases seguidas</p>
+                      <p>
+                        {guard.bases.length
+                          ? guard.bases.map((base) => base.name).join(", ")
+                          : "Sin base activa"}
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="min-h-11"
+                      onClick={() => setObservationGuardId(guard.id)}
+                    >
+                      Ver conductas observadas
+                    </Button>
+                    {observationGuardId === guard.id && (
+                      <section key={`${currentUserId}:${guard.id}`} className="space-y-3">
                         <Button
+                          type="button"
                           variant="outline"
                           className="min-h-11"
-                          disabled={
-                            busy ||
-                            !canWrite ||
-                            !corrections[guard.id] ||
-                            new Date(corrections[guard.id]!).getTime() ===
-                              new Date(guard.endedAt).getTime()
-                          }
-                          onClick={() =>
-                            void runAction(
-                              () =>
-                                correctGuardEnd({
-                                  data: {
-                                    guardId: guard.id,
-                                    expectedVersion: guard.version,
-                                    endedAt: new Date(corrections[guard.id]!).toISOString(),
-                                  },
-                                }),
-                              "La hora de cierre se corrigió y quedó en el historial.",
-                            )
-                          }
+                          onClick={() => setObservationGuardId(null)}
                         >
-                          Guardar corrección
+                          Cerrar conductas observadas
                         </Button>
+                        <EfaObservationPanel
+                          root={{
+                            guardId: guard.id,
+                            ownerUserId: guard.ownerUserId,
+                            guardEndedAt: guard.endedAt,
+                          }}
+                          title="Conductas observadas de la guardia"
+                          currentUserId={currentUserId}
+                          canWrite={canWrite && (isAdmin || guard.ownerUserId === currentUserId)}
+                          isAdmin={isAdmin}
+                        />
+                      </section>
+                    )}
+                    {guard.baseEvents.length > 0 && (
+                      <details>
+                        <summary className="min-h-11 cursor-pointer py-2 text-sm font-medium">
+                          Historial de cambios de base
+                        </summary>
+                        <ul className="space-y-2 pl-5 text-sm">
+                          {guard.baseEvents.map((event, index) => (
+                            <li key={`${event.baseId}-${event.action}-${index}`}>
+                              {event.action === "added" ? "Agregó" : "Quitó"} {event.baseName} ·{" "}
+                              {new Date(event.occurredAt).toLocaleString()} · actor{" "}
+                              {event.actorUserId}
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
+                    )}
+                    {isAdmin && canWrite && guard.endedAt && (
+                      <div className="space-y-2 border-t pt-3">
+                        <Label htmlFor={`guard-end-${guard.id}`}>Corregir hora de cierre</Label>
+                        <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                          <input
+                            id={`guard-end-${guard.id}`}
+                            className="min-h-11 rounded-md border bg-background px-3 text-sm"
+                            type="datetime-local"
+                            value={corrections[guard.id] ?? toLocalDateTimeValue(guard.endedAt)}
+                            onChange={(event) =>
+                              setCorrections((current) => ({
+                                ...current,
+                                [guard.id]: event.target.value,
+                              }))
+                            }
+                          />
+                          <Button
+                            variant="outline"
+                            className="min-h-11"
+                            disabled={
+                              busy ||
+                              !canWrite ||
+                              !corrections[guard.id] ||
+                              new Date(corrections[guard.id]!).getTime() ===
+                                new Date(guard.endedAt).getTime()
+                            }
+                            onClick={() =>
+                              void runAction(
+                                () =>
+                                  correctGuardEnd({
+                                    data: {
+                                      guardId: guard.id,
+                                      expectedVersion: guard.version,
+                                      endedAt: new Date(corrections[guard.id]!).toISOString(),
+                                    },
+                                  }),
+                                "La hora de cierre se corrigió y quedó en el historial.",
+                              )
+                            }
+                          >
+                            Guardar corrección
+                          </Button>
+                        </div>
                       </div>
-                    </div>
-                  )}
-                  {canWrite && <PlannedCoverageReadOnly bases={guard.bases} />}
-                  {guard.id !== openOwnGuard?.id && (
-                    <EfaMobileArrivalPanel
-                      key={guard.id}
+                    )}
+                    {canWrite && <PlannedCoverageReadOnly bases={guard.bases} />}
+                    {guard.id !== openOwnGuard?.id && (
+                      <EfaMobileArrivalPanel
+                        key={guard.id}
+                        guardId={guard.id}
+                        bases={guard.bases}
+                        arrivals={arrivalsByGuard[guard.id] ?? []}
+                        canWrite={canWrite && guard.ownerUserId === currentUserId && !guard.endedAt}
+                        onArrivalsChange={(arrival) =>
+                          setArrivalsByGuard((current) => ({
+                            ...current,
+                            [guard.id]: [
+                              ...(current[guard.id] ?? []).filter((item) => item.id !== arrival.id),
+                              arrival,
+                            ],
+                          }))
+                        }
+                      />
+                    )}
+                    <ObservedStaffingPanel
                       guardId={guard.id}
-                      bases={guard.bases}
-                      arrivals={arrivalsByGuard[guard.id] ?? []}
-                      canWrite={canWrite && guard.ownerUserId === currentUserId && !guard.endedAt}
-                      onArrivalsChange={(arrival) =>
-                        setArrivalsByGuard((current) => ({
-                          ...current,
-                          [guard.id]: [
-                            ...(current[guard.id] ?? []).filter((item) => item.id !== arrival.id),
-                            arrival,
-                          ],
-                        }))
+                      periods={staffingByGuard[guard.id] ?? []}
+                      canEdit={canWrite && (isAdmin || guard.ownerUserId === currentUserId)}
+                      canCreate={
+                        canWrite &&
+                        (isAdmin || guard.ownerUserId === currentUserId) &&
+                        !guard.endedAt
                       }
+                      busy={busy}
+                      runAction={runAction}
                     />
-                  )}
-                  <ObservedStaffingPanel
-                    guardId={guard.id}
-                    periods={staffingByGuard[guard.id] ?? []}
-                    canEdit={canWrite && (isAdmin || guard.ownerUserId === currentUserId)}
-                    canCreate={
-                      canWrite && (isAdmin || guard.ownerUserId === currentUserId) && !guard.endedAt
-                    }
-                    busy={busy}
-                    runAction={runAction}
-                  />
                   </div>
                 </details>
               </article>

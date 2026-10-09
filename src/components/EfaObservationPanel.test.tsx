@@ -285,7 +285,9 @@ describe("EfaObservationPanel", () => {
     );
 
     expect(html).toContain("Solo lectura");
-    expect(html).toContain("La ausencia de observaciones no es una valoración.");
+    expect(html).toContain(
+      "Registrar es opcional; la ausencia de registros no evalúa a ninguna persona.",
+    );
     expect(html).not.toContain("Guardar observación");
   });
 });

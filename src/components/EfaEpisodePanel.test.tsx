@@ -219,9 +219,7 @@ describe("EfaEpisodePanel", () => {
     expect(html).toContain("Servicios de esta guardia");
     expect(html).toContain("Guardia propia abierta desde");
     expect(
-      html.match(
-        /Esta vista muestra solo episodios de la guardia abierta; no es el historial completo/g,
-      ),
+      html.match(/Solo se muestran servicios de la guardia abierta; no es el historial completo/g),
     ).toHaveLength(1);
     expect(html).toContain("/guardia-efa");
     expect(html).not.toContain("Historial de episodios");
@@ -304,8 +302,8 @@ describe("EfaEpisodePanel", () => {
     );
     const compactSummary = html.match(/<article[\s\S]*?<details/)?.[0] ?? "";
     expect(compactSummary).toContain("Activo");
-    expect(compactSummary).toContain("Episodio del 6/10/2026, 06:30:00");
-    expect(compactSummary).not.toContain("Hecho 6/10/2026, 06:30:00");
+    expect(compactSummary).toContain("Servicio");
+    expect(compactSummary).toContain("Hecho 6/10/2026, 06:30:00");
     expect(compactSummary).not.toContain("Capturado");
     expect(compactSummary).not.toContain("Ver historial");
     expect(compactSummary).not.toContain("Editar");
@@ -318,8 +316,8 @@ describe("EfaEpisodePanel", () => {
     expect(details).toContain("versión 1");
     expect(html).not.toContain("foreign");
     expect(html.indexOf("Activo")).toBeLessThan(html.indexOf("Cerrado"));
-    expect(html).toContain("Episodio del 6/10/2026, 06:30:00");
-    expect(html).toContain("Episodio del");
+    expect(html).toContain("Hecho 6/10/2026, 06:30:00");
+    expect(html).not.toContain("Episodio del");
     expect(html).toContain("Abrir servicio y registrar llamada");
     expect(html).not.toContain("Dejar de editar");
   });

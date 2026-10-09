@@ -1561,7 +1561,7 @@ export function EfaObservationPanel({
           visibleObservations.length === 0 &&
           (!effectiveCanWrite || (!canCreateHere && !editing?.canEdit)) && (
             <p className="text-sm text-muted-foreground">
-              La ausencia de observaciones no es una valoración.
+              Registrar es opcional; la ausencia de registros no evalúa a ninguna persona.
             </p>
           )}
         {!loading && (
@@ -1711,8 +1711,7 @@ export function EfaObservationPanel({
                   )}
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  Registra solo una conducta observada; no seleccionar una conducta no implica una
-                  valoración negativa.
+                  Registro opcional y anónimo: describe conductas observadas, no evalúa personas.
                 </p>
                 <div className="space-y-2">
                   <Label htmlFor={`observation-item-${root.guardId}`}>Conducta concreta</Label>
@@ -1854,7 +1853,7 @@ export function EfaObservationPanel({
                       <div className="grid min-w-0 grid-cols-1 items-end gap-2 min-[380px]:grid-cols-[minmax(0,1fr)_auto]">
                         <Input
                           id={`observation-time-${root.guardId}`}
-                          className="min-w-0"
+                          className="h-11 min-h-11 min-w-0 w-full"
                           type="datetime-local"
                           step="0.001"
                           value={form.observedAt}
@@ -1893,8 +1892,7 @@ export function EfaObservationPanel({
                 </details>
                 {compact && visibleObservations.length === 0 && (
                   <p className="text-sm text-muted-foreground">
-                    Aún no hay observaciones en este contexto; la ausencia de registros no es una
-                    valoración.
+                    Aún no hay observaciones en este contexto.
                   </p>
                 )}
                 <Button

@@ -363,8 +363,9 @@ export function EfaEpisodePanel({
         (entry) => entry.ownerUserId === currentUserId && entry.operationId === pending.operationId,
       ) ?? null)
     : null;
-  const displayName = (episode: EpisodeView) =>
-    episode.motive || episode.address || `Episodio del ${formatEpisodeDate(episode.eventAt)}`;
+  const displayName = (episode: EpisodeView) => episode.motive || episode.address || "Servicio";
+  const accessibleDisplayName = (episode: EpisodeView) =>
+    `${displayName(episode)} · ${formatEpisodeDate(episode.eventAt)}`;
   const formDirty = selected
     ? form.eventAt !==
         (() => {
@@ -1561,27 +1562,30 @@ export function EfaEpisodePanel({
   }
 
   return (
-    <div className="space-y-4" onClickCapture={advanceEpisodeNavigationRevision}>
-      <Card className="bg-indigo-100">
-        <CardHeader>
+    <div
+      className="min-w-0 space-y-3 sm:space-y-4"
+      onClickCapture={advanceEpisodeNavigationRevision}
+    >
+      <Card>
+        <CardHeader className="px-3 py-3 sm:px-6 sm:py-6">
           <CardTitle>Servicios de la guardia</CardTitle>
           <p className="text-sm text-muted-foreground">
-            Los servicios aparecen primero como activos y luego como cerrados. Solo las operaciones
-            enviadas se conservan en este dispositivo; el texto que aún no enviaste puede perderse.
+            Activos primero. Solo se conservan las operaciones enviadas; el texto no enviado puede
+            perderse.
           </p>
         </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent className="space-y-3 px-3 pb-3 pt-0 sm:px-6 sm:pb-6">
           {!canWrite && (
             <p className="rounded-md bg-muted p-3 text-sm">
               Solo lectura: se requiere acceso EFA vigente para editar.
             </p>
           )}
-          <div className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 flex-col gap-2 rounded-md border p-2 sm:flex-row sm:items-center sm:justify-between sm:p-3">
             <p className="text-sm">
               {openOwnGuard
                 ? `Guardia propia abierta desde ${formatEpisodeDate(openOwnGuard.startedAt)}.`
                 : "Sin guardia propia abierta."}{" "}
-              Esta vista muestra solo episodios de la guardia abierta; no es el historial completo.
+              Solo se muestran servicios de la guardia abierta; no es el historial completo.
             </p>
             <Button asChild variant="outline" className="min-h-11 w-full sm:w-auto">
               <Link to="/guardia-efa">Volver a mi guardia EFA</Link>
@@ -1734,16 +1738,17 @@ export function EfaEpisodePanel({
 
       {canWrite && (selected || openOwnGuard) && (
         <Card>
-          <CardHeader>
+          <CardHeader className="px-3 py-3 sm:px-6 sm:py-6">
             <CardTitle>
               {selected ? `Editar servicio · versión ${selected.version}` : "Nuevo episodio"}
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="space-y-3 px-3 pb-3 pt-0 sm:px-6 sm:pb-6">
             <div className="space-y-2">
               <Label htmlFor="episode-event-at">Fecha y hora del hecho</Label>
               <Input
                 id="episode-event-at"
+                className="h-11 min-h-11 w-full min-w-0 max-w-full"
                 type="datetime-local"
                 value={form.eventAt}
                 disabled={!queueReady || busy || Boolean(pending) || Boolean(conflict)}
@@ -1885,10 +1890,10 @@ export function EfaEpisodePanel({
         )}
 
       <Card>
-        <CardHeader className="px-3 pt-4 sm:px-6 sm:pt-6">
+        <CardHeader className="px-3 py-3 sm:px-6 sm:py-6">
           <CardTitle>Servicios de esta guardia</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-3 px-3 pb-3 pt-0 sm:px-6 sm:pb-6">
+        <CardContent className="min-w-0 space-y-3 px-3 pb-3 pt-0 sm:px-6 sm:pb-6">
           {activeGuardEpisodes.length === 0 && (
             <p className="text-sm text-muted-foreground">
               {openOwnGuard
@@ -1899,7 +1904,7 @@ export function EfaEpisodePanel({
           {activeGuardEpisodes.map((episode) => (
             <article
               key={episode.id}
-              className={`space-y-2.5 rounded-lg border p-2 sm:p-4 ${
+              className={`min-w-0 space-y-2 rounded-lg border p-2 sm:space-y-2.5 sm:p-4 ${
                 episode.cancelledAt
                   ? "border-rose-200 bg-rose-50/70 dark:border-rose-900 dark:bg-rose-950/20"
                   : episode.state === "closed"
@@ -1925,18 +1930,16 @@ export function EfaEpisodePanel({
                         ? "Cerrado"
                         : "Activo"}
                   </p>
-                  {(episode.motive || episode.address) && (
-                    <p className="text-sm text-muted-foreground">
-                      Hecho {formatEpisodeDate(episode.eventAt)}
-                    </p>
-                  )}
+                  <p className="text-xs text-muted-foreground">
+                    Hecho {formatEpisodeDate(episode.eventAt)}
+                  </p>
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {workspaceEpisodeId !== episode.id && (
                     <Button
                       variant="outline"
                       className="min-h-11 border-sky-200 bg-sky-50 px-3 text-sky-950 hover:bg-sky-100 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100 dark:hover:bg-sky-950/60"
-                      aria-label={`Abrir área de trabajo de ${displayName(episode)}`}
+                      aria-label={`Abrir área de trabajo de ${accessibleDisplayName(episode)}`}
                       onClick={() => openWorkspace(episode.id, "communications")}
                     >
                       <PanelsTopLeft aria-hidden="true" className="size-4" />
@@ -1974,9 +1977,7 @@ export function EfaEpisodePanel({
                     if (!open) setClosingServiceTarget(null);
                   }}
                   capturedTargetKey={
-                    closingServiceTarget?.episodeId === episode.id
-                      ? closingServiceTarget.key
-                      : null
+                    closingServiceTarget?.episodeId === episode.id ? closingServiceTarget.key : null
                   }
                   currentTargetKey={episodeCloseTargetKey(episode)}
                   title="Cerrar servicio"
@@ -2044,7 +2045,7 @@ export function EfaEpisodePanel({
               {workspaceEpisodeId === episode.id && (
                 <EfaEpisodeWorkspace
                   key={`${currentUserId}:${episode.id}`}
-                  episodeLabel={displayName(episode)}
+                  episodeLabel={accessibleDisplayName(episode)}
                   activeSection={activeWorkspaceSection}
                   onSelectSection={(section) => openWorkspace(episode.id, section)}
                 >
@@ -2052,7 +2053,7 @@ export function EfaEpisodePanel({
                     <div hidden={activeWorkspaceSection !== "communications"}>
                       <EfaCommunicationPanel
                         episodeId={episode.id}
-                        episodeLabel={displayName(episode)}
+                        episodeLabel={accessibleDisplayName(episode)}
                         currentUserId={currentUserId}
                         canWrite={canWrite}
                         episodeCanEdit={episode.canEdit}
@@ -2083,7 +2084,7 @@ export function EfaEpisodePanel({
                     <div hidden={activeWorkspaceSection !== "dispatches"}>
                       <EfaDispatchStepper
                         episodeId={episode.id}
-                        episodeLabel={displayName(episode)}
+                        episodeLabel={accessibleDisplayName(episode)}
                         currentUserId={currentUserId}
                         canWrite={canWrite}
                         episodeCanEdit={episode.canEdit}
@@ -2094,7 +2095,7 @@ export function EfaEpisodePanel({
                     <div hidden={activeWorkspaceSection !== "police"}>
                       <EfaPoliceCoordinationPanel
                         episodeId={episode.id}
-                        episodeLabel={displayName(episode)}
+                        episodeLabel={accessibleDisplayName(episode)}
                         currentUserId={currentUserId}
                         canWrite={canWrite}
                         episodeCanEdit={episode.canEdit}
@@ -2162,10 +2163,10 @@ export function EfaEpisodePanel({
       </Card>
 
       <Card>
-        <CardHeader>
+        <CardHeader className="px-3 py-3 sm:px-6 sm:py-6">
           <CardTitle>Avisos de corrección</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent className="space-y-3 px-3 pb-3 pt-0 sm:px-6 sm:pb-6">
           {notices.length === 0 && (
             <p className="text-sm text-muted-foreground">No tienes avisos pendientes.</p>
           )}

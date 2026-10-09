@@ -164,9 +164,29 @@ export function DispatchStepNavigation({
   onStepChange: (step: number) => void;
 }) {
   const title = dispatchStepTitles[step] ?? "Paso del despacho";
+  const headingRef = useRef<HTMLParagraphElement>(null);
+  const previousStepRef = useRef(step);
+
+  useEffect(() => {
+    if (previousStepRef.current === step) return;
+    previousStepRef.current = step;
+    const heading = headingRef.current;
+    if (!heading) return;
+    heading.focus({ preventScroll: true });
+    heading.scrollIntoView({
+      block: "start",
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+    });
+  }, [step]);
+
   return (
     <div className="flex min-w-0 items-center justify-between gap-2">
-      <p aria-live="polite" className="min-w-0 text-sm">
+      <p
+        ref={headingRef}
+        aria-live="polite"
+        tabIndex={-1}
+        className="min-w-0 scroll-mt-20 text-sm outline-none"
+      >
         Paso {step + 1} de {dispatchStepTitles.length}: {title}
       </p>
       <details className="relative shrink-0">
@@ -181,7 +201,11 @@ export function DispatchStepNavigation({
               aria-label={`Ir al paso ${index + 1}: ${stepTitle}`}
               aria-current={step === index ? "step" : undefined}
               className={`min-h-11 min-w-0 rounded px-3 text-left text-sm ${step === index ? "bg-primary text-primary-foreground" : "border"}`}
-              onClick={() => onStepChange(index)}
+              onClick={(event) => {
+                onStepChange(index);
+                const details = event.currentTarget.closest("details");
+                if (details) details.open = false;
+              }}
             >
               {index + 1}. {stepTitle}
             </button>
@@ -208,6 +232,12 @@ const resultOptions = [
   ["death", "Óbito"],
   ["not_informed", "No informado"],
 ] as const;
+const dispatchPriorityLabels = { red: "roja", yellow: "amarilla", green: "verde" } as const;
+function formatDispatchPriority(priority: string | null | undefined) {
+  return priority && priority in dispatchPriorityLabels
+    ? dispatchPriorityLabels[priority as keyof typeof dispatchPriorityLabels]
+    : "sin prioridad";
+}
 const emptyDispatchForm = (): DispatchForm => ({
   baseId: "",
   institutionId: "",
@@ -1779,29 +1809,26 @@ export function EfaDispatchStepper({
                             : call.state === "finalized"
                               ? "finalizada · "
                               : "en curso · "}
-                          prioridad {call.priority ?? "sin prioridad"}
+                          prioridad {formatDispatchPriority(call.priority)}
                         </option>
                       ),
                     )}
                   </select>
                   {selectedCall && (
                     <p className="break-words text-sm text-muted-foreground">
-                      Llamada vinculada: {selectedCall.id} ·{" "}
+                      Llamada seleccionada:{" "}
                       {selectedCall.state === "cancelled"
                         ? "anulada"
                         : selectedCall.state === "finalized"
                           ? "finalizada"
-                          : "en curso"}{" "}
-                      · prioridad {selectedCall.priority ?? "sin prioridad"}
+                          : "en curso"}
+                      .
                     </p>
                   )}
                 </label>
-                <p className="text-sm">
-                  La prioridad de una llamada vinculada se copia al crear el despacho. Después
-                  puedes cambiarla; una vinculación posterior no la modifica.
-                </p>
                 <p className="text-sm text-muted-foreground">
-                  Puedes guardar un borrador incompleto; las horas sin registrar son opcionales.
+                  La prioridad se copia al crear; cambiar después el vínculo no la modifica. Se
+                  permiten borradores parciales y las horas son opcionales.
                 </p>
                 <label className="block">
                   Primera respuesta (rol anónimo)
@@ -1914,8 +1941,7 @@ export function EfaDispatchStepper({
                         />
                       )}
                       <p className="text-sm">
-                        Los horarios se registran por separado; no se deduce ni valida una secuencia
-                        cronológica.
+                        Las horas son independientes; no se valida el orden cronológico.
                       </p>
                     </>
                   );
@@ -2115,182 +2141,188 @@ export function EfaDispatchStepper({
           </fieldset>
         )}
         {selected && editable && (
-          <div className="space-y-3 border-t pt-3">
-            <h3 className="font-medium">Eventos relacionados</h3>
-            <label className="block">
-              Nota del intento de contacto
-              <input
-                className="mt-1 h-11 w-full min-w-0 max-w-full rounded border px-3"
-                value={contactNote}
-                onChange={(event) => setContactNote(event.target.value)}
-              />
-            </label>
-            <label className="block">
-              Hora del intento
-              <input
-                type="datetime-local"
-                step="0.001"
-                className="mt-1 h-11 w-full min-w-0 max-w-full rounded border px-3"
-                value={contactAt}
-                onChange={(event) => setContactAt(event.target.value)}
-              />
-            </label>
-            <button
-              className="min-h-11 rounded border px-4"
-              disabled={busy}
-              onClick={() => {
-                const occurredAt = captureActionTimestamp(new Date());
-                void freeze("contact-attempt", {
-                  dispatchId: selected.id,
-                  clientEventId: crypto.randomUUID(),
-                  occurredAt,
-                  note: contactNote || null,
-                });
-              }}
-            >
-              Registrar intento de contacto · Ahora
-            </button>
-            <button
-              className="min-h-11 rounded border px-4"
-              disabled={busy || !inputToIso(contactAt)}
-              onClick={() =>
-                void freeze("contact-attempt", {
-                  dispatchId: selected.id,
-                  clientEventId: crypto.randomUUID(),
-                  occurredAt: inputToIso(contactAt)!,
-                  note: contactNote || null,
-                })
-              }
-            >
-              Registrar intento con hora ingresada
-            </button>
-            {error && errorSurface === "contact" && (
-              <p role="alert" className="text-sm text-destructive" aria-live="assertive">
-                {error}
-              </p>
-            )}
-            {message && messageSurface === "contact" && (
-              <p role="status" className="text-sm" aria-live="polite">
-                {message}
-              </p>
-            )}
-            <label className="block">
-              Motivo de apoyo
-              <input
-                className="mt-1 h-11 w-full min-w-0 max-w-full rounded border px-3"
-                value={supportReason}
-                onChange={(event) => setSupportReason(event.target.value)}
-              />
-            </label>
-            <label className="block">
-              Hora de solicitud
-              <input
-                type="datetime-local"
-                step="0.001"
-                className="mt-1 h-11 w-full min-w-0 max-w-full rounded border px-3"
-                value={supportAt}
-                onChange={(event) => setSupportAt(event.target.value)}
-              />
-            </label>
-            <button
-              className="min-h-11 rounded border px-4"
-              disabled={busy || !supportReason.trim()}
-              onClick={() => {
-                const requestedAt = captureActionTimestamp(new Date());
-                void freeze("support-create", {
-                  clientCreationKey: crypto.randomUUID(),
-                  sourceDispatchId: selected.id,
-                  requestedAt,
-                  reason: supportReason.trim(),
-                  responseDispatchId: null,
-                });
-              }}
-            >
-              Solicitar apoyo · Ahora
-            </button>
-            <button
-              className="min-h-11 rounded border px-4"
-              disabled={busy || !supportReason.trim() || !inputToIso(supportAt)}
-              onClick={() =>
-                void freeze("support-create", {
-                  clientCreationKey: crypto.randomUUID(),
-                  sourceDispatchId: selected.id,
-                  requestedAt: inputToIso(supportAt)!,
-                  reason: supportReason.trim(),
-                  responseDispatchId: null,
-                })
-              }
-            >
-              Solicitar apoyo con hora ingresada
-            </button>
-            {error && errorSurface === "support" && (
-              <p role="alert" className="text-sm text-destructive" aria-live="assertive">
-                {error}
-              </p>
-            )}
-            {message && messageSurface === "support" && (
-              <p role="status" className="text-sm" aria-live="polite">
-                {message}
-              </p>
-            )}
-            {supportRequests.map((request) => (
-              <div key={request.id} className="rounded border p-3">
-                <p>
-                  Apoyo solicitado · {formatDispatchDate(request.requestedAt)} · {request.reason}
+          <details className="min-w-0 border-t pt-3">
+            <summary className="min-h-11 cursor-pointer py-3 font-medium">
+              Eventos relacionados
+            </summary>
+            <div className="min-w-0 space-y-3 pb-3">
+              <label className="block">
+                Nota del intento de contacto
+                <input
+                  className="mt-1 h-11 w-full min-w-0 max-w-full rounded border px-3"
+                  value={contactNote}
+                  onChange={(event) => setContactNote(event.target.value)}
+                />
+              </label>
+              <label className="block">
+                Hora del intento
+                <input
+                  type="datetime-local"
+                  step="0.001"
+                  className="mt-1 h-11 w-full min-w-0 max-w-full rounded border px-3"
+                  value={contactAt}
+                  onChange={(event) => setContactAt(event.target.value)}
+                />
+              </label>
+              <button
+                className="min-h-11 rounded border px-4"
+                disabled={busy}
+                onClick={() => {
+                  const occurredAt = captureActionTimestamp(new Date());
+                  void freeze("contact-attempt", {
+                    dispatchId: selected.id,
+                    clientEventId: crypto.randomUUID(),
+                    occurredAt,
+                    note: contactNote || null,
+                  });
+                }}
+              >
+                Registrar intento de contacto · Ahora
+              </button>
+              <button
+                className="min-h-11 rounded border px-4"
+                disabled={busy || !inputToIso(contactAt)}
+                onClick={() =>
+                  void freeze("contact-attempt", {
+                    dispatchId: selected.id,
+                    clientEventId: crypto.randomUUID(),
+                    occurredAt: inputToIso(contactAt)!,
+                    note: contactNote || null,
+                  })
+                }
+              >
+                Registrar intento con hora ingresada
+              </button>
+              {error && errorSurface === "contact" && (
+                <p role="alert" className="text-sm text-destructive" aria-live="assertive">
+                  {error}
                 </p>
-                <label className="mt-2 block">
-                  Despacho de respuesta
-                  <select
-                    className="mt-1 h-11 w-full min-w-0 max-w-full rounded border px-3"
-                    value={request.responseDispatchId ?? ""}
-                    disabled={
-                      busy ||
-                      queueLocked ||
-                      !canEditSupportAssociation(
-                        canWrite,
-                        episodeCanEdit,
-                        selected.canEdit,
-                        request.canEdit,
-                      )
-                    }
-                    onChange={(event) => {
-                      const latestDispatch = rowsRef.current.find((row) => row.id === selected.id);
-                      const latestRequest = supportRequestsRef.current.find(
-                        (item) => item.id === request.id,
-                      );
-                      if (
+              )}
+              {message && messageSurface === "contact" && (
+                <p role="status" className="text-sm" aria-live="polite">
+                  {message}
+                </p>
+              )}
+              <label className="block">
+                Motivo de apoyo
+                <input
+                  className="mt-1 h-11 w-full min-w-0 max-w-full rounded border px-3"
+                  value={supportReason}
+                  onChange={(event) => setSupportReason(event.target.value)}
+                />
+              </label>
+              <label className="block">
+                Hora de solicitud
+                <input
+                  type="datetime-local"
+                  step="0.001"
+                  className="mt-1 h-11 w-full min-w-0 max-w-full rounded border px-3"
+                  value={supportAt}
+                  onChange={(event) => setSupportAt(event.target.value)}
+                />
+              </label>
+              <button
+                className="min-h-11 rounded border px-4"
+                disabled={busy || !supportReason.trim()}
+                onClick={() => {
+                  const requestedAt = captureActionTimestamp(new Date());
+                  void freeze("support-create", {
+                    clientCreationKey: crypto.randomUUID(),
+                    sourceDispatchId: selected.id,
+                    requestedAt,
+                    reason: supportReason.trim(),
+                    responseDispatchId: null,
+                  });
+                }}
+              >
+                Solicitar apoyo · Ahora
+              </button>
+              <button
+                className="min-h-11 rounded border px-4"
+                disabled={busy || !supportReason.trim() || !inputToIso(supportAt)}
+                onClick={() =>
+                  void freeze("support-create", {
+                    clientCreationKey: crypto.randomUUID(),
+                    sourceDispatchId: selected.id,
+                    requestedAt: inputToIso(supportAt)!,
+                    reason: supportReason.trim(),
+                    responseDispatchId: null,
+                  })
+                }
+              >
+                Solicitar apoyo con hora ingresada
+              </button>
+              {error && errorSurface === "support" && (
+                <p role="alert" className="text-sm text-destructive" aria-live="assertive">
+                  {error}
+                </p>
+              )}
+              {message && messageSurface === "support" && (
+                <p role="status" className="text-sm" aria-live="polite">
+                  {message}
+                </p>
+              )}
+              {supportRequests.map((request) => (
+                <div key={request.id} className="rounded border p-3">
+                  <p>
+                    Apoyo solicitado · {formatDispatchDate(request.requestedAt)} · {request.reason}
+                  </p>
+                  <label className="mt-2 block">
+                    Despacho de respuesta
+                    <select
+                      className="mt-1 h-11 w-full min-w-0 max-w-full rounded border px-3"
+                      value={request.responseDispatchId ?? ""}
+                      disabled={
                         busy ||
                         queueLocked ||
                         !canEditSupportAssociation(
-                          canWriteRef.current,
-                          episodeCanEditRef.current,
-                          latestDispatch?.canEdit === true,
-                          latestRequest?.canEdit === true,
+                          canWrite,
+                          episodeCanEdit,
+                          selected.canEdit,
+                          request.canEdit,
                         )
-                      )
-                        return;
-                      void freeze("support-update", {
-                        supportRequestId: request.id,
-                        expectedVersion: request.version,
-                        operationId: crypto.randomUUID(),
-                        requestedAt: request.requestedAt,
-                        reason: request.reason,
-                        responseDispatchId: event.target.value || null,
-                      });
-                    }}
-                  >
-                    <option value="">Sin asociar</option>
-                    {rows.map((row) => (
-                      <option key={row.id} value={row.id}>
-                        {bases.find((base) => base.id === row.baseId)?.name ?? "Despacho"} ·{" "}
-                        {row.id.slice(0, 8)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-            ))}
-          </div>
+                      }
+                      onChange={(event) => {
+                        const latestDispatch = rowsRef.current.find(
+                          (row) => row.id === selected.id,
+                        );
+                        const latestRequest = supportRequestsRef.current.find(
+                          (item) => item.id === request.id,
+                        );
+                        if (
+                          busy ||
+                          queueLocked ||
+                          !canEditSupportAssociation(
+                            canWriteRef.current,
+                            episodeCanEditRef.current,
+                            latestDispatch?.canEdit === true,
+                            latestRequest?.canEdit === true,
+                          )
+                        )
+                          return;
+                        void freeze("support-update", {
+                          supportRequestId: request.id,
+                          expectedVersion: request.version,
+                          operationId: crypto.randomUUID(),
+                          requestedAt: request.requestedAt,
+                          reason: request.reason,
+                          responseDispatchId: event.target.value || null,
+                        });
+                      }}
+                    >
+                      <option value="">Sin asociar</option>
+                      {rows.map((row) => (
+                        <option key={row.id} value={row.id}>
+                          {bases.find((base) => base.id === row.baseId)?.name ?? "Despacho"} ·{" "}
+                          {row.id.slice(0, 8)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              ))}
+            </div>
+          </details>
         )}
         {queueEntries.length > 0 && (
           <div className="space-y-2 border-t pt-3">

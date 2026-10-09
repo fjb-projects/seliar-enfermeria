@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { useEffect, useReducer, useRef } from "react";
+import { useEffect, useId, useReducer, useRef } from "react";
 import { Ambulance, ChevronDown, ChevronUp, ClipboardCheck, Phone, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -35,44 +35,27 @@ const sections = [
     id: "communications",
     label: "Llamadas",
     Icon: Phone,
-    style:
-      "bg-sky-50 text-sky-900 border-sky-200 dark:bg-sky-950/40 dark:text-sky-100 dark:border-sky-800",
   },
   {
     id: "dispatches",
     label: "Despachos",
     Icon: Ambulance,
-    style:
-      "bg-amber-50 text-amber-950 border-amber-200 dark:bg-amber-950/40 dark:text-amber-100 dark:border-amber-800",
   },
   {
     id: "police",
     label: "Coordinación",
     Icon: Shield,
-    style:
-      "bg-violet-50 text-violet-950 border-violet-200 dark:bg-violet-950/40 dark:text-violet-100 dark:border-violet-800",
   },
   {
     id: "observations",
     label: "Conductas",
     Icon: ClipboardCheck,
-    style:
-      "bg-emerald-50 text-emerald-950 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-100 dark:border-emerald-800",
   },
 ] satisfies Array<{
   id: EfaEpisodeWorkspaceSection;
   label: string;
   Icon: typeof Phone;
-  style: string;
 }>;
-
-const sectionSurfaces: Record<EfaEpisodeWorkspaceSection, string> = {
-  communications: "border-sky-200 bg-sky-50/50 dark:border-sky-900 dark:bg-sky-950/20",
-  dispatches: "border-amber-200 bg-amber-50/50 dark:border-amber-900 dark:bg-amber-950/20",
-  police: "border-violet-200 bg-violet-50/50 dark:border-violet-900 dark:bg-violet-950/20",
-  observations:
-    "border-emerald-200 bg-emerald-50/50 dark:border-emerald-900 dark:bg-emerald-950/20",
-};
 
 export type WorkspaceEpisode = {
   id: string;
@@ -106,6 +89,11 @@ export function EfaEpisodeWorkspace({
   onSelectSection: (section: EfaEpisodeWorkspaceSection) => void;
   children: ReactNode;
 }) {
+  const idSuffix = useId().replaceAll(":", "");
+  const contentId = "efa-workspace-content-" + idSuffix;
+  const panelId = "efa-workspace-panel-" + idSuffix;
+  const tabIdFor = (section: EfaEpisodeWorkspaceSection) =>
+    "efa-workspace-tab-" + section + "-" + idSuffix;
   const [collapsed, toggleCollapsed] = useReducer(
     (value: boolean) => toggleEfaWorkspaceCollapsed(value),
     false,
@@ -120,7 +108,7 @@ export function EfaEpisodeWorkspace({
     heading.scrollIntoView?.({ behavior: reducedMotion ? "auto" : "smooth", block: "nearest" });
   }, []);
   return (
-    <section className="space-y-3">
+    <section className="min-w-0 space-y-2 sm:space-y-3">
       <header className="flex items-start justify-between gap-3">
         <div>
           <h4
@@ -131,7 +119,6 @@ export function EfaEpisodeWorkspace({
           >
             Área de trabajo
           </h4>
-          <p className="text-sm text-muted-foreground">Registros vinculados al servicio actual.</p>
         </div>
         <Button
           type="button"
@@ -139,7 +126,7 @@ export function EfaEpisodeWorkspace({
           className="min-h-11 min-w-11 shrink-0 border-slate-300 bg-white px-3 dark:border-slate-700 dark:bg-slate-900"
           aria-label={`${collapsed ? "Expandir" : "Contraer"} área de trabajo`}
           aria-expanded={!collapsed}
-          aria-controls="efa-workspace-content"
+          aria-controls={contentId}
           onClick={() => {
             if (!collapsed && contentRef.current?.contains(document.activeElement)) {
               (document.activeElement as HTMLElement).blur();
@@ -152,31 +139,59 @@ export function EfaEpisodeWorkspace({
       </header>
       <div
         ref={contentRef}
-        id="efa-workspace-content"
+        id={contentId}
         hidden={collapsed}
         inert={collapsed}
         aria-hidden={collapsed}
-        className="space-y-3"
+        className="min-w-0 space-y-2 sm:space-y-3"
       >
         <nav
+          role="tablist"
           aria-label="Secciones del servicio"
-          className="grid min-w-0 grid-cols-2 gap-2 sm:flex sm:flex-wrap"
+          className="grid min-w-0 grid-cols-2 gap-2"
         >
           {sections.map((section) => (
             <Button
               key={section.id}
               type="button"
               variant="outline"
-              className={`h-auto min-h-11 w-full min-w-0 justify-start whitespace-normal break-words border px-2 text-left sm:w-auto sm:px-3 ${section.style} ${activeSection === section.id ? "ring-2 ring-primary ring-offset-1" : "opacity-80"}`}
-              aria-pressed={activeSection === section.id}
+              role="tab"
+              id={tabIdFor(section.id)}
+              aria-selected={activeSection === section.id}
+              aria-controls={panelId}
+              tabIndex={activeSection === section.id ? 0 : -1}
+              className={`h-auto min-h-11 w-full min-w-0 justify-start whitespace-normal break-words border px-2 text-left ${activeSection === section.id ? "border-primary bg-primary text-primary-foreground hover:bg-primary/90" : "border-border bg-background text-foreground hover:bg-muted"}`}
               onClick={() => onSelectSection(section.id)}
+              onKeyDown={(event) => {
+                const direction =
+                  event.key === "ArrowRight" || event.key === "ArrowDown"
+                    ? 1
+                    : event.key === "ArrowLeft" || event.key === "ArrowUp"
+                      ? -1
+                      : 0;
+                if (!direction) return;
+                event.preventDefault();
+                const currentIndex = sections.findIndex((item) => item.id === section.id);
+                const nextIndex = (currentIndex + direction + sections.length) % sections.length;
+                const nextSection = sections[nextIndex]!.id;
+                document.getElementById(tabIdFor(nextSection))?.focus();
+                onSelectSection(nextSection);
+              }}
             >
               <section.Icon aria-hidden="true" className="size-4 shrink-0" />
               <span className="min-w-0 break-words">{section.label}</span>
             </Button>
           ))}
         </nav>
-        <div className={`border-l-2 pl-2 ${sectionSurfaces[activeSection]}`}>{children}</div>
+        <div
+          id={panelId}
+          role="tabpanel"
+          aria-labelledby={tabIdFor(activeSection)}
+          tabIndex={0}
+          className="min-w-0"
+        >
+          {children}
+        </div>
       </div>
     </section>
   );

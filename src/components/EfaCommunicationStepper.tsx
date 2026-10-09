@@ -150,12 +150,31 @@ export function EfaCommunicationStepper({
 }) {
   const currentStep = Math.min(Math.max(step, 0), communicationSteps.length - 1);
   const stepName = communicationSteps[currentStep];
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const previousStepRef = useRef(currentStep);
+
+  useEffect(() => {
+    if (previousStepRef.current === currentStep) return;
+    previousStepRef.current = currentStep;
+    const heading = headingRef.current;
+    if (!heading) return;
+    heading.focus({ preventScroll: true });
+    heading.scrollIntoView({
+      block: "start",
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+    });
+  }, [currentStep]);
 
   return (
     <section aria-labelledby="communication-step-heading" className="space-y-4">
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-3">
-          <h3 id="communication-step-heading" className="text-base font-semibold">
+          <h3
+            ref={headingRef}
+            id="communication-step-heading"
+            tabIndex={-1}
+            className="scroll-mt-20 text-base font-semibold outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          >
             Paso {currentStep + 1} de {communicationSteps.length}: {stepName}
           </h3>
           <span className="text-sm text-muted-foreground" aria-hidden="true">
@@ -1640,8 +1659,7 @@ export function EfaCommunicationPanel({
               {(step === 1 || step === 2) && (
                 <div className="space-y-3">
                   <p className="text-sm text-muted-foreground">
-                    La hora es opcional. Ahora completa el campo sin guardar la llamada. El campo
-                    manual usa la zona horaria local del dispositivo.
+                    Hora opcional. Ahora la completa localmente; el campo manual usa la hora local.
                   </p>
                   <Label htmlFor={`communication-time-${episodeId}-${step}`}>
                     {step === 1 ? "Inicio real (opcional)" : "Fin real (opcional)"}
@@ -1803,6 +1821,16 @@ export function EfaCommunicationPanel({
                           El acceso vigente no permite finalizar esta llamada.
                         </p>
                       )}
+                      {priority &&
+                        !dirty &&
+                        !pendingEntry &&
+                        !busy &&
+                        queueReady &&
+                        callsReady &&
+                        canWrite &&
+                        canEditSelected && (
+                          <p className="text-sm">La llamada está lista para finalizar.</p>
+                        )}
                     </div>
                   )}
                   {!selected && (

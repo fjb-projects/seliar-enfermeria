@@ -48,6 +48,7 @@ describe("EfaDispatchStepper", () => {
 
     expect(html).toContain("Paso 6 de 11: Llegada a destino");
     expect(html).toContain("Ver pasos");
+    expect(html).toContain('tabindex="-1"');
     expect(html.match(/aria-label="Ir al paso/g)).toHaveLength(11);
     expect(html.match(/aria-current="step"/g)).toHaveLength(1);
     expect(html).toContain('aria-label="Ir al paso 6: Llegada a destino" aria-current="step"');

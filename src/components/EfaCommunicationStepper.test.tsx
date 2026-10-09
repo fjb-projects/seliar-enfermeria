@@ -146,6 +146,7 @@ describe("EfaCommunicationStepper", () => {
     expect(html).toContain("Paso 3 de 5: Fin real");
     expect(html).toContain('aria-label="Progreso de la llamada"');
     expect(html).toContain('aria-current="step"');
+    expect(html).toContain('id="communication-step-heading" tabindex="-1"');
     expect(html).toContain('aria-label="Ir al paso 3: Fin real, completado"');
     expect(html).toContain("min-h-11");
     expect(html).toContain("Fin real opcional");

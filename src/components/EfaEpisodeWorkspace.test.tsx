@@ -26,10 +26,14 @@ describe("EfaEpisodeWorkspace", () => {
 
     expect(html).toContain("Atención del 6 de octubre");
     expect(html).toContain('aria-label="Secciones del servicio"');
+    expect(html).toContain('role="tablist"');
     expect(html).toContain('aria-label="Área de trabajo del servicio Atención del 6 de octubre"');
     expect(html).toContain('aria-label="Contraer área de trabajo"');
-    expect(html).toContain('aria-controls="efa-workspace-content"');
-    expect(html).toContain('aria-pressed="true"');
+    expect(html).toMatch(/aria-controls="efa-workspace-content-[^"]+"/);
+    expect(html).toContain('role="tab"');
+    expect(html).toContain('aria-selected="true"');
+    expect(html.match(/aria-selected="true"/g)).toHaveLength(1);
+    expect(html).toContain('role="tabpanel"');
     expect(html).toContain("Llamadas");
     expect(html).toContain("Despachos");
     expect(html).toContain("Coordinación");
@@ -40,6 +44,54 @@ describe("EfaEpisodeWorkspace", () => {
     expect(html).toContain('<span class="min-w-0 break-words">Coordinación</span>');
     expect(html).not.toContain("overflow-x-auto");
     expect(html).toContain("Contenido de la sección activa");
+  });
+
+  it("keeps tab, panel and collapse IDs unique across simultaneously mounted services", () => {
+    const html = renderToStaticMarkup(
+      <div>
+        <EfaEpisodeWorkspace
+          episodeLabel="Servicio Norte"
+          activeSection="communications"
+          onSelectSection={() => {}}
+        >
+          <p>Contenido Norte</p>
+        </EfaEpisodeWorkspace>
+        <EfaEpisodeWorkspace
+          episodeLabel="Servicio Sur"
+          activeSection="dispatches"
+          onSelectSection={() => {}}
+        >
+          <p>Contenido Sur</p>
+        </EfaEpisodeWorkspace>
+      </div>,
+    );
+    const ids = Array.from(html.matchAll(/\sid="([^"]+)"/g), (match) => match[1]!);
+    const contentIds = ids.filter((id) => id.startsWith("efa-workspace-content-"));
+    const panelIds = ids.filter((id) => id.startsWith("efa-workspace-panel-"));
+    const tabIds = ids.filter((id) => id.startsWith("efa-workspace-tab-"));
+    const controlledContentIds = Array.from(
+      html.matchAll(/aria-controls="(efa-workspace-content-[^"]+)"/g),
+      (match) => match[1]!,
+    );
+    const tabPanelControls = Array.from(
+      html.matchAll(/aria-controls="(efa-workspace-panel-[^"]+)"/g),
+      (match) => match[1]!,
+    );
+    const labelledTabs = Array.from(
+      html.matchAll(/aria-labelledby="(efa-workspace-tab-[^"]+)"/g),
+      (match) => match[1]!,
+    );
+
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(new Set(contentIds).size).toBe(2);
+    expect(new Set(panelIds).size).toBe(2);
+    expect(new Set(tabIds).size).toBe(8);
+    expect(new Set(controlledContentIds)).toEqual(new Set(contentIds));
+    expect(new Set(tabPanelControls)).toEqual(new Set(panelIds));
+    expect(labelledTabs.every((id) => tabIds.includes(id))).toBe(true);
+    expect(panelIds.map((id) => tabPanelControls.filter((ref) => ref === id).length)).toEqual([
+      4, 4,
+    ]);
   });
 
   it("shows only current-guard services, active first and newest first within each state", () => {

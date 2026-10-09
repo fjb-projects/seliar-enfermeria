@@ -49,10 +49,12 @@ export function EfaActionConfirmation({
           <AlertDialogTitle>{title}</AlertDialogTitle>
           <AlertDialogDescription>{description}</AlertDialogDescription>
         </AlertDialogHeader>
-        <AlertDialogFooter className="gap-2 sm:gap-2">
-          <AlertDialogCancel className="mt-0 min-h-11">Cancelar</AlertDialogCancel>
+        <AlertDialogFooter className="grid grid-cols-2 gap-2 sm:flex sm:gap-2">
+          <AlertDialogCancel className="mt-0 h-auto min-h-11 min-w-0 whitespace-normal px-2 text-center leading-tight">
+            Cancelar
+          </AlertDialogCancel>
           <AlertDialogAction
-            className="min-h-11 bg-amber-700 text-white hover:bg-amber-800 focus-visible:ring-amber-600"
+            className="h-auto min-h-11 min-w-0 whitespace-normal bg-amber-700 px-2 text-center leading-tight text-white hover:bg-amber-800 focus-visible:ring-amber-600"
             onClick={() => {
               if (targetIsCurrent && capturedTargetKey) onConfirm(capturedTargetKey);
             }}
