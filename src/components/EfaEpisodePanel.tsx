@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { History, LockKeyhole, PanelsTopLeft, Pencil } from "lucide-react";
+import { History, LockKeyhole, PanelsTopLeft, Pencil, X } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { createClientOnlyFn, useServerFn } from "@tanstack/react-start";
 import { Button } from "@/components/ui/button";
@@ -224,6 +224,13 @@ export const formatEpisodeDate = (value: Date | string) =>
   new Date(value).toLocaleString("es-AR", { timeZone: "America/Argentina/Buenos_Aires" });
 type EpisodeClientHelpers = typeof import("@/lib/efa-episodes.client");
 
+const SERVICE_INTRO_NOTICE_VERSION = "v1";
+const SERVICE_INTRO_NOTICE_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
+
+function serviceIntroNoticeStorageKey(userId: string) {
+  return `efa-service-intro:${SERVICE_INTRO_NOTICE_VERSION}:${encodeURIComponent(userId)}`;
+}
+
 export function EfaEpisodePanel({
   initialEpisodes,
   initialNotices,
@@ -250,6 +257,11 @@ export function EfaEpisodePanel({
   const getEpisode = useServerFn(getEfaEpisode);
   const getHistory = useServerFn(getEfaEpisodeHistory);
   const acknowledgeNotice = useServerFn(markEfaEpisodeNoticeRead);
+  const [serviceIntroNotice, setServiceIntroNotice] = useState({
+    ownerUserId: currentUserId,
+    visible: true,
+    feedback: "",
+  });
   const [episodes, setEpisodes] = useState(initialEpisodes);
   const [notices, setNotices] = useState(initialNotices);
   const [form, setForm] = useState<EpisodeFormValues>(emptyForm);
@@ -317,6 +329,61 @@ export function EfaEpisodePanel({
   workspaceEpisodeIdRef.current = workspaceEpisodeId;
   activeWorkspaceSectionRef.current = activeWorkspaceSection;
   visitedWorkspaceSectionsRef.current = visitedWorkspaceSections;
+  const serviceIntroNoticeVisible =
+    serviceIntroNotice.ownerUserId !== currentUserId || serviceIntroNotice.visible;
+  const serviceIntroNoticeFeedback =
+    serviceIntroNotice.ownerUserId === currentUserId ? serviceIntroNotice.feedback : "";
+
+  useEffect(() => {
+    const storageKey = serviceIntroNoticeStorageKey(currentUserId);
+    try {
+      const storedValue = window.localStorage.getItem(storageKey);
+      const closedAt = storedValue === null ? Number.NaN : Number(storedValue);
+      const now = Date.now();
+      const validTimestamp =
+        storedValue !== null &&
+        /^\d+$/.test(storedValue) &&
+        Number.isFinite(closedAt) &&
+        Number.isSafeInteger(closedAt) &&
+        closedAt > 0 &&
+        closedAt <= now;
+
+      if (!validTimestamp) {
+        if (storedValue !== null) window.localStorage.removeItem(storageKey);
+        setServiceIntroNotice({ ownerUserId: currentUserId, visible: true, feedback: "" });
+        return;
+      }
+
+      const isWithinDismissalPeriod = now - closedAt < SERVICE_INTRO_NOTICE_DURATION_MS;
+      if (!isWithinDismissalPeriod) window.localStorage.removeItem(storageKey);
+      setServiceIntroNotice({
+        ownerUserId: currentUserId,
+        visible: !isWithinDismissalPeriod,
+        feedback: "",
+      });
+    } catch {
+      setServiceIntroNotice({
+        ownerUserId: currentUserId,
+        visible: true,
+        feedback: "No se pudo consultar el almacenamiento del navegador; el aviso permanecerá visible.",
+      });
+    }
+  }, [currentUserId]);
+
+  function dismissServiceIntroNotice() {
+    const storageKey = serviceIntroNoticeStorageKey(currentUserId);
+    const closedAt = Date.now();
+    try {
+      window.localStorage.setItem(storageKey, String(closedAt));
+      setServiceIntroNotice({ ownerUserId: currentUserId, visible: false, feedback: "" });
+    } catch {
+      setServiceIntroNotice({
+        ownerUserId: currentUserId,
+        visible: false,
+        feedback: "No se pudo recordar esta preferencia; el aviso volverá a mostrarse al regresar a esta sección.",
+      });
+    }
+  }
 
   function setActiveConflict(next: ActiveEpisodeConflict | null) {
     conflictRef.current = next;
@@ -1569,12 +1636,44 @@ export function EfaEpisodePanel({
       <Card>
         <CardHeader className="px-3 py-3 sm:px-6 sm:py-6">
           <CardTitle>Servicios de la guardia</CardTitle>
-          <p className="text-sm text-muted-foreground">
-            Activos primero. Solo se conservan las operaciones enviadas; el texto no enviado puede
-            perderse.
-          </p>
         </CardHeader>
         <CardContent className="space-y-3 px-3 pb-3 pt-0 sm:px-6 sm:pb-6">
+          {serviceIntroNoticeVisible ? (
+            <aside
+              aria-label="Información sobre los servicios y el guardado"
+              className="flex items-start gap-2 rounded-lg border border-sky-200 bg-sky-50 p-3 text-sky-950"
+            >
+              <p className="min-w-0 flex-1 text-sm">
+                Los servicios activos aparecen primero. Solo se conservan las operaciones enviadas;
+                el texto que aún no enviaste puede perderse.
+              </p>
+              <Button
+                type="button"
+                variant="ghost"
+                className="min-h-11 min-w-11 shrink-0 px-2 text-sky-950 hover:bg-sky-100"
+                aria-label="Cerrar aviso"
+                title="Cerrar aviso"
+                onClick={dismissServiceIntroNotice}
+              >
+                <X aria-hidden="true" className="size-4" />
+              </Button>
+            </aside>
+          ) : (
+            <details className="rounded-md border border-sky-200 bg-sky-50/60 px-3 text-sm text-sky-950">
+              <summary className="min-h-11 cursor-pointer py-3 font-medium">
+                Información sobre la lista y los datos no enviados
+              </summary>
+              <p className="pb-3">
+                Los servicios activos aparecen primero. Solo se conservan las operaciones enviadas;
+                el texto que aún no enviaste puede perderse.
+              </p>
+            </details>
+          )}
+          {serviceIntroNoticeFeedback && (
+            <p role="status" className="text-sm text-muted-foreground">
+              {serviceIntroNoticeFeedback}
+            </p>
+          )}
           {!canWrite && (
             <p className="rounded-md bg-muted p-3 text-sm">
               Solo lectura: se requiere acceso EFA vigente para editar.

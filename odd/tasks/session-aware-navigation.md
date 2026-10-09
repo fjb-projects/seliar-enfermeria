@@ -25,6 +25,8 @@ Public mobile navigation gains Login. Authentication replaces its public actions
 | --- | --- | --- | --- |
 | N1 | Session-aware public/private navigation, shared quick actions and compact responsive placement | Delegated: multi-file state/routing/component integration | Complete by source review; commit 8c07990 |
 | N2 | Merge desktop navigation, brand and account controls into one compact bar | Delegated: shared layout and account interaction integration | Complete by source review; commit 0af72d3 |
+| N3 | Close service introduction with X and remember dismissal for seven days | Delegated: contextual UI and browser storage logic in episode panel | Source complete; commit pending |
+| N4 | Match pending-view background and soften route loading with a focused overlay | Delegated: installed router mapping and shared transition integration | Pending; source follows N3 completion |
 
 One coherent unit keeps session state, quick actions, login/logout destinations and responsive rendering compatible. Separate foundation/UI commits would leave incomplete navigation integration.
 
@@ -77,9 +79,41 @@ Checks: source readback only because user expressly requested no executable chec
 
 N2 source evidence: 109 additions and 60 deletions across three source files, 169 authored source lines. Brand/navigation/account share a compact desktop bar; intermediate widths use a second row inside that bar and XL uses three columns. Existing desktop route/landing headers become compact content headings. Account details use the existing dropdown primitive; one desktop Logout with nearby failure feedback and existing administrative quick actions. Auth/cache/SSR/routing logic is unchanged. Local work-unit commit 0af72d319f5e014e7c4c8acd2b6070159beaba68, `fix(nav): unify desktop branding and account navigation`; accumulated source count N1+N2 is 1023 lines with the cached feature-branch-chain strategy. No PR or publishing. Post-commit Git status preserves the original root/login and unrelated dirty/staged inventory. Rollback N2 only through these three source paths, leaving N1 and human baseline changes intact. RDD outcome remains disabled/unmanaged; no approval or runtime proof claimed.
 
-Separate new request: user asks whether the Servicios de la guardia introductory wrapper can become a dismissible 24-hour notice with a contrasting background. Keep this as read-only proposal for now; do not expand N2 source surfaces or implement dismissal without explicit change authorization.
+The original 24-hour notice proposal is superseded: user rejected an explicit hide button and approved a close X with seven-day recurrence remembered in localStorage.
 
-Next step: user manually checks desktop/mobile navigation, public/login/private views and summary-error recovery; N2 source work is complete. The 24-hour service notice remains a proposal pending explicit implementation direction. Parent owns this file and its full recovery mirror.
+N1/N2 source work is complete; user manual navigation checks remain pending. New explicit authorization adds N3 followed by N4, retaining all earlier constraints.
+
+## N3: Weekly service introduction notice
+
+Authorized exact source surface: src/components/EfaEpisodePanel.tsx. Replace the large explanatory introduction with a celeste notice contrasting the indigo CTA, a small accessible close X, and localStorage closedAt scoped to current user in this browser. Hide for seven days after closing; show again on a later section visit after expiry. No 24-hour action and no login counter. Record only the timestamp, never operational data. Validate stored values and fail safely when storage is unavailable; avoid SSR-only/client-only initial markup divergence and account leakage.
+
+Keep Servicios de la guardia heading, current guard state/return CTA, read-only feedback, queue/storage states and operational errors accessible. Explanatory unsent-text and privacy warnings remain reachable through a compact information disclosure when the notice is hidden. This is introductory notice presentation only, not draft/queue persistence behavior.
+
+Route: delegated because reading the existing panel prepares new browser-state/UI logic. Forecast 80–180 source lines, advisory only. Rollback this notice/presentation/state change only. Parent owns tracking and local commits. N3 source must close before N4 source starts; N4 read-only exploration may run independently.
+
+- [x] Source closes explanatory notice with X, seven-day account-scoped local timestamp and malformed/unavailable storage handling.
+- [x] Source reevaluates recurrence on section mount/account change; heading, guard access and operational feedback remain accessible.
+- [x] Notice background contrasts the indigo CTA; important informational text remains recoverable.
+- [x] Static writer/readback and independent review recorded; runtime manual checks pending.
+
+N3 boundary: 9e5318e. Source/static checks only; no tests/build/browser/DB/remotes. RDD off, assessment high/unassessable from unrelated untracked inventory; independent static review found no deterministic blocker. Parent spot-read new account key/state and source count. Timestamp validation accepts only safe positive integer timestamps not in the future, removes only expired notice preference, and handles storage exceptions. SSR/client initial notice is visible; post-mount read and owner guard isolate accounts. Source count: 104 additions/5 deletions, 109 authored lines in EfaEpisodePanel. Commit pending; manual closure/revisit/expiry/storage-disabled checks remain for user.
+
+## N4: Smooth route loading
+
+User requests the app background in RoutePending and a focused higher-layer loader with previous view softly blurred, followed by smooth loader exit/new view entrance. Explore installed TanStack router commit/pending behavior before choosing the simplest compatible mechanism. Preserve authentication/session/cache/SSR, usable controls, reduced-motion preference, redirects/errors, and fast-navigation behavior without artificial load delay. Do not retain old-page snapshots with stale route context or add dependencies.
+
+Exact allowed source surfaces: src/router.tsx, src/routes/__root.tsx, src/components/RoutePending.tsx, src/components/RouteTransition.tsx (new file), src/routes/index.tsx. Source implementation follows N3 closure. Forecast 100–250 lines, advisory only, cached feature-branch-chain strategy and local-only delivery remain. Preexisting human RoutePending copy (Esperee/Cargando) and root error translation must remain in worktree and outside this feature commit. Baseline snapshot/patch: C:/Users/Fernando/AppData/Local/Temp/seliar-routing-baseline-e1192ea8aad848809813a6583bdddaca.
+
+Installed router keeps active matches separate from pending matches. setupPendingTimeout explicitly excludes Infinity, verified by parent source spot readback, so defaultPendingMs Infinity preserves committed view until load readiness without creating an overflowing browser timer. Use a shared root loading controller driven by installed isLoading, short visual display threshold without delaying router work, focused higher-layer translucent existing app background and backdrop blur, and bounded fade exit. New route content may use existing motion-safe entry utilities. Reuse the existing background token; do not recolor the global app gradient or change auth/query/cache/SSR contracts. No old-page snapshot cloning, artificial router minimum delay, or new package.
+
+- [ ] Pending presentation shares app background and focused overlay placement.
+- [ ] Previous committed view stays available beneath loading when installed router contract permits; new content and overlay transition without forced waiting.
+- [ ] Motion reduction, initial load, errors, redirects and pending interruption remain supported.
+- [ ] Human baseline changes preserved; independent source review and parent readback recorded, user runtime checks pending.
+
+No executable checks, browser QA, database or remote work. RDD off; no native lifecycle. Scope mapping and source implementation pending.
+
+Next step: implement and close N3, then implement mapped N4 and preserve human root/pending edits during selective commits. Parent owns this file and full recovery mirror.
 
 ## Recovery mirror
 
