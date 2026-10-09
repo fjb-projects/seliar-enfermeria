@@ -26,7 +26,7 @@ Public mobile navigation gains Login. Authentication replaces its public actions
 | N1 | Session-aware public/private navigation, shared quick actions and compact responsive placement | Delegated: multi-file state/routing/component integration | Complete by source review; commit 8c07990 |
 | N2 | Merge desktop navigation, brand and account controls into one compact bar | Delegated: shared layout and account interaction integration | Complete by source review; commit 0af72d3 |
 | N3 | Close service introduction with X and remember dismissal for seven days | Delegated: contextual UI and browser storage logic in episode panel | Complete by source review; commit afc9312 |
-| N4 | Match pending-view background and soften route loading with a focused overlay | Delegated: installed router mapping and shared transition integration | Source complete; commit pending |
+| N4 | Match pending-view background and soften route loading with a focused overlay | Delegated: installed router mapping and shared transition integration | Complete by source review; commit 6da5ffa |
 
 One coherent unit keeps session state, quick actions, login/logout destinations and responsive rendering compatible. Separate foundation/UI commits would leave incomplete navigation integration.
 
@@ -115,11 +115,11 @@ N4 boundary: afc9312. No executable checks, browser QA, database or remote work.
 
 Source implementation: new RouteTransition derives actual isLoading and committed match presence, content is inert/busy during real navigation, overlay appears after 120 ms, exit cleanup is 180 ms with pointer interaction released and accessibility hidden during decorative exit. Timers cancel on state changes/unmount; renewed loading reverses an exit. Reduced motion omits animation and exit wait. Overlay uses z100, translucent existing workflow background and backdrop blur; standalone RoutePending uses workflow-background. Public landing entry uses existing motion-safe utilities. QueryClient/SSR/auth/session contracts remain unchanged.
 
-Exact staged source count: 105 additions/7 deletions, 112 authored lines across the five authorized source paths; accumulated N1–N4 count 1244. Local source commit pending. Initial reverse of the captured human patch refused because the current loader label differed from the snapshot (Espere... versus Esperee); it made no commit. Preserved the live worktree and constructed only a feature-only indexed RoutePending blob with the original HEAD labels, then excluded root translation through its exact captured patch. Cached diffs confirm labels and root translation are excluded. Original staged/dirty inventory remains untouched. No publishing.
+Exact staged source count: 105 additions/7 deletions, 112 authored lines across the five authorized source paths; accumulated N1–N4 count 1244. Local work-unit commit 6da5ffa42ee568b732694f06523ca05814280a9e, `feat(ui): soften route loading over the current view`. Initial reverse of the captured human patch refused because the current loader label differed from the snapshot (Espere... versus Esperee); it made no commit. Preserved the live worktree and constructed only a feature-only indexed RoutePending blob with the original HEAD labels, then excluded root translation through its exact captured patch. Cached and post-commit diffs confirm labels and root translation are excluded. Original staged/dirty inventory remains untouched; a new concurrent EfaGuardPanel dirty change outside N4 surfaces was also left untouched. No publishing. RDD disabled/unmanaged; source review is not runtime approval.
 
 Manual checks pending: close/revisit/expiry and unavailable notice storage; internal navigation fast/slow, errors/redirects, keyboard/inert recovery and reduced motion. Source evidence does not claim runtime verification.
 
-Next step: record local N4 commit and let user manually review the completed notice and route transitions. Parent owns this file and full recovery mirror.
+Next step: user manually reviews the completed notice and route transitions. N3/N4 source work is complete. Parent owns this file and full recovery mirror.
 
 ## Recovery mirror
 
