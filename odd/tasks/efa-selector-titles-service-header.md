@@ -36,6 +36,8 @@ U1 implemented in the four authorized components. Dispatch linked calls now show
 
 Writer and independent static source readback completed. The initial readback found baseId fallback labels; a bounded correction removed all three mapped occurrences, followed by parent source readback. Call DTO fields are retained on the only update path. No tests, test changes, build, typecheck, formatter, diff-check or browser QA were run. Native risk assessment could not classify the candidate because of unrelated untracked inventory; RDD remains off. This is source inspection evidence, not a runtime pass.
 
+U1 local work-unit commit: 22ba412, 333 authored lines across four presentation components and this feature document. Parent normalized one indentation line mechanically before the commit. All unrelated changes, including externally modified button/badge primitives that appeared during this task, were preserved. No push or PR. Rollback: option-title functions/mapping and service header layout only.
+
 Manual path: /episodios-efa -> open service -> Despachos, step 1, Llamada vinculada; Coordinación linked dispatch choices; Conductas context selectors. Review the service summary with a long title on mobile and the Close service confirmation. User manual verification remains pending.
 
 Evaluator involvement remains a subsequent product discussion; no field, persistence or person identifier was added. Existing observations are anonymous and non-evaluative. Recommend recording the evaluator's concrete intervention as optional event context; actor autonomy requires its own definition rather than being inferred automatically from intervention.
