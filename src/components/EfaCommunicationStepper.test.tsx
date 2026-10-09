@@ -6,6 +6,7 @@ import {
   canEditCommunication,
   communicationLifecycleAction,
   communicationSteps,
+  communicationStepResolution,
   createCommunicationSubmissionGate,
   canSelectInitialCommunication,
   canFocusInitialCallHeading,
@@ -14,6 +15,34 @@ import {
 } from "./EfaCommunicationStepper";
 
 describe("EfaCommunicationStepper", () => {
+  it("keeps unresolved and optional fields neutral until they are observed or explicitly reviewed", () => {
+    expect(
+      communicationStepResolution({
+        directionPresent: false,
+        directionReviewed: false,
+        startedAt: "",
+        startedAtReviewed: false,
+        endedAt: "",
+        endedAtReviewed: false,
+        priority: "",
+        finalized: false,
+      }),
+    ).toEqual([false, false, false, false, false]);
+
+    expect(
+      communicationStepResolution({
+        directionPresent: true,
+        directionReviewed: false,
+        startedAt: "",
+        startedAtReviewed: true,
+        endedAt: "2026-10-08T14:00",
+        endedAtReviewed: false,
+        priority: "red",
+        finalized: false,
+      }),
+    ).toEqual([true, true, true, true, false]);
+  });
+
   it("only auto-selects a first call while its original editor target remains untouched", () => {
     const base = {
       targetOperationId: "episode-create-1",
@@ -104,22 +133,31 @@ describe("EfaCommunicationStepper", () => {
   });
   it("renders five accessible step names and marks only the active step", () => {
     const html = renderToStaticMarkup(
-      <EfaCommunicationStepper step={2} onStepChange={vi.fn()}>
+      <EfaCommunicationStepper
+        step={2}
+        resolvedSteps={[true, false, true, false, false]}
+        onStepChange={vi.fn()}
+      >
         <p>Fin real opcional</p>
       </EfaCommunicationStepper>,
     );
 
     expect(communicationSteps).toHaveLength(5);
     expect(html).toContain("Paso 3 de 5: Fin real");
-    expect(html.match(/aria-current="step"/g)).toHaveLength(1);
     expect(html).toContain('aria-label="Progreso de la llamada"');
+    expect(html).toContain('aria-current="step"');
+    expect(html).toContain('aria-label="Ir al paso 3: Fin real, completado"');
     expect(html).toContain("min-h-11");
     expect(html).toContain("Fin real opcional");
   });
 
   it("renders explicit previous and next controls without gesture-only navigation", () => {
     const html = renderToStaticMarkup(
-      <EfaCommunicationStepper step={0} onStepChange={vi.fn()}>
+      <EfaCommunicationStepper
+        step={0}
+        resolvedSteps={[false, false, false, false, false]}
+        onStepChange={vi.fn()}
+      >
         <p>Dirección</p>
       </EfaCommunicationStepper>,
     );
@@ -127,6 +165,7 @@ describe("EfaCommunicationStepper", () => {
     expect(html).toContain("disabled");
     expect(html).toContain("Paso anterior");
     expect(html).toContain("Siguiente paso");
+    expect(html.indexOf("Dirección</p>")).toBeLessThan(html.indexOf("Paso anterior"));
   });
 
   it("reserves submission synchronously while client helpers are loading", async () => {

@@ -118,12 +118,33 @@ export function communicationLifecycleAction(
   return state === "cancelled" ? "reactivate" : "cancel";
 }
 
+export function communicationStepResolution(input: {
+  directionPresent: boolean;
+  directionReviewed: boolean;
+  startedAt: string;
+  startedAtReviewed: boolean;
+  endedAt: string;
+  endedAtReviewed: boolean;
+  priority: string;
+  finalized: boolean;
+}): [boolean, boolean, boolean, boolean, boolean] {
+  return [
+    input.directionPresent || input.directionReviewed,
+    Boolean(input.startedAt) || input.startedAtReviewed,
+    Boolean(input.endedAt) || input.endedAtReviewed,
+    Boolean(input.priority),
+    input.finalized,
+  ];
+}
+
 export function EfaCommunicationStepper({
   step,
+  resolvedSteps,
   onStepChange,
   children,
 }: {
   step: number;
+  resolvedSteps: readonly boolean[];
   onStepChange: (step: number) => void;
   children: React.ReactNode;
 }) {
@@ -152,15 +173,20 @@ export function EfaCommunicationStepper({
             <li key={label} className="min-w-0 flex-1">
               <button
                 type="button"
-                className={`min-h-11 w-full rounded-md border px-1 text-xs sm:text-sm ${
-                  index === currentStep ? "border-primary bg-primary/10 font-semibold" : ""
-                }`}
+                className={`relative min-h-11 w-full rounded-md border px-1 text-xs sm:text-sm ${
+                  resolvedSteps[index]
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-100"
+                    : "border-amber-200 bg-amber-50 text-amber-950 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-100"
+                } ${index === currentStep ? "z-10 ring-2 ring-primary ring-offset-2 font-semibold" : ""}`}
                 aria-current={index === currentStep ? "step" : undefined}
-                aria-label={`Ir al paso ${index + 1}: ${label}`}
+                aria-label={`Ir al paso ${index + 1}: ${label}${resolvedSteps[index] ? ", completado" : ""}`}
                 onClick={() => onStepChange(index)}
               >
                 <span className="hidden sm:inline">{label}</span>
-                <span className="sm:hidden">{index + 1}</span>
+                <span className="sm:hidden">
+                  {resolvedSteps[index] ? "✓ " : ""}
+                  {index + 1}
+                </span>
               </button>
             </li>
           ))}
@@ -169,23 +195,25 @@ export function EfaCommunicationStepper({
 
       <div aria-live="polite">{children}</div>
 
-      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
+      <div className="grid grid-cols-2 gap-2">
         <Button
           type="button"
           variant="outline"
-          className="min-h-11"
+          className="min-h-11 min-w-0 w-full"
+          aria-label="Paso anterior"
           disabled={currentStep === 0}
           onClick={() => onStepChange(currentStep - 1)}
         >
-          Paso anterior
+          Anterior
         </Button>
         <Button
           type="button"
-          className="min-h-11"
+          className="min-h-11 min-w-0 w-full"
+          aria-label="Siguiente paso"
           disabled={currentStep === communicationSteps.length - 1}
           onClick={() => onStepChange(currentStep + 1)}
         >
-          Siguiente paso
+          Siguiente
         </Button>
       </div>
     </section>
@@ -280,8 +308,10 @@ export function EfaCommunicationPanel({
   const [historyFor, setHistoryFor] = useState<string | null>(null);
   const [selected, setSelected] = useState<EfaCommunicationView | null>(null);
   const [direction, setDirection] = useState<Direction>("incoming");
+  const [directionReviewed, setDirectionReviewed] = useState(false);
   const [priority, setPriority] = useState<Priority | "">("");
   const [times, setTimes] = useState<FormTimes>({ startedAt: "", endedAt: "" });
+  const [timeReviewed, setTimeReviewed] = useState({ startedAt: false, endedAt: false });
   const [step, setStep] = useState(0);
   const [queueEntries, setQueueEntries] = useState<CommunicationQueueEntry[]>([]);
   const [selectedOperationId, setSelectedOperationId] = useState("");
@@ -436,8 +466,10 @@ export function EfaCommunicationPanel({
         return;
       }
       setDirection(restored.direction);
+      setDirectionReviewed(true);
       setPriority(restored.priority);
       setTimes(restored.times);
+      setTimeReviewed({ startedAt: false, endedAt: false });
       if (currentCall) {
         originalTimesRef.current = {
           startedAt: currentCall.startedAt,
@@ -838,14 +870,18 @@ export function EfaCommunicationPanel({
       selectedCallRef.current = latest;
       if (choice === "use-server") {
         setTimes(client.communicationToFormTimes(latest));
+        setTimeReviewed({ startedAt: false, endedAt: false });
         originalTimesRef.current = { startedAt: latest.startedAt, endedAt: latest.endedAt };
         setDirection(latest.direction);
+        setDirectionReviewed(false);
         setPriority(latest.priority ?? "");
         setDirty(false);
       } else if (entry.kind === "finalize") {
         setTimes(client.communicationToFormTimes(latest));
+        setTimeReviewed({ startedAt: false, endedAt: false });
         originalTimesRef.current = { startedAt: latest.startedAt, endedAt: latest.endedAt };
         setDirection(latest.direction);
+        setDirectionReviewed(false);
         setPriority((entry.payload as { priority: Priority }).priority);
         setDirty(true);
       } else {
@@ -920,6 +956,7 @@ export function EfaCommunicationPanel({
       !isActionConfirmationCurrent(confirmedTargetKey, currentTargetKey) ||
       !canWrite ||
       !currentContext() ||
+      step !== 4 ||
       !callsReady ||
       !selected ||
       selectedCallRef.current?.id !== selected.id ||
@@ -1028,9 +1065,11 @@ export function EfaCommunicationPanel({
     selectedCallRef.current = call;
     setConfirmingLifecycle(null);
     setDirection(call.direction);
+    setDirectionReviewed(false);
     setPriority(call.priority ?? "");
     const nextTimes = client.communicationToFormTimes(call);
     setTimes(nextTimes);
+    setTimeReviewed({ startedAt: false, endedAt: false });
     originalTimesRef.current = { startedAt: call.startedAt, endedAt: call.endedAt };
     setDirty(false);
     setStep(0);
@@ -1050,8 +1089,10 @@ export function EfaCommunicationPanel({
     setSelected(null);
     selectedCallRef.current = null;
     setDirection("incoming");
+    setDirectionReviewed(false);
     setPriority("");
     setTimes({ startedAt: "", endedAt: "" });
+    setTimeReviewed({ startedAt: false, endedAt: false });
     originalTimesRef.current = { startedAt: null, endedAt: null };
     setDirty(true);
     setStep(0);
@@ -1066,6 +1107,7 @@ export function EfaCommunicationPanel({
     if (!currentContext()) return;
     const value = client.captureCommunicationTime(clickedAt);
     setTimes((current) => ({ ...current, [field]: value }));
+    setTimeReviewed((current) => ({ ...current, [field]: true }));
     dirtyRef.current = true;
     setDirty(true);
   }
@@ -1273,6 +1315,26 @@ export function EfaCommunicationPanel({
     !pendingEntry &&
     !busy;
   const canEditSelected = Boolean(selected && canEditCommunication(canWrite, selected));
+  const resolvedSteps = communicationStepResolution({
+    directionPresent: Boolean(selected?.direction),
+    directionReviewed,
+    startedAt: times.startedAt,
+    startedAtReviewed: timeReviewed.startedAt,
+    endedAt: times.endedAt,
+    endedAtReviewed: timeReviewed.endedAt,
+    priority,
+    finalized: selected?.state === "finalized",
+  });
+  const saveStatus =
+    busy && pendingEntry
+      ? "Guardando…"
+      : pendingEntry
+        ? "Pendiente"
+        : dirty
+          ? "Cambios sin guardar"
+          : selected
+            ? "Guardado"
+            : "Sin guardar";
   const pendingCreateRecovery =
     canWrite && episodeCanEdit && Boolean(queueError) && pendingEntry?.kind === "create";
   const selectedQueued =
@@ -1527,10 +1589,14 @@ export function EfaCommunicationPanel({
                   : `Editar llamada · versión ${selected.version}`
                 : "Nueva llamada"}
             </CardTitle>
+            <p className="text-sm text-muted-foreground" aria-live="polite">
+              Estado del guardado: <span className="font-medium text-foreground">{saveStatus}</span>
+            </p>
           </CardHeader>
           <CardContent className="min-w-0 space-y-3 p-0">
             <EfaCommunicationStepper
               step={step}
+              resolvedSteps={resolvedSteps}
               onStepChange={(nextStep) => {
                 noteCallEditorInteraction();
                 setStep(nextStep);
@@ -1545,6 +1611,9 @@ export function EfaCommunicationPanel({
                     <label
                       key={value}
                       className="flex min-h-11 min-w-0 items-center gap-3 border-b py-2"
+                      onClick={() => {
+                        if (!selected) setDirectionReviewed(true);
+                      }}
                     >
                       <input
                         type="radio"
@@ -1558,6 +1627,7 @@ export function EfaCommunicationPanel({
                         onChange={() => {
                           noteCallEditorInteraction();
                           setDirection(value);
+                          setDirectionReviewed(true);
                           dirtyRef.current = true;
                           setDirty(true);
                         }}
@@ -1570,33 +1640,36 @@ export function EfaCommunicationPanel({
               {(step === 1 || step === 2) && (
                 <div className="space-y-3">
                   <p className="text-sm text-muted-foreground">
-                    La hora es opcional. La captura rápida registra el instante del clic. El campo
+                    La hora es opcional. Ahora completa el campo sin guardar la llamada. El campo
                     manual usa la zona horaria local del dispositivo.
                   </p>
                   <Label htmlFor={`communication-time-${episodeId}-${step}`}>
                     {step === 1 ? "Inicio real (opcional)" : "Fin real (opcional)"}
                   </Label>
-                  <Input
-                    id={`communication-time-${episodeId}-${step}`}
-                    type="datetime-local"
-                    step="0.001"
-                    value={step === 1 ? times.startedAt : times.endedAt}
-                    disabled={
-                      !(selected ? canEditSelected : canCreateCall) || Boolean(pendingEntry) || busy
-                    }
-                    onChange={(event) => {
-                      const field = step === 1 ? "startedAt" : "endedAt";
-                      noteCallEditorInteraction();
-                      setTimes((current) => ({ ...current, [field]: event.target.value }));
-                      dirtyRef.current = true;
-                      setDirty(true);
-                    }}
-                  />
-                  <div className="flex flex-col gap-2 sm:flex-row">
+                  <div className="grid min-w-0 grid-cols-1 gap-2 min-[360px]:grid-cols-[minmax(0,1fr)_auto]">
+                    <Input
+                      id={`communication-time-${episodeId}-${step}`}
+                      className="h-11 min-w-0 w-full"
+                      type="datetime-local"
+                      step="0.001"
+                      value={step === 1 ? times.startedAt : times.endedAt}
+                      disabled={
+                        !(selected ? canEditSelected : canCreateCall) ||
+                        Boolean(pendingEntry) ||
+                        busy
+                      }
+                      onChange={(event) => {
+                        const field = step === 1 ? "startedAt" : "endedAt";
+                        noteCallEditorInteraction();
+                        setTimes((current) => ({ ...current, [field]: event.target.value }));
+                        dirtyRef.current = true;
+                        setDirty(true);
+                      }}
+                    />
                     <Button
                       type="button"
                       variant="outline"
-                      className="min-h-11"
+                      className="min-h-11 w-full min-[360px]:w-auto"
                       disabled={
                         !(selected ? canEditSelected : canCreateCall) ||
                         Boolean(pendingEntry) ||
@@ -1604,28 +1677,27 @@ export function EfaCommunicationPanel({
                       }
                       onClick={() => void captureTime(step === 1 ? "startedAt" : "endedAt")}
                     >
-                      Registrar ahora
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="min-h-11"
-                      disabled={
-                        !(selected ? canEditSelected : canCreateCall) ||
-                        Boolean(pendingEntry) ||
-                        busy
-                      }
-                      onClick={() => {
-                        const field = step === 1 ? "startedAt" : "endedAt";
-                        noteCallEditorInteraction();
-                        setTimes((current) => ({ ...current, [field]: "" }));
-                        dirtyRef.current = true;
-                        setDirty(true);
-                      }}
-                    >
-                      Dejar sin hora
+                      Ahora
                     </Button>
                   </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="min-h-11 px-2"
+                    disabled={
+                      !(selected ? canEditSelected : canCreateCall) || Boolean(pendingEntry) || busy
+                    }
+                    onClick={() => {
+                      const field = step === 1 ? "startedAt" : "endedAt";
+                      noteCallEditorInteraction();
+                      setTimes((current) => ({ ...current, [field]: "" }));
+                      setTimeReviewed((current) => ({ ...current, [field]: true }));
+                      dirtyRef.current = true;
+                      setDirty(true);
+                    }}
+                  >
+                    Dejar sin hora
+                  </Button>
                 </div>
               )}
               {step === 3 && (
@@ -1680,7 +1752,7 @@ export function EfaCommunicationPanel({
                 </fieldset>
               )}
               {step === 4 && (
-                <div className="min-w-0 space-y-3 border-l-2 pl-3">
+                <div className="min-w-0 space-y-3 rounded-md border p-3">
                   <h3 className="font-medium">Revisa los datos de la llamada</h3>
                   <p>Dirección: {directionLabel(direction)}</p>
                   <p>Inicio real: {times.startedAt || "Sin registrar"}</p>
@@ -1688,6 +1760,60 @@ export function EfaCommunicationPanel({
                   <p>Prioridad: {priorityLabel(priority || null)}</p>
                   {selected?.state === "finalized" && (
                     <p>La llamada conservará su estado finalizada al guardar correcciones.</p>
+                  )}
+                  {selected?.state === "cancelled" && (
+                    <p>La llamada anulada no se puede finalizar hasta su reactivación.</p>
+                  )}
+                  {selected?.state === "draft" && (
+                    <div className="space-y-2 rounded-md bg-muted/50 p-3">
+                      <p className="text-sm font-medium">Requisitos para finalizar</p>
+                      {!priority && (
+                        <p className="text-sm">
+                          Falta elegir una prioridad.{" "}
+                          <button
+                            type="button"
+                            className="min-h-11 font-medium text-primary underline underline-offset-2"
+                            onClick={() => {
+                              noteCallEditorInteraction();
+                              setStep(3);
+                            }}
+                          >
+                            Ir a Prioridad
+                          </button>
+                        </p>
+                      )}
+                      {dirty && (
+                        <p className="text-sm">
+                          Hay cambios sin guardar; guarda la llamada antes de finalizar.
+                        </p>
+                      )}
+                      {pendingEntry && (
+                        <p className="text-sm">
+                          Hay una operación pendiente; resuélvela antes de finalizar.
+                        </p>
+                      )}
+                      {busy && <p className="text-sm">Hay otra operación en curso.</p>}
+                      {(!queueReady || !callsReady) && (
+                        <p className="text-sm">
+                          Espera a que termine la preparación de la llamada.
+                        </p>
+                      )}
+                      {(!canWrite || !canEditSelected) && (
+                        <p className="text-sm">
+                          El acceso vigente no permite finalizar esta llamada.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                  {!selected && (
+                    <div className="space-y-1 text-sm">
+                      <p>
+                        {pendingEntry
+                          ? "La operación local debe confirmarse antes de habilitar la finalización."
+                          : "Guarda la llamada primero; solo se puede finalizar una llamada guardada."}
+                      </p>
+                      {dirty && !pendingEntry && <p>Hay cambios sin guardar.</p>}
+                    </div>
                   )}
                 </div>
               )}
@@ -1719,10 +1845,10 @@ export function EfaCommunicationPanel({
                 Reintentar guardar la misma operación local
               </Button>
             )}
-            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+            <div className="flex flex-wrap items-center gap-2">
               <Button
                 type="button"
-                className="min-h-11"
+                className={`min-h-11 min-w-0 ${step === 4 ? "flex-1 text-xs px-2 sm:text-sm sm:px-4" : "w-auto"}`}
                 disabled={
                   !(selected ? canEditSelected : canCreateCall) ||
                   !queueReady ||
@@ -1735,11 +1861,10 @@ export function EfaCommunicationPanel({
               >
                 {busy ? "Guardando…" : "Guardar llamada"}
               </Button>
-              {selected?.state === "draft" && (
+              {step === 4 && selected?.state === "draft" && (
                 <Button
                   type="button"
-                  variant="outline"
-                  className="min-h-11"
+                  className="min-h-11 min-w-0 flex-1 text-xs px-2 sm:flex-none sm:text-sm sm:px-4"
                   disabled={
                     !canEditSelected ||
                     !queueReady ||
@@ -1758,60 +1883,60 @@ export function EfaCommunicationPanel({
                   Finalizar llamada
                 </Button>
               )}
-              {!priority && selected?.state === "draft" && (
-                <p className="self-center text-sm text-muted-foreground">
-                  Selecciona una prioridad y guarda los cambios antes de finalizar.
-                </p>
-              )}
-              {selected &&
-                (selected.canManageLifecycle ?? selected.canEdit) &&
-                !confirmingLifecycle && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="min-h-11"
-                    disabled={!canWrite || !callsReady || busy || Boolean(pendingEntry) || dirty}
-                    onClick={() =>
-                      setConfirmingLifecycle(communicationLifecycleAction(selected.state))
-                    }
-                  >
-                    {selected.state === "cancelled"
-                      ? "Reactivar comunicación"
-                      : "Anular comunicación"}
-                  </Button>
-                )}
-              {selected && confirmingLifecycle && (
-                <div
-                  className="flex flex-col gap-2 rounded-md border border-amber-500/50 p-3 sm:flex-row sm:items-center"
-                  aria-live="polite"
-                >
-                  <p className="text-sm">
-                    {confirmingLifecycle === "cancel"
-                      ? "La comunicación quedará anulada, pero su historial y despachos vinculados se conservarán."
-                      : "Se restaurará el estado que tenía antes de la anulación."}
-                  </p>
-                  <Button
-                    type="button"
-                    className="min-h-11"
-                    disabled={busy}
-                    onClick={() => void confirmLifecycleTransition()}
-                  >
-                    {confirmingLifecycle === "cancel"
-                      ? "Confirmar anulación"
-                      : "Confirmar reactivación"}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="min-h-11"
-                    disabled={busy}
-                    onClick={() => setConfirmingLifecycle(null)}
-                  >
-                    Cancelar acción
-                  </Button>
-                </div>
-              )}
             </div>
+            {selected && (selected.canManageLifecycle ?? selected.canEdit) && (
+              <details className="rounded-md border px-3">
+                <summary className="min-h-11 cursor-pointer py-3 font-medium">Más acciones</summary>
+                <div className="space-y-2 pb-3">
+                  {!confirmingLifecycle && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="min-h-11"
+                      disabled={!canWrite || !callsReady || busy || Boolean(pendingEntry) || dirty}
+                      onClick={() =>
+                        setConfirmingLifecycle(communicationLifecycleAction(selected.state))
+                      }
+                    >
+                      {selected.state === "cancelled"
+                        ? "Reactivar comunicación"
+                        : "Anular comunicación"}
+                    </Button>
+                  )}
+                  {confirmingLifecycle && (
+                    <div
+                      className="flex flex-col gap-2 rounded-md border border-amber-500/50 p-3 sm:flex-row sm:items-center"
+                      aria-live="polite"
+                    >
+                      <p className="text-sm">
+                        {confirmingLifecycle === "cancel"
+                          ? "La comunicación quedará anulada, pero su historial y despachos vinculados se conservarán."
+                          : "Se restaurará el estado que tenía antes de la anulación."}
+                      </p>
+                      <Button
+                        type="button"
+                        className="min-h-11"
+                        disabled={busy}
+                        onClick={() => void confirmLifecycleTransition()}
+                      >
+                        {confirmingLifecycle === "cancel"
+                          ? "Confirmar anulación"
+                          : "Confirmar reactivación"}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="min-h-11"
+                        disabled={busy}
+                        onClick={() => setConfirmingLifecycle(null)}
+                      >
+                        Cancelar acción
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </details>
+            )}
           </CardContent>
         </Card>
       )}
@@ -1821,9 +1946,9 @@ export function EfaCommunicationPanel({
           if (!open) setFinalizeConfirmationTarget(null);
         }}
         capturedTargetKey={finalizeConfirmationTarget}
-        currentTargetKey={selected
-          ? `${currentUserId}:${episodeId}:${selected.id}:${selected.version}`
-          : null}
+        currentTargetKey={
+          selected ? `${currentUserId}:${episodeId}:${selected.id}:${selected.version}` : null
+        }
         title="Finalizar llamada"
         description="La llamada pasará a estado finalizada. Se conservarán la prioridad y los horarios registrados."
         confirmLabel="Finalizar llamada"
