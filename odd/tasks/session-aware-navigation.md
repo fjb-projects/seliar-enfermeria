@@ -23,7 +23,7 @@ Public mobile navigation gains Login. Authentication replaces its public actions
 
 | ID | Outcome | Route | Status |
 | --- | --- | --- | --- |
-| N1 | Session-aware public/private navigation, shared quick actions and compact responsive placement | Delegated: multi-file state/routing/component integration | Source complete; local commit pending |
+| N1 | Session-aware public/private navigation, shared quick actions and compact responsive placement | Delegated: multi-file state/routing/component integration | Complete by source review; commit 8c07990 |
 
 One coherent unit keeps session state, quick actions, login/logout destinations and responsive rendering compatible. Separate foundation/UI commits would leave incomplete navigation integration.
 
@@ -53,7 +53,11 @@ The 15 source surfaces implement shared session snapshots (15-second freshness),
 
 RDD remains clone-local off. Native assessment could not classify the candidate because of unrelated untracked inventory; it was treated as high/unassessable and received independent source review. No native review lifecycle started. Tests, test edits, build, typecheck, formatter, diff check, browser QA, database work and remote delivery were explicitly skipped under the user's instruction. Manual Login/navigation/Logout/guard-state/responsive checks remain pending for the user.
 
-Local source commit pending. Use a temporary Git index to exclude the captured preexisting human root error translation; preserve the original login password toggle and all unrelated staged/dirty work. Parent owns this file and its full recovery mirror.
+Local work-unit commit: 8c0799010b8f7ac26b982c013d97bab3185b576b, `feat(nav): switch responsive navigation with session state`. It contains 15 source files plus this feature document: 717 additions and 198 deletions, 854 authored source lines excluding the 61-line tracking document. The larger coherent unit includes shared state, failure/expiry handling, responsive menus and SSR cache transport. Keep the cached feature-branch-chain delivery strategy; this is one local slice, with no remote PR or publishing.
+
+A temporary Git index excluded the captured preexisting human root error translation from the commit. Git status and the remaining root diff confirm that translation, the original login password toggle and all unrelated staged/dirty work remain. The two bootstrap script deletions remain staged. Source paths introduced by this feature are clean. RDD outcome: disabled/unmanaged; source review is not runtime approval.
+
+Next step: user manually checks public mobile Login, authenticated private quick actions, private Inicio, successful/failed Logout, guard state updates and desktop/mobile spacing. No source work remains under N1. Parent owns this file and its full recovery mirror.
 
 ## Recovery mirror
 
