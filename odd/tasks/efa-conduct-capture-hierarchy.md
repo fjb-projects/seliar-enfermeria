@@ -43,6 +43,8 @@ Writer, independent reviewer and parent source readback completed. The bounded c
 
 Source authored change count: 379, mostly relocation of the existing context controls. This coherent presentation unit can exceed the planning forecast once tracking is included; the cached feature-branch-chain strategy remains. Manual path: /episodios-efa -> existing service -> Open area -> Apoyo policial and Conductas. Review header alignment at mobile width, changing each context, editing an existing record, optional disclosures, save feedback and the separate history. All runtime/manual acceptance remains pending with the user.
 
+U1 local commit: a8f3335 (430 authored lines including this tracking document). No push or PR. All unrelated modified files and staged deletions were preserved. Rollback boundary: three component presentation changes; no application schema or data mutation logic changed.
+
 Afterwards define a separate participation wrapper within Conductas, clearly distinguished from the observation form and its save action. User prefers this placement; no wrapper placeholder, new field, save handler, storage or schema was added. Existing observations are anonymous and non-evaluative; evaluator participation and actor autonomy need clear operational definitions and service-versus-event scope before persistence is designed.
 
 ## Recovery mirror
