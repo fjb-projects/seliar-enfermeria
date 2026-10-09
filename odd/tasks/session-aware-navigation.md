@@ -24,7 +24,7 @@ Public mobile navigation gains Login. Authentication replaces its public actions
 | ID | Outcome | Route | Status |
 | --- | --- | --- | --- |
 | N1 | Session-aware public/private navigation, shared quick actions and compact responsive placement | Delegated: multi-file state/routing/component integration | Complete by source review; commit 8c07990 |
-| N2 | Merge desktop navigation, brand and account controls into one compact bar | Delegated: shared layout and account interaction integration | Source complete; commit pending |
+| N2 | Merge desktop navigation, brand and account controls into one compact bar | Delegated: shared layout and account interaction integration | Complete by source review; commit 0af72d3 |
 
 One coherent unit keeps session state, quick actions, login/logout destinations and responsive rendering compatible. Separate foundation/UI commits would leave incomplete navigation integration.
 
@@ -75,11 +75,11 @@ Route: delegated writer because reading prepares a four-file visual integration.
 
 Checks: source readback only because user expressly requested no executable checks. No tests, build, typecheck, formatter, diff check, browser QA, DB or remote operations. RDD remains clone-local off. Native assessment was high/unassessable because of unrelated untracked inventory, so independent static review ran without any native lifecycle. Writer changed only SeliarMobileNav, WorkflowHeader and public index; PrivateAccountShell remains unchanged. Independent review found one candidate-caused regression: desktop summary error/retry was dropped while mobile retained it. The one bounded correction restored desktop summary failure feedback and retrySummary; independent targeted static readback and parent source spot readback closed this finding. Other inspected navigation/account/mobile behavior had no deterministic blocker. No runtime proof was produced.
 
-N2 source evidence: 109 additions and 60 deletions across three source files, 169 authored source lines. Brand/navigation/account share a compact desktop bar; intermediate widths use a second row inside that bar and XL uses three columns. Existing desktop route/landing headers become compact content headings. Account details use the existing dropdown primitive; one desktop Logout with nearby failure feedback and existing administrative quick actions. Auth/cache/SSR/routing logic is unchanged. Local work-unit commit pending; accumulated source count N1+N2 is 1023 lines with the cached feature-branch-chain strategy. Rollback N2 only through these three source paths, leaving N1 and human baseline changes intact.
+N2 source evidence: 109 additions and 60 deletions across three source files, 169 authored source lines. Brand/navigation/account share a compact desktop bar; intermediate widths use a second row inside that bar and XL uses three columns. Existing desktop route/landing headers become compact content headings. Account details use the existing dropdown primitive; one desktop Logout with nearby failure feedback and existing administrative quick actions. Auth/cache/SSR/routing logic is unchanged. Local work-unit commit 0af72d319f5e014e7c4c8acd2b6070159beaba68, `fix(nav): unify desktop branding and account navigation`; accumulated source count N1+N2 is 1023 lines with the cached feature-branch-chain strategy. No PR or publishing. Post-commit Git status preserves the original root/login and unrelated dirty/staged inventory. Rollback N2 only through these three source paths, leaving N1 and human baseline changes intact. RDD outcome remains disabled/unmanaged; no approval or runtime proof claimed.
 
 Separate new request: user asks whether the Servicios de la guardia introductory wrapper can become a dismissible 24-hour notice with a contrasting background. Keep this as read-only proposal for now; do not expand N2 source surfaces or implement dismissal without explicit change authorization.
 
-Next step: implement and source-review N2, then user manually checks desktop/mobile navigation and the public/login/private views. Parent owns this file and its full recovery mirror.
+Next step: user manually checks desktop/mobile navigation, public/login/private views and summary-error recovery; N2 source work is complete. The 24-hour service notice remains a proposal pending explicit implementation direction. Parent owns this file and its full recovery mirror.
 
 ## Recovery mirror
 
