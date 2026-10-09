@@ -23,8 +23,8 @@ Add optional evaluator participation inside Conductas, bound to the selected con
 
 | ID | Outcome | Route | Status |
 | --- | --- | --- | --- |
-| U1 | Typed participation persistence and backwards-compatible service contract | Delegated: schema, validation, service and migration files | Implemented; static review complete; commit pending |
-| U2 | Independent capture wrapper and distinct shared-history item | Delegated: UI state, queued payloads and history presentation | Pending |
+| U1 | Typed participation persistence and backwards-compatible service contract | Delegated: schema, validation, service and migration files | Complete: a70fb22; static review only |
+| U2 | Independent capture wrapper and distinct shared-history item | Delegated: UI state, queued payloads and history presentation | Implemented; bounded corrections reviewed; commit pending |
 
 ## Architecture and acceptance
 
@@ -42,7 +42,20 @@ Integrator: codex/efa-ui-mobile-integrator, initial boundary 622ab10. Cached str
 
 ## Progress and next step
 
-U1 implemented in the seven planned backend/migration surfaces. Shared record kinds are conduct and participation; the four shared levels have neutral Spanish labels. Strict create validation now combines complete context and payload variants instead of intersecting incompatible strict objects. Legacy request hashes use the original payload, and updates retain kind/version/permission/audit fences. Independent static readback found no deterministic blocker; parent read back shared definitions and SQL constraints. RDD remains clone-local off; assessment failed on unrelated untracked inventory and is treated as high/unassessable. No runtime checks were run by user instruction. U1 commit pending; U2 remains next. The migration is prepared locally and not applied; field rollout/manual persistence checks require migration application through the user's authorized environment.
+U1 implemented in the seven planned backend/migration surfaces. Shared record kinds are conduct and participation; the four shared levels have neutral Spanish labels. Strict create validation now combines complete context and payload variants instead of intersecting incompatible strict objects. Legacy request hashes use the original payload, and updates retain kind/version/permission/audit fences. Independent static readback found no deterministic blocker; parent read back shared definitions and SQL constraints. RDD remains clone-local off; assessment failed on unrelated untracked inventory and is treated as high/unassessable. No runtime checks were run by user instruction. U1 committed as a70fb22 (535 authored changed lines excluding generated snapshot metadata). U2 is implemented and its independent static readback is complete; commit pending. Rollback U1 removes the seven backend/migration paths introduced or extended by that commit and the corresponding task documentation, preserving unrelated UI work. The migration is prepared locally and not applied; field rollout/manual persistence checks require migration application through the user's authorized environment.
+
+
+## U2 evidence and rollout
+
+The independent participation wrapper is after conduct capture and before history, with its own level, comment/time, save, edit and nearby feedback. Empty level disables saving. The generic queue routes creates, updates, receipts, retry/restoration and conflicts by record kind, preserving absent-kind conduct operations. Conduct and participation drafts stay separate. History renders participation as a distinct card with level, context, time, version, correction and translated audit labels.
+
+Independent static review identified and the writer corrected two regressions: restoring a same-context conduct operation cleared the participation draft, and correcting a linked-context participation from episode history failed to select its immutable context. Final targeted static readback closed both findings. Same-context restoration now preserves the other draft; cross-context restoration/correction is blocked beside the relevant operation/card when it would discard the other draft. Participation correction selects the record context and submit verifies selection/context agreement before storing the operation selection key. No deterministic blocker remained in the bounded reviewed scope.
+
+U2 source change is 736 authored lines (653 additions, 83 deletions). Running count is 1,271 before this evidence update, excluding generated snapshot metadata. The count exceeds the advisory forecast because shared queue recovery and context-safe correction require coherent branches; no size-only refactor or omitted behavior. Cached feature-branch-chain delivery remains unchanged. Intended local slices are U1 a70fb22 and the U2 source unit; no PR, push or merge.
+
+Checks: writer structural readback, independent source review and final targeted readback, plus parent bounded source readback. Native assessment was unavailable/high due unrelated untracked inventory; RDD clone-local off, no native transaction. Tests, test changes, build, typecheck, formatter, diff check, browser QA and real-database checks were skipped by user instruction, not claimed as passed. U2 rollback affects only EfaObservationPanel.tsx and corresponding documentation, leaving U1 and prior accepted UI separate.
+
+Migration 0022 is a local artifact and has not been applied. Before operational/manual persistence review, obtain explicit destination/operation/connection authorization and apply the migration in that environment. Then the user can manually check selected-context participation save, isolated history/correction, empty selection, and preservation of both drafts during pending-operation restoration. Database rollout and manual runtime proof are pending outside the authorized local implementation.
 
 ## Recovery mirror
 

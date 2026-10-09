@@ -24,6 +24,12 @@ import {
   listEfaPoliceCoordinationsForEpisode,
 } from "@/lib/efa-police-coordination.functions";
 import { listActiveEfaGuardBases, listEfaGuards } from "@/lib/efa-guards.functions";
+import {
+  evaluatorParticipationLevelLabels,
+  evaluatorParticipationLevels,
+  type EvaluatorParticipationLevel,
+  type ObservationRecordKind,
+} from "@/lib/efa-observations.record-types";
 
 const loadObservationQueue = createClientOnlyFn(() => import("@/lib/efa-observations.queue"));
 type ContextKind =
@@ -73,12 +79,14 @@ type ObservationView = {
   dispatchId: string | null;
   coordinationId: string | null;
   policeEventId: string | null;
+  recordKind?: ObservationRecordKind;
+  participationLevel?: EvaluatorParticipationLevel | null;
   catalogItemKey: string | null;
-  catalogKeySnapshot: string;
-  catalogLabelSnapshot: string;
-  catalogGroupSnapshot: ObservationCatalogItem["group"];
+  catalogKeySnapshot: string | null;
+  catalogLabelSnapshot: string | null;
+  catalogGroupSnapshot: ObservationCatalogItem["group"] | null;
   otherDescription: string | null;
-  classification: "adequate" | "needs_improvement";
+  classification: "adequate" | "needs_improvement" | null;
   comment: string | null;
   observedAt: string | null;
   clientCreationKey: string;
@@ -92,6 +100,11 @@ type ObservationForm = {
   classification: "adequate" | "needs_improvement";
   otherDescription: string;
   otherGroup: ObservationCatalogItem["group"];
+  comment: string;
+  observedAt: string;
+};
+type ParticipationForm = {
+  level: EvaluatorParticipationLevel | "";
   comment: string;
   observedAt: string;
 };
@@ -128,6 +141,38 @@ const emptyForm = (): ObservationForm => ({
   comment: "",
   observedAt: "",
 });
+const emptyParticipationForm = (): ParticipationForm => ({
+  level: "",
+  comment: "",
+  observedAt: "",
+});
+const isParticipationRecord = (record: Pick<ObservationView, "recordKind">) =>
+  record.recordKind === "participation";
+const isParticipationEntry = (entry: ObservationQueueEntry) =>
+  entry.payload["recordKind"] === "participation";
+const participationLevelLabel = (value: unknown) =>
+  typeof value === "string" && evaluatorParticipationLevels.includes(value as EvaluatorParticipationLevel)
+    ? evaluatorParticipationLevelLabels[value as EvaluatorParticipationLevel]
+    : "Nivel sin registrar";
+const observationAuditStateLabel = (state: Record<string, string | null> | null) => {
+  if (!state) return "Sin estado previo";
+  const recordKind = state["recordKind"] ?? "conduct";
+  return JSON.stringify({
+    ...state,
+    recordKind:
+      recordKind === "participation" ? "Participación del evaluador" : "Conducta observada",
+    participationLevel:
+      recordKind === "participation" ? participationLevelLabel(state["participationLevel"]) : null,
+    classification:
+      recordKind === "participation"
+        ? null
+        : state["classification"] === "adequate"
+          ? "Adecuada"
+          : state["classification"] === "needs_improvement"
+            ? "A mejorar"
+            : null,
+  });
+};
 const groupForContext: Record<ContextKind, ObservationCatalogItem["group"]> = {
   guard: "record",
   episode: "record",
@@ -475,6 +520,12 @@ export function EfaObservationPanel({
   const [groupFilter, setGroupFilter] = useState<ObservationCatalogItem["group"] | "all">("all");
   const [form, setForm] = useState<ObservationForm>(emptyForm);
   const [editing, setEditing] = useState<ObservationView | null>(null);
+  const [participationForm, setParticipationForm] = useState<ParticipationForm>(
+    emptyParticipationForm,
+  );
+  const [participationEditing, setParticipationEditing] = useState<ObservationView | null>(null);
+  const [participationError, setParticipationError] = useState("");
+  const [participationMessage, setParticipationMessage] = useState("");
   const [history, setHistory] = useState<ObservationAuditView[]>([]);
   const [historyFor, setHistoryFor] = useState("");
   const [queueEntries, setQueueEntries] = useState<ObservationQueueEntry[]>([]);
@@ -505,12 +556,32 @@ export function EfaObservationPanel({
   const observationsRef = useRef(observations);
   const formRef = useRef(form);
   const selectionTicket = useRef(0);
+  const operationSelectionKeys = useRef(new Map<string, string>());
   const busyRef = useRef(false);
   const conflictGateRef = useRef(createObservationConflictGate());
   const queueScope = root.episodeId ? `episode:${root.episodeId}` : `guard:${root.guardId}`;
   const rootScopeKey = observationRootScopeKey(root);
   const rootGuardId = root.guardId;
   const rootEpisodeId = root.episodeId;
+  const selectedParticipationEntry = (entry: ObservationQueueEntry) =>
+    isParticipationEntry(entry) &&
+    operationSelectionKeys.current.get(entry.operationId) === selectedContextRef.current;
+  const reportEntryError = (
+    entry: ObservationQueueEntry,
+    text: string,
+    area: ObservationErrorSurface = "queue",
+  ) => {
+    if (selectedParticipationEntry(entry)) setParticipationError(text);
+    else reportError(text, isParticipationEntry(entry) ? "queue" : area);
+  };
+  const reportEntryMessage = (
+    entry: ObservationQueueEntry,
+    text: string,
+    area: ObservationErrorSurface,
+  ) => {
+    if (selectedParticipationEntry(entry)) setParticipationMessage(text);
+    else if (!isParticipationEntry(entry)) reportMessage(text, area);
+  };
   const reportError = (text: string, area: ObservationErrorSurface = "global", id?: string) => {
     setError(text);
     setErrorSurface(id === undefined ? { area } : { area, id });
@@ -668,6 +739,14 @@ export function EfaObservationPanel({
     rootEpisodeId,
   ]);
 
+  useEffect(() => {
+    setParticipationEditing(null);
+    setParticipationForm(emptyParticipationForm());
+    setParticipationError("");
+    setParticipationMessage("");
+    operationSelectionKeys.current.clear();
+  }, [currentUserId, rootScopeKey]);
+
   const processEntryRef = useRef(processEntry);
   processEntryRef.current = processEntry;
 
@@ -766,12 +845,27 @@ export function EfaObservationPanel({
   function observationFormFromRecord(item: ObservationView): ObservationForm {
     return {
       catalogItemKey: item.catalogKeySnapshot === "other" ? "other" : (item.catalogItemKey ?? ""),
-      classification: item.classification,
+      classification: item.classification ?? "adequate",
       otherDescription: item.otherDescription ?? "",
-      otherGroup: item.catalogGroupSnapshot,
+      otherGroup: item.catalogGroupSnapshot ?? groupForContext[item.contextType],
       comment: item.comment ?? "",
       observedAt: localDateTimeValue(item.observedAt),
     };
+  }
+
+  function participationFormFromRecord(item: ObservationView): ParticipationForm {
+    return {
+      level: item.participationLevel ?? "",
+      comment: item.comment ?? "",
+      observedAt: localDateTimeValue(item.observedAt),
+    };
+  }
+
+  function clearParticipationDraft() {
+    setParticipationEditing(null);
+    setParticipationForm(emptyParticipationForm());
+    setParticipationError("");
+    setParticipationMessage("");
   }
 
   function editObservation(item: ObservationView) {
@@ -810,6 +904,54 @@ export function EfaObservationPanel({
     setMessage("");
   }
 
+  function editParticipation(item: ObservationView) {
+    if (
+      !isParticipationRecord(item) ||
+      !effectiveCanWrite ||
+      !item.canEdit ||
+      pendingOperationId ||
+      busy
+    )
+      return;
+    const selection = contextForObservation(item);
+    const itemContextKey = serializeLocalContext(buildObservationContext(root, selection));
+    const hasConductDraft =
+      editing !== null ||
+      Boolean(
+        form.catalogItemKey ||
+          form.otherDescription.trim() ||
+          form.comment.trim() ||
+          form.observedAt,
+      );
+    if (itemContextKey !== currentContextKey && hasConductDraft) {
+      reportError(
+        "Guarda o termina el borrador de conducta antes de cambiar el contexto para corregir esta participación.",
+        "history",
+        item.id,
+      );
+      return;
+    }
+    if (itemContextKey !== currentContextKey) {
+      selectionTicket.current++;
+      setContextType(selection.kind);
+      setContextEpisodeId(selection.kind === "guard" ? "" : selection.episodeId);
+      setCoordinationId(selection.kind === "police_event" ? selection.coordinationId : "");
+      setLeafId(
+        selection.kind === "communication" ||
+          selection.kind === "dispatch" ||
+          selection.kind === "coordination"
+          ? selection.id
+          : selection.kind === "police_event"
+            ? selection.eventId
+            : "",
+      );
+      setParticipationError("");
+      setParticipationMessage("");
+    }
+    setParticipationEditing(item);
+    setParticipationForm(participationFormFromRecord(item));
+  }
+
   function resetAfterConfirmedCreate() {
     setEditing(null);
     setForm({ ...emptyForm(), otherGroup: groupForContext[contextType] });
@@ -827,6 +969,25 @@ export function EfaObservationPanel({
     errorArea: "submit" | "queue" = "queue",
   ) {
     if (!queueStoreRef.current || (!lockHeld && busyRef.current)) return;
+    if (isParticipationEntry(entry) && !operationSelectionKeys.current.has(entry.operationId)) {
+      if (entry.kind === "create") {
+        const selection = observationContextSelectionFromPayload(
+          entry.payload as Record<string, unknown>,
+        );
+        if (selection)
+          operationSelectionKeys.current.set(
+            entry.operationId,
+            serializeLocalContext(buildObservationContext(root, selection)),
+          );
+      } else {
+        const record = observationsRef.current.find((item) => item.id === entry.entityId);
+        if (record)
+          operationSelectionKeys.current.set(
+            entry.operationId,
+            serializeLocalContext(buildObservationContext(root, contextForObservation(record))),
+          );
+      }
+    }
     if (!lockHeld) {
       busyRef.current = true;
       setBusy(true);
@@ -882,6 +1043,13 @@ export function EfaObservationPanel({
             throw new Error("La guardia terminó o ya no pertenece a esta cuenta.");
           if (fresh.kind === "update") {
             const current = (await getObservationFn({ data: fresh.entityId })) as ObservationView;
+            if (isParticipationEntry(fresh))
+              operationSelectionKeys.current.set(
+                fresh.operationId,
+                serializeLocalContext(buildObservationContext(root, contextForObservation(current))),
+              );
+            if (isParticipationEntry(fresh) !== isParticipationRecord(current))
+              throw new Error("El tipo del registro no coincide con la operación pendiente.");
             if (
               !mounted.current ||
               current.guardId !== fresh.guardId ||
@@ -963,8 +1131,14 @@ export function EfaObservationPanel({
             );
           }
           const current = (await getObservationFn({ data: fresh.entityId })) as ObservationView;
+          if (isParticipationEntry(fresh))
+            operationSelectionKeys.current.set(
+              fresh.operationId,
+              serializeLocalContext(buildObservationContext(root, contextForObservation(current))),
+            );
           return (
             mounted.current &&
+            isParticipationEntry(fresh) === isParticipationRecord(current) &&
             current.canEdit &&
             current.guardId === fresh.guardId &&
             (root.episodeId === undefined || current.episodeId === root.episodeId) &&
@@ -1000,23 +1174,34 @@ export function EfaObservationPanel({
         if (pendingRef.current === entry.operationId) {
           setPendingOperationId("");
           setSelectedQueueOperationId("");
-          if (entry.kind === "create") resetAfterConfirmedCreate();
-          else {
+          if (isParticipationEntry(entry) && selectedParticipationEntry(entry)) {
+            if (entry.kind === "create") {
+              setParticipationEditing(null);
+              setParticipationForm(emptyParticipationForm());
+            } else {
+              setParticipationEditing(saved);
+              setParticipationForm(participationFormFromRecord(saved));
+            }
+          } else if (!isParticipationEntry(entry) && entry.kind === "create")
+            resetAfterConfirmedCreate();
+          else if (!isParticipationEntry(entry)) {
             setEditing(saved);
             setForm(observationFormFromRecord(saved));
           }
         }
-        reportMessage(
+        reportEntryMessage(
+          entry,
           result.status === "confirmed"
-            ? `Observación confirmada · versión aplicada ${acknowledgement.operation.appliedVersion}.`
-            : "Observación confirmada; solo falta limpiar el pendiente local.",
+            ? `${isParticipationEntry(entry) ? "Participación" : "Observación"} confirmada · versión aplicada ${acknowledgement.operation.appliedVersion}.`
+            : `${isParticipationEntry(entry) ? "Participación" : "Observación"} confirmada; solo falta limpiar el pendiente local.`,
           errorArea,
         );
         try {
           await refreshList();
         } catch {
-          reportMessage(
-            "Observación confirmada. No se pudo actualizar la lista; el registro ya está guardado.",
+          reportEntryMessage(
+            entry,
+            `${isParticipationEntry(entry) ? "Participación" : "Observación"} confirmada. No se pudo actualizar la lista; el registro ya está guardado.`,
             errorArea,
           );
         }
@@ -1034,14 +1219,23 @@ export function EfaObservationPanel({
         if (pendingRef.current === entry.operationId) {
           setPendingOperationId("");
           setSelectedQueueOperationId("");
-          if (entry.kind === "create") resetAfterConfirmedCreate();
+          if (
+            isParticipationEntry(entry) &&
+            selectedParticipationEntry(entry) &&
+            entry.kind === "create"
+          ) {
+            setParticipationEditing(null);
+            setParticipationForm(emptyParticipationForm());
+          } else if (!isParticipationEntry(entry) && entry.kind === "create")
+            resetAfterConfirmedCreate();
         }
-        reportMessage(
-          "La operación ya estaba confirmada; se limpió el pendiente sin reenviarla.",
+        reportEntryMessage(
+          entry,
+          `La ${isParticipationEntry(entry) ? "participación" : "observación"} ya estaba confirmada; se limpió el pendiente sin reenviarla.`,
           errorArea,
         );
       } else if (result.status === "paused") {
-        reportError(result.error, errorArea);
+        reportEntryError(entry, result.error, errorArea);
         if (
           result.queueStatus === "paused-conflict" ||
           result.queueStatus === "paused-permission"
@@ -1060,11 +1254,12 @@ export function EfaObservationPanel({
           }
         }
       } else if (result.status === "cancelled") {
-        reportError(
+        reportEntryError(
+          entry,
           "La operación quedó pausada porque no hay permisos vigentes para editar.",
           errorArea,
         );
-      } else if (result.status === "stored") reportError(result.error, errorArea);
+      } else if (result.status === "stored") reportEntryError(entry, result.error, errorArea);
       const latest = await queueStoreRef.current
         .list(entry.actorUserId, queueScope)
         .catch(() => []);
@@ -1080,7 +1275,8 @@ export function EfaObservationPanel({
         contextRef.current.currentUserId === expected.actorUserId &&
         queueScope === expected.contextKey
       )
-        reportError(
+        reportEntryError(
+          entry,
           cause instanceof Error ? cause.message : "La operación sigue pendiente de confirmación.",
           errorArea,
         );
@@ -1150,15 +1346,21 @@ export function EfaObservationPanel({
       status: "pending",
       createdAt: new Date().toISOString(),
     };
+    operationSelectionKeys.current.set(operationId, currentContextKey);
     busyRef.current = true;
     setBusy(true);
     setPendingOperationId(operationId);
     setSelectedQueueOperationId(operationId);
     selectedQueueRef.current = operationId;
-    clearError();
-    setMessage("");
-    setMessageSurface("submit");
-    setErrorSurface({ area: "submit" });
+    if (isParticipationEntry(entry)) {
+      setParticipationError("");
+      setParticipationMessage("");
+    } else {
+      clearError();
+      setMessage("");
+      setMessageSurface("submit");
+      setErrorSurface({ area: "submit" });
+    }
     try {
       const queue = await loadObservationQueue();
       if (!mounted.current || contextRef.current.currentUserId !== entry.actorUserId) return;
@@ -1168,10 +1370,10 @@ export function EfaObservationPanel({
       await processEntry(entry, true, false, "submit");
     } catch (cause) {
       setUnpersisted(entry);
-      reportError(
-        `No se pudo guardar el envío local. Conservamos la misma operación para reintentar. ${cause instanceof Error ? cause.message : ""}`,
-        "submit",
-      );
+      const text = `No se pudo guardar el envío local. Conservamos la misma operación para reintentar. ${cause instanceof Error ? cause.message : ""}`;
+      if (isParticipationEntry(entry) && selectedParticipationEntry(entry))
+        setParticipationError(text);
+      else if (!isParticipationEntry(entry)) reportError(text, "submit");
     } finally {
       busyRef.current = false;
       if (mounted.current && contextRef.current.currentUserId === entry.actorUserId) setBusy(false);
@@ -1247,9 +1449,39 @@ export function EfaObservationPanel({
     setSelectedQueueOperationId(entry.operationId);
     selectedQueueRef.current = entry.operationId;
     setPendingOperationId(entry.operationId);
-    setEditing(null);
     if (entry.kind === "create") {
       const selection = createSelection!;
+      const restoredContextKey = serializeLocalContext(buildObservationContext(root, selection));
+      if (
+        (isParticipationEntry(entry) &&
+          restoredContextKey !== currentContextKey &&
+          Boolean(
+            editing ||
+              form.catalogItemKey ||
+              form.comment.trim() ||
+              form.otherDescription.trim() ||
+              form.observedAt,
+          )) ||
+        (!isParticipationEntry(entry) &&
+          restoredContextKey !== currentContextKey &&
+          Boolean(
+            participationEditing ||
+              participationForm.level ||
+              participationForm.comment.trim() ||
+              participationForm.observedAt,
+          ))
+      ) {
+        setPendingOperationId("");
+        setSelectedQueueOperationId("");
+        pendingRef.current = "";
+        selectedQueueRef.current = "";
+        reportError(
+          "Guarda o termina el borrador del otro formulario antes de cambiar el contexto pendiente.",
+          "queue",
+        );
+        return;
+      }
+      operationSelectionKeys.current.set(entry.operationId, restoredContextKey);
       setContextType(selection.kind);
       setContextEpisodeId(selection.kind === "guard" ? "" : selection.episodeId);
       setCoordinationId(selection.kind === "police_event" ? selection.coordinationId : "");
@@ -1262,18 +1494,32 @@ export function EfaObservationPanel({
             ? selection.eventId
             : "",
       );
-      setForm({
-        catalogItemKey: String(payload["catalogItemKey"] ?? ""),
-        classification: payload["classification"] as ObservationForm["classification"],
-        otherDescription: String(payload["otherDescription"] ?? ""),
-        otherGroup:
-          (payload["otherGroup"] as ObservationForm["otherGroup"]) ?? groupForContext[contextType],
-        comment: String(payload["comment"] ?? ""),
-        observedAt:
-          typeof payload["observedAt"] === "string"
-            ? localDateTimeValue(payload["observedAt"] as string)
-            : "",
-      });
+      if (isParticipationEntry(entry)) {
+        setParticipationEditing(null);
+        setParticipationForm({
+          level: payload["participationLevel"] as EvaluatorParticipationLevel,
+          comment: String(payload["comment"] ?? ""),
+          observedAt:
+            typeof payload["observedAt"] === "string"
+              ? localDateTimeValue(payload["observedAt"] as string)
+              : "",
+        });
+      } else {
+        setEditing(null);
+        if (restoredContextKey !== currentContextKey) clearParticipationDraft();
+        setForm({
+          catalogItemKey: String(payload["catalogItemKey"] ?? ""),
+          classification: payload["classification"] as ObservationForm["classification"],
+          otherDescription: String(payload["otherDescription"] ?? ""),
+          otherGroup:
+            (payload["otherGroup"] as ObservationForm["otherGroup"]) ?? groupForContext[contextType],
+          comment: String(payload["comment"] ?? ""),
+          observedAt:
+            typeof payload["observedAt"] === "string"
+              ? localDateTimeValue(payload["observedAt"] as string)
+              : "",
+        });
+      }
     } else {
       void getObservationFn({ data: entry.entityId })
         .then((record) => {
@@ -1299,8 +1545,46 @@ export function EfaObservationPanel({
             );
             return;
           }
-          setEditing(current);
+          if (isParticipationEntry(entry) !== isParticipationRecord(current)) {
+            setPendingOperationId("");
+            setSelectedQueueOperationId("");
+            pendingRef.current = "";
+            selectedQueueRef.current = "";
+            reportError("El tipo del registro cambió; no se restauró la operación pendiente.", "queue");
+            return;
+          }
           const selection = contextForObservation(current);
+          const restoredContextKey = serializeLocalContext(buildObservationContext(root, selection));
+          if (
+            (isParticipationEntry(entry) &&
+              restoredContextKey !== currentContextKey &&
+              Boolean(
+                editing ||
+                  form.catalogItemKey ||
+                  form.comment.trim() ||
+                  form.otherDescription.trim() ||
+                  form.observedAt,
+              )) ||
+            (!isParticipationEntry(entry) &&
+              restoredContextKey !== currentContextKey &&
+              Boolean(
+                participationEditing ||
+                  participationForm.level ||
+                  participationForm.comment.trim() ||
+                  participationForm.observedAt,
+              ))
+          ) {
+            setPendingOperationId("");
+            setSelectedQueueOperationId("");
+            pendingRef.current = "";
+            selectedQueueRef.current = "";
+            reportError(
+              "Guarda o termina el borrador del otro formulario antes de cambiar el contexto pendiente.",
+              "queue",
+            );
+            return;
+          }
+          operationSelectionKeys.current.set(entry.operationId, restoredContextKey);
           setContextType(selection.kind);
           setContextEpisodeId(selection.kind === "guard" ? "" : selection.episodeId);
           setCoordinationId(selection.kind === "police_event" ? selection.coordinationId : "");
@@ -1313,8 +1597,25 @@ export function EfaObservationPanel({
                 ? selection.eventId
                 : "",
           );
-          const restored = observationFormFromRecord(current);
-          setForm(restoreObservationUpdateForm(restored, payload as Record<string, unknown>));
+          if (isParticipationEntry(entry)) {
+            setParticipationEditing(current);
+            setParticipationForm({
+              level:
+                (payload["participationLevel"] as EvaluatorParticipationLevel | undefined) ??
+                current.participationLevel ??
+                "",
+              comment: String(payload["comment"] ?? ""),
+              observedAt:
+                typeof payload["observedAt"] === "string"
+                  ? localDateTimeValue(payload["observedAt"] as string)
+                  : localDateTimeValue(current.observedAt),
+            });
+          } else {
+            if (restoredContextKey !== currentContextKey) clearParticipationDraft();
+            setEditing(current);
+            const restored = observationFormFromRecord(current);
+            setForm(restoreObservationUpdateForm(restored, payload as Record<string, unknown>));
+          }
         })
         .catch((cause) => {
           if (
@@ -1365,7 +1666,8 @@ export function EfaObservationPanel({
     try {
       latest = (await getObservationFn({ data: entry.entityId })) as ObservationView;
     } catch (cause) {
-      reportError(
+      reportEntryError(
+        entry,
         cause instanceof Error ? cause.message : "No se pudo comparar con el servidor.",
         "queue",
       );
@@ -1375,9 +1677,11 @@ export function EfaObservationPanel({
       !mounted.current ||
       contextRef.current.currentUserId !== entry.actorUserId ||
       selectedQueueRef.current !== operationId ||
+      isParticipationEntry(entry) !== isParticipationRecord(latest) ||
       (choice === "keep" && !latest.canEdit)
     ) {
-      reportError(
+      reportEntryError(
+        entry,
         "La cuenta, selección o permiso cambió; la operación pausada se conservó.",
         "queue",
       );
@@ -1393,19 +1697,26 @@ export function EfaObservationPanel({
         );
         if (!mounted.current || selectedQueueRef.current !== operationId) return;
         setQueueEntries((rows) => rows.filter((row) => row.operationId !== operationId));
-        setEditing(latest);
-        setForm(observationFormFromRecord(latest));
+        if (isParticipationEntry(entry)) {
+          setParticipationEditing(latest);
+          setParticipationForm(participationFormFromRecord(latest));
+        } else {
+          setEditing(latest);
+          setForm(observationFormFromRecord(latest));
+        }
         setPendingOperationId("");
         setSelectedQueueOperationId("");
         selectedQueueRef.current = "";
         setConflictRemote(null);
         clearError();
-        reportMessage(
+        reportEntryMessage(
+          entry,
           "Se cargó la versión del servidor y se descartó solo esta operación pausada.",
           "queue",
         );
       } catch (cause) {
-        reportError(
+        reportEntryError(
+          entry,
           cause instanceof Error ? cause.message : "No se pudo resolver la operación local.",
           "queue",
         );
@@ -1426,6 +1737,8 @@ export function EfaObservationPanel({
         status: "pending",
         createdAt: new Date().toISOString(),
       };
+      const selectionKey = operationSelectionKeys.current.get(entry.operationId);
+      if (selectionKey) operationSelectionKeys.current.set(rebased.operationId, selectionKey);
       await queue.persistObservationOperation(queueStoreRef.current, rebased);
       await queueStoreRef.current.remove(
         entry.actorUserId,
@@ -1442,7 +1755,8 @@ export function EfaObservationPanel({
       clearError();
       await dispatchObservationRebasedEntry(rebased, processEntry);
     } catch (cause) {
-      reportError(
+      reportEntryError(
+        entry,
         cause instanceof Error ? cause.message : "No se pudo rebasar la operación.",
         "queue",
       );
@@ -1457,6 +1771,14 @@ export function EfaObservationPanel({
   const canEditCurrent = editing?.canEdit === true;
   const canChangeForm =
     effectiveCanWrite && !busy && !pendingOperationId && (editing ? canEditCurrent : canCreateHere);
+  const canEditParticipation = participationEditing?.canEdit === true;
+  const canRenderParticipationForm =
+    effectiveCanWrite && (canCreateHere || canEditParticipation);
+  const canChangeParticipation =
+    canRenderParticipationForm &&
+    !busy &&
+    !pendingOperationId &&
+    (participationEditing ? canEditParticipation : canCreateHere);
   const dispatchLabelFor = (item: Record<string, unknown>) =>
     [
       String(item["baseName"] ?? "").trim() || "Base institucional",
@@ -1517,6 +1839,17 @@ export function EfaObservationPanel({
     Boolean(form.catalogItemKey) &&
     (isOther ? Boolean(form.otherDescription.trim()) : Boolean(selectedCatalogItem));
 
+  const canSubmitParticipation =
+    canChangeParticipation &&
+    validContext &&
+    (!participationEditing ||
+      serializeLocalContext(
+        buildObservationContext(root, contextForObservation(participationEditing)),
+      ) === currentContextKey) &&
+    Boolean(participationForm.level) &&
+    queueReady &&
+    queueAvailable;
+
   function saveObservation() {
     if (!canSubmit || !currentContext || !queueAvailable) return;
     const fields = {
@@ -1532,6 +1865,29 @@ export function EfaObservationPanel({
       void submit("update", {
         observationId: editing.id,
         expectedVersion: editing.version,
+        ...fields,
+      });
+    } else {
+      void submit("create", {
+        ...currentContext,
+        clientCreationKey: nextId(),
+        ...fields,
+      });
+    }
+  }
+
+  function saveParticipation() {
+    if (!canSubmitParticipation || !currentContext || !participationForm.level) return;
+    const fields = {
+      recordKind: "participation" as const,
+      participationLevel: participationForm.level,
+      comment: participationForm.comment.trim() || null,
+      observedAt: isoFromLocalDateTime(participationForm.observedAt),
+    };
+    if (participationEditing) {
+      void submit("update", {
+        observationId: participationEditing.id,
+        expectedVersion: participationEditing.version,
         ...fields,
       });
     } else {
@@ -1570,6 +1926,7 @@ export function EfaObservationPanel({
     setCoordinationId("");
     setEditing(null);
     setForm({ ...emptyForm(), otherGroup: groupForContext[value] });
+    clearParticipationDraft();
     setHistoryFor("");
   };
 
@@ -1581,6 +1938,7 @@ export function EfaObservationPanel({
     setCoordinationId("");
     setEditing(null);
     setForm({ ...emptyForm(), otherGroup: "record" });
+    clearParticipationDraft();
   };
 
   const quickObservedAt = () => {
@@ -1592,6 +1950,40 @@ export function EfaObservationPanel({
   const selectedEpisodeLabel = selectedEpisode
     ? String(selectedEpisode["motive"] ?? selectedEpisode["address"] ?? selectedEpisode["id"])
     : contextEpisodeId;
+  const selectedCommunication = communications.find((item) => item["id"] === leafId);
+  const selectedDispatch = dispatches.find((item) => item["id"] === leafId);
+  const selectedCoordination = coordinations.find((item) => item["id"] === coordinationId);
+  const selectedPoliceEvent = events.find((item) => item["id"] === leafId);
+  const participationContextLabel =
+    contextType === "guard"
+      ? title
+      : contextType === "episode"
+        ? `Servicio · ${selectedEpisodeLabel || "Episodio seleccionado"}`
+        : contextType === "communication"
+          ? selectedCommunication
+            ? [
+                selectedCommunication["direction"] === "incoming"
+                  ? "Llamada entrante"
+                  : selectedCommunication["direction"] === "outgoing"
+                    ? "Llamada saliente"
+                    : "Llamada",
+                linkedOptionDate(selectedCommunication["startedAt"]) ??
+                  linkedOptionDate(selectedCommunication["createdAt"]),
+              ]
+                .filter(Boolean)
+                .join(" · ")
+            : "Llamada seleccionada"
+          : contextType === "dispatch"
+            ? selectedDispatch
+              ? dispatchLabelFor(selectedDispatch)
+              : "Despacho seleccionado"
+            : contextType === "coordination"
+              ? selectedCoordination
+                ? coordinationLabelFor(selectedCoordination)
+                : "Apoyo policial seleccionado"
+              : selectedPoliceEvent
+                ? `Evento policial · ${String(selectedPoliceEvent["kind"] ?? "registro")}`
+                : "Evento policial seleccionado";
   const contextTypeSelector = activeEpisodeId ? (
     <div className="grid min-w-0 gap-1">
       <Label
@@ -1604,7 +1996,7 @@ export function EfaObservationPanel({
         id={`observation-context-${root.guardId}`}
         className="h-11 min-h-11 w-full min-w-0 max-w-full rounded-md border bg-background px-3"
         value={contextType}
-        disabled={busy || Boolean(pendingOperationId) || Boolean(editing)}
+        disabled={busy || Boolean(pendingOperationId) || Boolean(editing) || Boolean(participationEditing)}
         onChange={(event) => handleContextType(event.target.value as ContextKind)}
       >
         {!root.episodeId && <option value="guard">Guardia</option>}
@@ -1627,7 +2019,7 @@ export function EfaObservationPanel({
             id={`observation-episode-${root.guardId}`}
             className="min-h-11 w-full min-w-0 max-w-full rounded-md border bg-background px-3"
             value={contextEpisodeId}
-            disabled={busy || Boolean(pendingOperationId) || Boolean(editing)}
+            disabled={busy || Boolean(pendingOperationId) || Boolean(editing) || Boolean(participationEditing)}
             onChange={(event) => selectEpisode(event.target.value)}
           >
             <option value="">Solo guardia</option>
@@ -1651,8 +2043,11 @@ export function EfaObservationPanel({
           label="Llamada"
           value={leafId}
           rows={communications}
-          disabled={Boolean(editing)}
-          onChange={setLeafId}
+          disabled={Boolean(editing || participationEditing || pendingOperationId)}
+          onChange={(id) => {
+            clearParticipationDraft();
+            setLeafId(id);
+          }}
           renderLabel={(item) => {
             const direction =
               item["direction"] === "incoming"
@@ -1679,8 +2074,11 @@ export function EfaObservationPanel({
           label="Despacho"
           value={leafId}
           rows={dispatches}
-          disabled={Boolean(editing)}
-          onChange={setLeafId}
+          disabled={Boolean(editing || participationEditing || pendingOperationId)}
+          onChange={(id) => {
+            clearParticipationDraft();
+            setLeafId(id);
+          }}
           renderLabel={dispatchLabelFor}
         />
       )}
@@ -1690,8 +2088,9 @@ export function EfaObservationPanel({
           label="Apoyo policial"
           value={coordinationId}
           rows={coordinations}
-          disabled={Boolean(editing)}
+          disabled={Boolean(editing || participationEditing || pendingOperationId)}
           onChange={(id) => {
+            clearParticipationDraft();
             setCoordinationId(id);
             setLeafId("");
           }}
@@ -1704,8 +2103,11 @@ export function EfaObservationPanel({
           label="Evento policial"
           value={leafId}
           rows={events}
-          disabled={Boolean(editing)}
-          onChange={setLeafId}
+          disabled={Boolean(editing || participationEditing || pendingOperationId)}
+          onChange={(id) => {
+            clearParticipationDraft();
+            setLeafId(id);
+          }}
           renderLabel={(item) => `Evento · ${String(item["kind"] ?? "registro")}`}
         />
       )}
@@ -1985,7 +2387,7 @@ export function EfaObservationPanel({
                 </details>
                 {compact && visibleObservations.length === 0 && (
                   <p className="text-sm text-muted-foreground">
-                    Aún no hay observaciones en este contexto.
+                    Aún no hay registros en este contexto.
                   </p>
                 )}
                 <Button
@@ -2015,13 +2417,141 @@ export function EfaObservationPanel({
               </section>
             )}
 
+            {canRenderParticipationForm && (
+              <section
+                className={
+                  compact
+                    ? "min-w-0 space-y-3 border-t pt-3"
+                    : "min-w-0 space-y-3 rounded-md border p-3"
+                }
+                aria-labelledby={`participation-title-${root.guardId}`}
+              >
+                <div className="min-w-0 space-y-1">
+                  <h3
+                    id={`participation-title-${root.guardId}`}
+                    className="text-sm font-semibold"
+                  >
+                    Participación del evaluador <span className="font-normal text-muted-foreground">· opcional</span>
+                  </h3>
+                  <p className="break-words text-sm text-muted-foreground">
+                    Contexto: {participationContextLabel}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Registro opcional y anónimo; no evalúa personas.
+                  </p>
+                </div>
+                <div className="min-w-0 space-y-2">
+                  <Label htmlFor={`participation-level-${root.guardId}`}>Nivel registrado</Label>
+                  <select
+                    id={`participation-level-${root.guardId}`}
+                    className="h-11 min-h-11 w-full min-w-0 max-w-full rounded-md border bg-background px-3"
+                    value={participationForm.level}
+                    disabled={!canChangeParticipation || !validContext}
+                    onChange={(event) =>
+                      setParticipationForm((current) => ({
+                        ...current,
+                        level: event.target.value as EvaluatorParticipationLevel | "",
+                      }))
+                    }
+                  >
+                    <option value="">Selecciona un nivel</option>
+                    {evaluatorParticipationLevels.map((level) => (
+                      <option key={level} value={level}>
+                        {evaluatorParticipationLevelLabels[level]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <details className="min-w-0 border-t pt-1">
+                  <summary className="flex min-h-11 cursor-pointer items-center text-sm font-normal text-muted-foreground">
+                    Hora y comentario opcionales
+                  </summary>
+                  <div className="space-y-3 pb-2">
+                    <div className="min-w-0 space-y-2">
+                      <Label htmlFor={`participation-time-${root.guardId}`}>
+                        Hora real (opcional)
+                      </Label>
+                      <Input
+                        id={`participation-time-${root.guardId}`}
+                        className="h-11 min-h-11 min-w-0 w-full"
+                        type="datetime-local"
+                        step="0.001"
+                        value={participationForm.observedAt}
+                        disabled={!canChangeParticipation || !validContext}
+                        onChange={(event) =>
+                          setParticipationForm((current) => ({
+                            ...current,
+                            observedAt: event.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                    <div className="min-w-0 space-y-2">
+                      <Label htmlFor={`participation-comment-${root.guardId}`}>
+                        Comentario breve (opcional)
+                      </Label>
+                      <Textarea
+                        id={`participation-comment-${root.guardId}`}
+                        className="min-w-0 max-w-full"
+                        value={participationForm.comment}
+                        maxLength={1000}
+                        disabled={!canChangeParticipation || !validContext}
+                        onChange={(event) =>
+                          setParticipationForm((current) => ({
+                            ...current,
+                            comment: event.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                  </div>
+                </details>
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    className="min-h-11 w-fit max-w-full"
+                    disabled={!canSubmitParticipation}
+                    onClick={saveParticipation}
+                  >
+                    {participationEditing ? "Guardar corrección" : "Guardar participación"}
+                  </Button>
+                  {participationEditing && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="min-h-11 w-fit max-w-full"
+                      disabled={busy || Boolean(pendingOperationId)}
+                      onClick={() => {
+                        setParticipationEditing(null);
+                        setParticipationForm(emptyParticipationForm());
+                      }}
+                    >
+                      Cancelar corrección
+                    </Button>
+                  )}
+                  {participationError && (
+                    <p role="alert" className="w-full text-sm text-destructive" aria-live="assertive">
+                      {participationError}
+                    </p>
+                  )}
+                  {participationMessage && (
+                    <p role="status" className="w-full text-sm text-muted-foreground" aria-live="polite">
+                      {participationMessage}
+                    </p>
+                  )}
+                </div>
+              </section>
+            )}
+
             {conflictRemote && selectedQueueEntry?.kind === "update" && (
               <section
                 className="space-y-3 rounded-md border border-destructive p-4"
                 aria-labelledby={`observation-conflict-${root.guardId}`}
               >
                 <h3 id={`observation-conflict-${root.guardId}`} className="font-medium">
-                  La observación cambió en el servidor
+                  {isParticipationEntry(selectedQueueEntry)
+                    ? "La participación cambió en el servidor"
+                    : "La observación cambió en el servidor"}
                 </h3>
                 <div className="grid min-w-0 gap-3 sm:grid-cols-2">
                   <div className="rounded-md bg-muted p-3 text-sm">
@@ -2030,9 +2560,13 @@ export function EfaObservationPanel({
                       {String(selectedQueueEntry.payload["expectedVersion"] ?? "—")}
                     </p>
                     <p>
-                      {String(
-                        selectedQueueEntry.payload["catalogItemKey"] ?? "Conducta sin cambios",
-                      )}
+                      {isParticipationEntry(selectedQueueEntry)
+                        ? participationLevelLabel(
+                            selectedQueueEntry.payload["participationLevel"],
+                          )
+                        : String(
+                            selectedQueueEntry.payload["catalogItemKey"] ?? "Conducta sin cambios",
+                          )}
                     </p>
                     <p>
                       {String(selectedQueueEntry.payload["comment"] ?? "Sin comentario enviado")}
@@ -2040,7 +2574,11 @@ export function EfaObservationPanel({
                   </div>
                   <div className="rounded-md bg-muted p-3 text-sm">
                     <p className="font-medium">Versión actual · v{conflictRemote.version}</p>
-                    <p>{conflictRemote.catalogLabelSnapshot}</p>
+                    <p>
+                      {isParticipationRecord(conflictRemote)
+                        ? participationLevelLabel(conflictRemote.participationLevel)
+                        : conflictRemote.catalogLabelSnapshot ?? "Conducta observada"}
+                    </p>
                     <p>{conflictRemote.comment ?? "Sin comentario"}</p>
                   </div>
                 </div>
@@ -2120,7 +2658,13 @@ export function EfaObservationPanel({
                     className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between"
                   >
                     <p className="text-sm">
-                      {entry.kind === "create" ? "Nueva observación" : "Corrección"} ·{" "}
+                      {isParticipationEntry(entry)
+                        ? entry.kind === "create"
+                          ? "Nueva participación"
+                          : "Corrección de participación"
+                        : entry.kind === "create"
+                          ? "Nueva observación"
+                          : "Corrección"} ·{" "}
                       {entry.status === "pending"
                         ? "pendiente"
                         : entry.status === "uncertain"
@@ -2181,11 +2725,11 @@ export function EfaObservationPanel({
               }
             >
               <h3 className="text-sm font-medium text-muted-foreground">
-                Historial de conductas observadas ({visibleObservations.length})
+                Historial de registros ({visibleObservations.length})
               </h3>
               {visibleObservations.length === 0 && !compact && (
                 <p className="text-sm text-muted-foreground">
-                  No hay observaciones en este contexto. La ausencia de registros no es una
+                  No hay registros en este contexto. La ausencia de registros no es una
                   valoración.
                 </p>
               )}
@@ -2193,21 +2737,45 @@ export function EfaObservationPanel({
                 <article
                   key={item.id}
                   className={
-                    compact ? "min-w-0 space-y-2 border-t py-2" : "space-y-2 rounded-md border p-3"
+                    isParticipationRecord(item)
+                      ? compact
+                        ? "min-w-0 space-y-2 border-t border-l-2 border-primary/40 py-2 pl-3"
+                        : "space-y-2 rounded-md border border-primary/20 bg-muted/20 p-3"
+                      : compact
+                        ? "min-w-0 space-y-2 border-t py-2"
+                        : "space-y-2 rounded-md border p-3"
                   }
                 >
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                     <div>
                       <p className="font-medium">
-                        {item.catalogLabelSnapshot}
-                        {item.otherDescription ? ` · ${item.otherDescription}` : ""}
+                        {isParticipationRecord(item)
+                          ? "Participación del evaluador"
+                          : item.catalogLabelSnapshot ?? "Conducta observada"}
+                        {!isParticipationRecord(item) && item.otherDescription
+                          ? ` · ${item.otherDescription}`
+                          : ""}
                       </p>
-                      <p className="text-sm">
-                        {item.classification === "adequate" ? "Adecuada" : "A mejorar"} ·{" "}
-                        {groupLabels[item.catalogGroupSnapshot]}
-                      </p>
+                      {isParticipationRecord(item) ? (
+                        <p className="text-sm">
+                          {item.participationLevel
+                            ? evaluatorParticipationLevelLabels[item.participationLevel]
+                            : "Nivel sin registrar"}
+                        </p>
+                      ) : (
+                        <p className="text-sm">
+                          {item.classification === "adequate"
+                            ? "Adecuada"
+                            : item.classification === "needs_improvement"
+                              ? "A mejorar"
+                              : "Sin clasificación"} ·{" "}
+                          {item.catalogGroupSnapshot
+                            ? groupLabels[item.catalogGroupSnapshot]
+                            : "Conducta"}
+                        </p>
+                      )}
                       <p className="text-xs text-muted-foreground">
-                        {contextLabels[item.contextType]} · observada{" "}
+                        {contextLabels[item.contextType]} · {isParticipationRecord(item) ? "registrada" : "observada"}{" "}
                         {observationDate(item.observedAt)} · capturada{" "}
                         {observationDate(item.createdAt)} · v{item.version}
                       </p>
@@ -2231,14 +2799,18 @@ export function EfaObservationPanel({
                           variant="secondary"
                           className="min-h-11"
                           disabled={busy || Boolean(pendingOperationId)}
-                          onClick={() => editObservation(item)}
+                          onClick={() =>
+                            isParticipationRecord(item)
+                              ? editParticipation(item)
+                              : editObservation(item)
+                          }
                         >
                           Corregir
                         </Button>
                       )}
                     </div>
                   </div>
-                  {compact &&
+                  {(compact || isParticipationRecord(item)) &&
                     error &&
                     errorSurface.area === "history" &&
                     errorSurface.id === item.id && (
@@ -2258,11 +2830,9 @@ export function EfaObservationPanel({
                           </p>
                           <p>
                             Antes:{" "}
-                            {row.beforeState
-                              ? JSON.stringify(row.beforeState)
-                              : "Sin estado previo"}
+                            {observationAuditStateLabel(row.beforeState)}
                           </p>
-                          <p>Después: {JSON.stringify(row.afterState)}</p>
+                          <p>Después: {observationAuditStateLabel(row.afterState)}</p>
                         </div>
                       ))}
                     </div>
