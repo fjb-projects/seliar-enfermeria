@@ -17,7 +17,7 @@ export const getRouter = () => {
     scrollRestoration: true,
     defaultPreloadStaleTime: 0,
     defaultPendingComponent: RoutePending,
-    defaultPendingMs: 0,
+    defaultPendingMs: Infinity,
     defaultPendingMinMs: 0,
     dehydrate: () => ({
       queryClientState: dehydrate(queryClient, {

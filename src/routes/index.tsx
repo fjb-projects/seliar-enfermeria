@@ -114,7 +114,7 @@ function Home() {
   }
 
   return (
-    <main className="workflow-background min-h-screen">
+    <main className="workflow-background min-h-screen motion-safe:animate-in motion-safe:fade-in motion-safe:duration-300 motion-reduce:animate-none">
       <div className="mx-auto min-h-screen w-full max-w-lg px-4 pb-24 pt-2 sm:px-5 sm:pt-4 md:pb-8">
         <header className="rounded-2xl bg-primary px-4 py-1.5 text-primary-foreground shadow-[0_12px_32px_oklch(0.27_0.035_202/0.22)] sm:px-5 sm:py-4 md:rounded-none md:bg-transparent md:p-0 md:text-foreground md:shadow-none">
           <div className="flex items-center gap-3">

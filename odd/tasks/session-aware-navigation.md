@@ -25,8 +25,8 @@ Public mobile navigation gains Login. Authentication replaces its public actions
 | --- | --- | --- | --- |
 | N1 | Session-aware public/private navigation, shared quick actions and compact responsive placement | Delegated: multi-file state/routing/component integration | Complete by source review; commit 8c07990 |
 | N2 | Merge desktop navigation, brand and account controls into one compact bar | Delegated: shared layout and account interaction integration | Complete by source review; commit 0af72d3 |
-| N3 | Close service introduction with X and remember dismissal for seven days | Delegated: contextual UI and browser storage logic in episode panel | Source complete; commit pending |
-| N4 | Match pending-view background and soften route loading with a focused overlay | Delegated: installed router mapping and shared transition integration | Pending; source follows N3 completion |
+| N3 | Close service introduction with X and remember dismissal for seven days | Delegated: contextual UI and browser storage logic in episode panel | Complete by source review; commit afc9312 |
+| N4 | Match pending-view background and soften route loading with a focused overlay | Delegated: installed router mapping and shared transition integration | Source complete; commit pending |
 
 One coherent unit keeps session state, quick actions, login/logout destinations and responsive rendering compatible. Separate foundation/UI commits would leave incomplete navigation integration.
 
@@ -96,7 +96,7 @@ Route: delegated because reading the existing panel prepares new browser-state/U
 - [x] Notice background contrasts the indigo CTA; important informational text remains recoverable.
 - [x] Static writer/readback and independent review recorded; runtime manual checks pending.
 
-N3 boundary: 9e5318e. Source/static checks only; no tests/build/browser/DB/remotes. RDD off, assessment high/unassessable from unrelated untracked inventory; independent static review found no deterministic blocker. Parent spot-read new account key/state and source count. Timestamp validation accepts only safe positive integer timestamps not in the future, removes only expired notice preference, and handles storage exceptions. SSR/client initial notice is visible; post-mount read and owner guard isolate accounts. Source count: 104 additions/5 deletions, 109 authored lines in EfaEpisodePanel. Commit pending; manual closure/revisit/expiry/storage-disabled checks remain for user.
+N3 boundary: 9e5318e. Source/static checks only; no tests/build/browser/DB/remotes. RDD off, assessment high/unassessable from unrelated untracked inventory; independent static review found no deterministic blocker. Parent spot-read new account key/state and source count. Timestamp validation accepts only safe positive integer timestamps not in the future, removes only expired notice preference, and handles storage exceptions. SSR/client initial notice is visible; post-mount read and owner guard isolate accounts. Source count: 104 additions/5 deletions, 109 authored lines in EfaEpisodePanel. Local work-unit commit afc9312cdcf4afffa1cecb5c13344acd21ae3e4f, `feat(efa): remember service notice dismissal for seven days`; accumulated N1–N3 authored source count 1132. Human baseline/staged inventory preserved by exact path commit. No publishing. Manual closure/revisit/expiry/storage-disabled checks remain for user.
 
 ## N4: Smooth route loading
 
@@ -106,14 +106,20 @@ Exact allowed source surfaces: src/router.tsx, src/routes/__root.tsx, src/compon
 
 Installed router keeps active matches separate from pending matches. setupPendingTimeout explicitly excludes Infinity, verified by parent source spot readback, so defaultPendingMs Infinity preserves committed view until load readiness without creating an overflowing browser timer. Use a shared root loading controller driven by installed isLoading, short visual display threshold without delaying router work, focused higher-layer translucent existing app background and backdrop blur, and bounded fade exit. New route content may use existing motion-safe entry utilities. Reuse the existing background token; do not recolor the global app gradient or change auth/query/cache/SSR contracts. No old-page snapshot cloning, artificial router minimum delay, or new package.
 
-- [ ] Pending presentation shares app background and focused overlay placement.
-- [ ] Previous committed view stays available beneath loading when installed router contract permits; new content and overlay transition without forced waiting.
-- [ ] Motion reduction, initial load, errors, redirects and pending interruption remain supported.
-- [ ] Human baseline changes preserved; independent source review and parent readback recorded, user runtime checks pending.
+- [x] Pending source shares app background and focused overlay placement.
+- [x] Installed router preserves previous committed matches until readiness; new content and overlay transition without forced router waiting.
+- [x] Source handles motion reduction, initial fallback and pending interruption; installed readiness/error/redirect behavior was inspected.
+- [x] Human baseline changes preserved; independent source review and parent readback recorded, user runtime checks pending.
 
-No executable checks, browser QA, database or remote work. RDD off; no native lifecycle. Scope mapping and source implementation pending.
+N4 boundary: afc9312. No executable checks, browser QA, database or remote work. RDD off; no native lifecycle. Native assessment was high/unassessable from untracked inventory, so independent static review inspected actual source and installed contracts; no deterministic blocker found. Parent read back RouteTransition and installed Infinity guard, then inspected exact cached root/pending diffs excluding human text edits.
 
-Next step: implement and close N3, then implement mapped N4 and preserve human root/pending edits during selective commits. Parent owns this file and full recovery mirror.
+Source implementation: new RouteTransition derives actual isLoading and committed match presence, content is inert/busy during real navigation, overlay appears after 120 ms, exit cleanup is 180 ms with pointer interaction released and accessibility hidden during decorative exit. Timers cancel on state changes/unmount; renewed loading reverses an exit. Reduced motion omits animation and exit wait. Overlay uses z100, translucent existing workflow background and backdrop blur; standalone RoutePending uses workflow-background. Public landing entry uses existing motion-safe utilities. QueryClient/SSR/auth/session contracts remain unchanged.
+
+Exact staged source count: 105 additions/7 deletions, 112 authored lines across the five authorized source paths; accumulated N1–N4 count 1244. Local source commit pending. Initial reverse of the captured human patch refused because the current loader label differed from the snapshot (Espere... versus Esperee); it made no commit. Preserved the live worktree and constructed only a feature-only indexed RoutePending blob with the original HEAD labels, then excluded root translation through its exact captured patch. Cached diffs confirm labels and root translation are excluded. Original staged/dirty inventory remains untouched. No publishing.
+
+Manual checks pending: close/revisit/expiry and unavailable notice storage; internal navigation fast/slow, errors/redirects, keyboard/inert recovery and reduced motion. Source evidence does not claim runtime verification.
+
+Next step: record local N4 commit and let user manually review the completed notice and route transitions. Parent owns this file and full recovery mirror.
 
 ## Recovery mirror
 
