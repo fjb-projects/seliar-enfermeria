@@ -116,16 +116,16 @@ function Home() {
   return (
     <main className="workflow-background min-h-screen">
       <div className="mx-auto min-h-screen w-full max-w-lg px-4 pb-24 pt-2 sm:px-5 sm:pt-4 md:pb-8">
-        <header className="rounded-2xl bg-primary px-4 py-1.5 text-primary-foreground shadow-[0_12px_32px_oklch(0.27_0.035_202/0.22)] sm:px-5 sm:py-4">
+        <header className="rounded-2xl bg-primary px-4 py-1.5 text-primary-foreground shadow-[0_12px_32px_oklch(0.27_0.035_202/0.22)] sm:px-5 sm:py-4 md:rounded-none md:bg-transparent md:p-0 md:text-foreground md:shadow-none">
           <div className="flex items-center gap-3">
-            <span className="flex h-8 w-12 shrink-0 items-center justify-center overflow-hidden rounded-[3px] bg-white p-1 sm:h-9 sm:w-14">
+            <span className="flex h-8 w-12 shrink-0 items-center justify-center overflow-hidden rounded-[3px] bg-white p-1 sm:h-9 sm:w-14 md:hidden">
               <img src="/logoSIES.jpg" alt="Logo SIES" className="h-full w-full object-contain" />
             </span>
-            <h1 className="min-w-0 font-display text-lg font-bold leading-tight sm:text-2xl">
+            <h1 className="min-w-0 font-display text-lg font-bold leading-tight sm:text-2xl md:text-xl">
               Enfermería SeLIAR
             </h1>
           </div>
-          <p className="mt-0 max-w-md text-[10px] leading-3 text-primary-foreground/85 sm:mt-2 sm:text-sm sm:leading-5">
+          <p className="mt-0 max-w-md text-[10px] leading-3 text-primary-foreground/85 sm:mt-2 sm:text-sm sm:leading-5 md:mt-1 md:text-sm md:leading-5 md:text-muted-foreground">
             Panel operativo para el equipo de enfermería de la SeLIAR de Santa Fe.
           </p>
         </header>
