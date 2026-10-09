@@ -238,6 +238,46 @@ function formatDispatchPriority(priority: string | null | undefined) {
     ? dispatchPriorityLabels[priority as keyof typeof dispatchPriorityLabels]
     : "sin prioridad";
 }
+type DispatchCallChoice = {
+  id: string;
+  direction: string;
+  startedAt: string | Date | null;
+  createdAt: string | Date | null;
+  priority: "red" | "yellow" | "green" | null;
+  state: "draft" | "finalized" | "cancelled";
+};
+function formatLinkedCallTime(value: string | Date | null | undefined) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (!Number.isFinite(date.getTime())) return null;
+  return new Intl.DateTimeFormat("es-AR", {
+    timeZone: "America/Argentina/Buenos_Aires",
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(date);
+}
+function dispatchCallOptionLabel(call: DispatchCallChoice) {
+  const direction =
+    call.direction === "incoming"
+      ? "Entrante"
+      : call.direction === "outgoing"
+        ? "Saliente"
+        : "Llamada";
+  const time = formatLinkedCallTime(call.startedAt) ?? formatLinkedCallTime(call.createdAt);
+  const state =
+    call.state === "cancelled"
+      ? "Anulada"
+      : call.state === "finalized"
+        ? "Finalizada"
+        : "En curso";
+  const priority = formatDispatchPriority(call.priority);
+  const priorityLabel =
+    priority === "sin prioridad" ? "Sin prioridad" : `Prioridad ${priority}`;
+  return [direction, time, state, priorityLabel].filter(Boolean).join(" · ");
+}
 const emptyDispatchForm = (): DispatchForm => ({
   baseId: "",
   institutionId: "",
@@ -472,13 +512,7 @@ export function EfaDispatchStepper({
   const [bases, setBases] = useState<BaseChoice[]>([]);
   const [institutions, setInstitutions] = useState<EfaInstitutionChoice[]>([]);
   const [institutionsLoaded, setInstitutionsLoaded] = useState(false);
-  const [calls, setCalls] = useState<
-    Array<{
-      id: string;
-      priority: "red" | "yellow" | "green" | null;
-      state: "draft" | "finalized" | "cancelled";
-    }>
-  >([]);
+  const [calls, setCalls] = useState<DispatchCallChoice[]>([]);
   const [notices, setNotices] = useState<
     Array<{
       id: string;
@@ -1803,13 +1837,7 @@ export function EfaDispatchStepper({
                     {availableDispatchOrigins(calls, selected?.communicationId ?? null).map(
                       (call) => (
                         <option key={call.id} value={call.id}>
-                          Llamada {call.id.slice(0, 8)} ·{" "}
-                          {call.state === "cancelled"
-                            ? "anulada · "
-                            : call.state === "finalized"
-                              ? "finalizada · "
-                              : "en curso · "}
-                          prioridad {formatDispatchPriority(call.priority)}
+                          {dispatchCallOptionLabel(call)}
                         </option>
                       ),
                     )}

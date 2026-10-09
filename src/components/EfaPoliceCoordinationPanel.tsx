@@ -21,7 +21,54 @@ import { listEfaDispatchesForEpisode } from "@/lib/efa-dispatches.functions";
 import { getEfaEpisode } from "@/lib/efa-episodes.functions";
 
 const loadQueue = createClientOnlyFn(() => import("@/lib/efa-police-coordination.queue"));
-type DispatchChoice = { id: string; baseName: string; version: number; canEdit: boolean };
+type DispatchChoice = {
+  id: string;
+  baseName: string;
+  version: number;
+  canEdit: boolean;
+  createdAt: string | Date | null;
+  state: string;
+  priority: string | null;
+};
+function formatLinkedDispatchDate(value: string | Date | null | undefined) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (!Number.isFinite(date.getTime())) return null;
+  return new Intl.DateTimeFormat("es-AR", {
+    timeZone: "America/Argentina/Buenos_Aires",
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(date);
+}
+function dispatchChoiceLabel(dispatch: DispatchChoice) {
+  const state =
+    dispatch.state === "cancelled"
+      ? "Anulado"
+      : dispatch.state === "finalized"
+        ? "Finalizado"
+        : dispatch.state === "draft"
+          ? "En curso"
+          : "";
+  const priority =
+    dispatch.priority === "red"
+      ? "Prioridad roja"
+      : dispatch.priority === "yellow"
+        ? "Prioridad amarilla"
+        : dispatch.priority === "green"
+          ? "Prioridad verde"
+          : "";
+  return [
+    dispatch.baseName,
+    formatLinkedDispatchDate(dispatch.createdAt),
+    state,
+    priority,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
 type CoordinationForm = {
   initiator: "central" | "ambulance";
   initiatingDispatchId: string;
@@ -496,9 +543,15 @@ export function EfaPoliceCoordinationPanel({
       setDispatches(
         (dispatchRows as Array<Record<string, unknown>>).map((item) => ({
           id: String(item["id"]),
-          baseName: String(item["baseName"] ?? item["baseId"] ?? "Base institucional"),
+          baseName: String(item["baseName"] ?? "").trim() || "Base institucional",
           version: Number(item["version"]),
           canEdit: Boolean(item["canEdit"]),
+          createdAt:
+            typeof item["createdAt"] === "string" || item["createdAt"] instanceof Date
+              ? item["createdAt"]
+              : null,
+          state: String(item["state"] ?? ""),
+          priority: typeof item["priority"] === "string" ? item["priority"] : null,
         })),
       );
       if (
@@ -557,9 +610,15 @@ export function EfaPoliceCoordinationPanel({
         setDispatches(
           (dispatchRows as Array<Record<string, unknown>>).map((item) => ({
             id: String(item["id"]),
-            baseName: String(item["baseName"] ?? item["baseId"] ?? "Base institucional"),
+            baseName: String(item["baseName"] ?? "").trim() || "Base institucional",
             version: Number(item["version"]),
             canEdit: Boolean(item["canEdit"]),
+            createdAt:
+              typeof item["createdAt"] === "string" || item["createdAt"] instanceof Date
+                ? item["createdAt"]
+                : null,
+            state: String(item["state"] ?? ""),
+            priority: typeof item["priority"] === "string" ? item["priority"] : null,
           })),
         );
         setQueueEntries(pending);
@@ -1599,7 +1658,7 @@ export function EfaPoliceCoordinationPanel({
                       .filter((dispatch) => !current || current.dispatchIds.includes(dispatch.id))
                       .map((dispatch) => (
                         <option value={dispatch.id} key={dispatch.id}>
-                          {dispatch.baseName}
+                          {dispatchChoiceLabel(dispatch)}
                         </option>
                       ))}
                   </select>
@@ -1737,7 +1796,7 @@ export function EfaPoliceCoordinationPanel({
                       setDispatchesDirtyTracked(true);
                     }}
                   />
-                  <span className="min-w-0 break-words">{dispatch.baseName}</span>
+                  <span className="min-w-0 break-words">{dispatchChoiceLabel(dispatch)}</span>
                 </label>
               ))}
             </fieldset>

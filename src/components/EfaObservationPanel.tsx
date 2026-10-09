@@ -159,6 +159,35 @@ const observationDate = (value: string | null) =>
         timeZone: "America/Argentina/Buenos_Aires",
       }).format(new Date(value))
     : "Sin hora observada";
+const linkedOptionDate = (value: unknown) => {
+  if (!(typeof value === "string" || value instanceof Date)) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (!Number.isFinite(date.getTime())) return null;
+  return new Intl.DateTimeFormat("es-AR", {
+    timeZone: "America/Argentina/Buenos_Aires",
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(date);
+};
+const linkedOptionState = (value: unknown) =>
+  value === "cancelled"
+    ? "Anulado"
+    : value === "finalized"
+      ? "Finalizado"
+      : value === "draft"
+        ? "En curso"
+        : null;
+const linkedOptionPriority = (value: unknown) =>
+  value === "red"
+    ? "Prioridad roja"
+    : value === "yellow"
+      ? "Prioridad amarilla"
+      : value === "green"
+        ? "Prioridad verde"
+        : "Sin prioridad";
 const localDateTimeValue = (value: string | null) => {
   if (!value) return "";
   const date = new Date(value);
@@ -1428,8 +1457,39 @@ export function EfaObservationPanel({
   const canEditCurrent = editing?.canEdit === true;
   const canChangeForm =
     effectiveCanWrite && !busy && !pendingOperationId && (editing ? canEditCurrent : canCreateHere);
-  const labelFor = (item: Record<string, unknown>, fallback: string) =>
-    String(item["baseName"] ?? item["motive"] ?? item["placeType"] ?? fallback);
+  const dispatchLabelFor = (item: Record<string, unknown>) =>
+    [
+      String(item["baseName"] ?? "").trim() || "Base institucional",
+      linkedOptionDate(item["createdAt"]),
+      linkedOptionState(item["state"]),
+      linkedOptionPriority(item["priority"]),
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  const coordinationLabelFor = (item: Record<string, unknown>) => {
+    const place =
+      item["placeType"] === "meeting_point"
+        ? "Punto de encuentro"
+        : item["placeType"] === "incident"
+          ? "Incidente"
+          : null;
+    const initiator =
+      item["initiator"] === "central"
+        ? "Central"
+        : item["initiator"] === "ambulance"
+          ? "Ambulancia"
+          : null;
+    return [
+      "Coordinación",
+      place,
+      String(item["meetingReference"] ?? "").trim() || null,
+      initiator,
+      linkedOptionDate(item["createdAt"]),
+      linkedOptionState(item["state"]),
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  };
 
   const validContext = currentContext !== null;
   const allowedToSave = editing ? effectiveCanWrite && editing.canEdit : canCreateHere;
@@ -1622,9 +1682,25 @@ export function EfaObservationPanel({
                   rows={communications}
                   disabled={Boolean(editing)}
                   onChange={setLeafId}
-                  renderLabel={(item) =>
-                    `Llamada · ${observationDate(String(item["createdAt"] ?? ""))}`
-                  }
+                  renderLabel={(item) => {
+                    const direction =
+                      item["direction"] === "incoming"
+                        ? "Entrante"
+                        : item["direction"] === "outgoing"
+                          ? "Saliente"
+                          : "Llamada";
+                    const time =
+                      linkedOptionDate(item["startedAt"]) ??
+                      linkedOptionDate(item["createdAt"]);
+                    return [
+                      direction,
+                      time,
+                      linkedOptionState(item["state"]),
+                      linkedOptionPriority(item["priority"]),
+                    ]
+                      .filter(Boolean)
+                      .join(" · ");
+                  }}
                 />
               )}
               {contextType === "dispatch" && (
@@ -1635,7 +1711,7 @@ export function EfaObservationPanel({
                   rows={dispatches}
                   disabled={Boolean(editing)}
                   onChange={setLeafId}
-                  renderLabel={(item) => `Despacho · ${labelFor(item, "Base")}`}
+                  renderLabel={dispatchLabelFor}
                 />
               )}
               {(contextType === "coordination" || contextType === "police_event") && (
@@ -1649,7 +1725,7 @@ export function EfaObservationPanel({
                     setCoordinationId(id);
                     setLeafId("");
                   }}
-                  renderLabel={(item) => `Coordinación · ${labelFor(item, "registro")}`}
+                  renderLabel={coordinationLabelFor}
                 />
               )}
               {contextType === "police_event" && coordinationId && (

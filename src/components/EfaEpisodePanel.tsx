@@ -1912,44 +1912,35 @@ export function EfaEpisodePanel({
                     : "border-sky-200 bg-sky-50/60 dark:border-sky-900 dark:bg-sky-950/20"
               }`}
             >
-              <div className="space-y-2">
-                <div className="min-w-0">
-                  <h3 className="break-words font-semibold leading-5">{displayName(episode)}</h3>
-                  <p
-                    className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${
-                      episode.cancelledAt
-                        ? "bg-rose-100 text-rose-900 dark:bg-rose-950 dark:text-rose-100"
-                        : episode.state === "closed"
-                          ? "bg-muted text-muted-foreground"
-                          : "bg-sky-50 text-sky-800"
-                    }`}
-                  >
-                    {episode.cancelledAt
-                      ? `Anulado · ${episode.cancelledFromState === "closed" ? "Cerrado" : "Activo"}`
-                      : episode.state === "closed"
-                        ? "Cerrado"
-                        : "Activo"}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Hecho {formatEpisodeDate(episode.eventAt)}
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {workspaceEpisodeId !== episode.id && (
-                    <Button
-                      variant="outline"
-                      className="min-h-11 border-sky-200 bg-sky-50 px-3 text-sky-950 hover:bg-sky-100 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100 dark:hover:bg-sky-950/60"
-                      aria-label={`Abrir área de trabajo de ${accessibleDisplayName(episode)}`}
-                      onClick={() => openWorkspace(episode.id, "communications")}
+              <div className="space-y-1.5">
+                <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-2">
+                  <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-1">
+                    <h3 className="min-w-0 break-words font-semibold leading-5">
+                      {displayName(episode)}
+                    </h3>
+                    <span
+                      className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${
+                        episode.cancelledAt
+                          ? "bg-rose-100 text-rose-900 dark:bg-rose-950 dark:text-rose-100"
+                          : episode.state === "closed"
+                            ? "bg-muted text-muted-foreground"
+                            : "bg-sky-50 text-sky-800"
+                      }`}
                     >
-                      <PanelsTopLeft aria-hidden="true" className="size-4" />
-                      Abrir área
-                    </Button>
-                  )}
+                      {episode.cancelledAt
+                        ? `Anulado · ${episode.cancelledFromState === "closed" ? "Cerrado" : "Activo"}`
+                        : episode.state === "closed"
+                          ? "Cerrado"
+                          : "Activo"}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      Hecho {formatEpisodeDate(episode.eventAt)}
+                    </span>
+                  </div>
                   {canWrite && episode.canEdit && episode.state === "draft" && (
                     <Button
                       variant="outline"
-                      className="min-h-11 border-slate-300 bg-slate-100 px-3 text-slate-900 hover:bg-slate-200 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+                      className="min-h-11 max-w-full shrink-0 whitespace-normal border-slate-300 bg-slate-100 px-2.5 text-sm text-slate-900 hover:bg-slate-200 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700 sm:px-3"
                       disabled={
                         !queueReady ||
                         !queueAvailable ||
@@ -1971,6 +1962,19 @@ export function EfaEpisodePanel({
                     </Button>
                   )}
                 </div>
+                {workspaceEpisodeId !== episode.id && (
+                  <div className="flex min-w-0">
+                    <Button
+                      variant="outline"
+                      className="min-h-11 max-w-full border-sky-200 bg-sky-50 px-2.5 text-sm text-sky-950 hover:bg-sky-100 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100 dark:hover:bg-sky-950/60 sm:px-3"
+                      aria-label={`Abrir área de trabajo de ${accessibleDisplayName(episode)}`}
+                      onClick={() => openWorkspace(episode.id, "communications")}
+                    >
+                      <PanelsTopLeft aria-hidden="true" className="size-4" />
+                      Abrir área
+                    </Button>
+                  </div>
+                )}
                 <EfaActionConfirmation
                   open={closingServiceTarget?.episodeId === episode.id}
                   onOpenChange={(open) => {
