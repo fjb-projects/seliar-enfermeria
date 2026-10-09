@@ -14,6 +14,7 @@ dist-ssr
 .vinxi
 .tanstack/**
 .nitro
+.vercel/
 *.local
 
 # Wrangler / Cloudflare
@@ -41,6 +42,10 @@ dist-ssr
 credentials*.json
 *-credentials.json
 service-account*.json
+
+# Local admin bootstrap scripts
+scripts/bootstrap-admin.mjs
+scripts/bootstrap-admin.test.mjs
 
 # Editor directories and files
 .vscode/*

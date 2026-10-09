@@ -208,6 +208,10 @@ El comando `npm run bootstrap:admins` es manual, interactivo y no se ha ejecutad
 
 **Superficies candidatas:** `src/routes/login.tsx`, `src/routes/admin-usuarios.tsx`, `scripts/bootstrap-admin.ts`, `docs/efa-mvp-scope-and-plan.md`, `src/routeTree.gen.ts` solo como salida generada, `src/routes/**/*.test.tsx`.
 
+**Cierre local T5 y revisión pendiente:** commit `ef055a581d91b0928864da88fdf140f1021fbe9d` — `fix(auth): report actionable bootstrap diagnostics`; cuatro superficies, 464 inserciones y 80 eliminaciones. El padre repitió las 13 pruebas Node tras la corrección final y obtuvo exit 0. El verificador independiente también obtuvo 13/13 y ayuda exit 0; su inconsistencia de mensaje ante COMMIT incierto se corrigió con regresión RED→GREEN. Typecheck, normalización y comprobaciones de formato/diff pasaron; no hubo acceso a env/DB ni ejecución real de bootstrap. La causa del intento de Neon sigue desconocida.
+
+RDD sigue activo por defecto. La evaluación del rango T4+T5 desde T3 encontró riesgo `medium`, cuatro archivos/735 líneas y `review_due: true`, motivo `slice_budget_reached`. La consulta canónica excluyó adjuntos/documentación previa sin seguimiento y START solicitó consentimiento `gentle-ai.review-integration.consent/v3` para `sha256:4e28d973abaf97bf3594ed3d2bd50befe52de5ecb298c22a90fda8ff5a7022e7`, línea prevista `review-87a67864f67b4925`. Se conservaron las invocaciones exactas de conceder/declinar. No se ejecutó ningún revisor nativo de esta porción ni existe aprobación/acuse; el límite revisado permanece en T3. Sin publicación. Copia Engram pendiente por falta de identidad registrada. Próximo paso: resolver el consentimiento y luego obtener el diagnóstico seguro de la ejecución por la persona usuaria.
+
 ## Comprobaciones y criterios de aceptación
 
 - Aplicar TDD a servicios de autorización y cambios de cuenta una vez exista un runner: observar primero una prueba de seguridad fallida, implementar y volver a ejecutarla. La generación de esquema/configuración puede no tener un RED funcional significativo; justificar esa excepción y comprobar tipos, generación de SQL y build.

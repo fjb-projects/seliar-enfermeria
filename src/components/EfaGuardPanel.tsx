@@ -970,7 +970,7 @@ export function EfaGuardPanel({
               </Button>
               <Button
                 variant="outline"
-                className="min-h-11 w-full border-destructive text-destructive hover:bg-destructive/10 sm:w-auto"
+                className="min-h-11 w-full border-destructive text-white font-semibold bg-red-800 hover:bg-destructive/10 sm:w-auto"
                 disabled={busy || !canWrite || !activeWorkspaceState?.canClose}
                 onClick={() => setEndingGuardTarget(guardEndTargetKey)}
               >

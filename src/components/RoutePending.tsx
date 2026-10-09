@@ -17,8 +17,8 @@ export function RoutePending({ overlay = false }: { overlay?: boolean }) {
           aria-hidden="true"
           className="size-5 shrink-0 animate-spin text-primary motion-reduce:animate-none"
         />
-        <span className="text-sm font-medium">Abriendo vista…</span>
-        <span className="sr-only">Cargando la vista solicitada</span>
+        <span className="text-sm font-medium">Espere...</span>
+        <span className="sr-only">Cargando</span>
       </div>
     </div>
   );
