@@ -34,6 +34,22 @@ type ObservationRoot = {
   ownerUserId?: string;
   guardEndedAt?: string | Date | null;
 };
+// eslint-disable-next-line react-refresh/only-export-components -- Used by the initial-load scope regression test.
+export function observationRootScopeKey(root: ObservationRoot) {
+  const endedAt = root.guardEndedAt;
+  const normalizedEndedAt =
+    endedAt instanceof Date
+      ? Number.isFinite(endedAt.getTime())
+        ? endedAt.toISOString()
+        : "invalid-date"
+      : (endedAt ?? null);
+  return JSON.stringify([
+    root.guardId,
+    root.episodeId || null,
+    root.ownerUserId ?? null,
+    normalizedEndedAt,
+  ]);
+}
 type ContextSelection =
   | { kind: "guard" }
   | { kind: "episode"; episodeId: string }
@@ -463,6 +479,9 @@ export function EfaObservationPanel({
   const busyRef = useRef(false);
   const conflictGateRef = useRef(createObservationConflictGate());
   const queueScope = root.episodeId ? `episode:${root.episodeId}` : `guard:${root.guardId}`;
+  const rootScopeKey = observationRootScopeKey(root);
+  const rootGuardId = root.guardId;
+  const rootEpisodeId = root.episodeId;
   const reportError = (text: string, area: ObservationErrorSurface = "global", id?: string) => {
     setError(text);
     setErrorSurface(id === undefined ? { area } : { area, id });
@@ -557,9 +576,9 @@ export function EfaObservationPanel({
       try {
         const [catalogRows, rows, noticeRows, queueModule] = await Promise.all([
           catalogFn(),
-          root.episodeId
-            ? listEpisodeFn({ data: root.episodeId })
-            : listGuardFn({ data: root.guardId }),
+          rootEpisodeId
+            ? listEpisodeFn({ data: rootEpisodeId })
+            : listGuardFn({ data: rootGuardId }),
           noticesFn(),
           loadObservationQueue(),
         ]);
@@ -585,10 +604,10 @@ export function EfaObservationPanel({
           );
         }
         setQueueReady(true);
-        if (!root.episodeId) {
+        if (!rootEpisodeId) {
           const episodeRows = (await episodesFn()) as Array<Record<string, unknown>>;
           if (live && mounted.current)
-            setEpisodes(episodeRows.filter((row) => row["originGuardId"] === root.guardId));
+            setEpisodes(episodeRows.filter((row) => row["originGuardId"] === rootGuardId));
         }
       } catch (cause) {
         if (live && mounted.current)
@@ -615,7 +634,9 @@ export function EfaObservationPanel({
     canWrite,
     currentUserId,
     queueScope,
-    root,
+    rootScopeKey,
+    rootGuardId,
+    rootEpisodeId,
   ]);
 
   const processEntryRef = useRef(processEntry);
@@ -1545,7 +1566,7 @@ export function EfaObservationPanel({
           )}
         {!loading && (
           <>
-            <section className={compact ? "min-w-0 space-y-3" : "space-y-3 rounded-md border p-3"}>
+            <section className={compact ? "min-w-0 space-y-2" : "space-y-3 rounded-md border p-3"}>
               <h3 className="font-medium">Contexto de observación</h3>
               {!root.episodeId && (
                 <div className="space-y-2">
@@ -1669,7 +1690,7 @@ export function EfaObservationPanel({
 
             {canRenderObservationForm && (
               <section
-                className={compact ? "min-w-0 space-y-3" : "space-y-3 rounded-md border p-3"}
+                className={compact ? "min-w-0 space-y-2" : "space-y-3 rounded-md border p-3"}
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <h3 className="font-medium">
@@ -1694,31 +1715,10 @@ export function EfaObservationPanel({
                   valoración negativa.
                 </p>
                 <div className="space-y-2">
-                  <Label htmlFor={`observation-group-${root.guardId}`}>
-                    Grupo del catálogo (filtro opcional)
-                  </Label>
-                  <select
-                    id={`observation-group-${root.guardId}`}
-                    className="min-h-11 w-full min-w-0 max-w-full rounded-md border bg-background px-3"
-                    value={groupFilter}
-                    disabled={!canChangeForm}
-                    onChange={(event) =>
-                      setGroupFilter(event.target.value as ObservationCatalogItem["group"] | "all")
-                    }
-                  >
-                    <option value="all">Todos los grupos</option>
-                    {Object.entries(groupLabels).map(([key, label]) => (
-                      <option key={key} value={key}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-2">
                   <Label htmlFor={`observation-item-${root.guardId}`}>Conducta concreta</Label>
                   <select
                     id={`observation-item-${root.guardId}`}
-                    className="min-h-11 w-full min-w-0 max-w-full rounded-md border bg-background px-3"
+                    className="min-h-11 w-full min-w-0 max-w-full rounded-md border bg-background px-3 text-sm"
                     value={form.catalogItemKey}
                     disabled={!canChangeForm || !validContext}
                     onChange={(event) =>
@@ -1738,6 +1738,36 @@ export function EfaObservationPanel({
                     <option value="other">Otra conducta</option>
                   </select>
                 </div>
+                <details className="min-w-0 rounded-md border px-3">
+                  <summary className="flex min-h-11 cursor-pointer items-center text-sm font-medium">
+                    {groupFilter === "all"
+                      ? "Filtrar catálogo por grupo (opcional)"
+                      : `Grupo del catálogo · ${groupLabels[groupFilter]}`}
+                  </summary>
+                  <div className="space-y-2 pb-3">
+                    <Label htmlFor={`observation-group-${root.guardId}`}>
+                      Grupo del catálogo (filtro opcional)
+                    </Label>
+                    <select
+                      id={`observation-group-${root.guardId}`}
+                      className="min-h-11 w-full min-w-0 max-w-full rounded-md border bg-background px-3"
+                      value={groupFilter}
+                      disabled={!canChangeForm}
+                      onChange={(event) =>
+                        setGroupFilter(
+                          event.target.value as ObservationCatalogItem["group"] | "all",
+                        )
+                      }
+                    >
+                      <option value="all">Todos los grupos</option>
+                      {Object.entries(groupLabels).map(([key, label]) => (
+                        <option key={key} value={key}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </details>
                 {isOther && (
                   <>
                     <div className="space-y-2">
@@ -1782,69 +1812,85 @@ export function EfaObservationPanel({
                     </div>
                   </>
                 )}
-                <fieldset className="space-y-2" disabled={!canChangeForm}>
+                <fieldset className="min-w-0 space-y-2" disabled={!canChangeForm}>
                   <legend className="text-sm font-medium">Clasificación requerida</legend>
-                  <label className="flex min-h-11 items-center gap-3">
-                    <input
-                      type="radio"
-                      name={`observation-class-${root.guardId}`}
-                      checked={form.classification === "adequate"}
-                      onChange={() =>
-                        setForm((current) => ({ ...current, classification: "adequate" }))
-                      }
-                    />
-                    Adecuada
-                  </label>
-                  <label className="flex min-h-11 items-center gap-3">
-                    <input
-                      type="radio"
-                      name={`observation-class-${root.guardId}`}
-                      checked={form.classification === "needs_improvement"}
-                      onChange={() =>
-                        setForm((current) => ({ ...current, classification: "needs_improvement" }))
-                      }
-                    />
-                    A mejorar
-                  </label>
+                  <div className="grid min-w-0 grid-cols-2 gap-2">
+                    <label className="flex min-h-11 min-w-0 items-center gap-2 rounded-md border px-2 text-sm">
+                      <input
+                        type="radio"
+                        name={`observation-class-${root.guardId}`}
+                        checked={form.classification === "adequate"}
+                        onChange={() =>
+                          setForm((current) => ({ ...current, classification: "adequate" }))
+                        }
+                      />
+                      <span className="min-w-0 break-words">Adecuada</span>
+                    </label>
+                    <label className="flex min-h-11 min-w-0 items-center gap-2 rounded-md border px-2 text-sm">
+                      <input
+                        type="radio"
+                        name={`observation-class-${root.guardId}`}
+                        checked={form.classification === "needs_improvement"}
+                        onChange={() =>
+                          setForm((current) => ({
+                            ...current,
+                            classification: "needs_improvement",
+                          }))
+                        }
+                      />
+                      <span className="min-w-0 break-words">A mejorar</span>
+                    </label>
+                  </div>
                 </fieldset>
-                <div className="space-y-2">
-                  <Label htmlFor={`observation-time-${root.guardId}`}>
-                    Hora real observada (opcional)
-                  </Label>
-                  <Input
-                    id={`observation-time-${root.guardId}`}
-                    type="datetime-local"
-                    step="0.001"
-                    value={form.observedAt}
-                    disabled={!canChangeForm}
-                    onChange={(event) =>
-                      setForm((current) => ({ ...current, observedAt: event.target.value }))
-                    }
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="min-h-11"
-                    disabled={!canChangeForm}
-                    onClick={quickObservedAt}
-                  >
-                    Ahora
-                  </Button>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor={`observation-comment-${root.guardId}`}>
-                    Comentario breve (opcional)
-                  </Label>
-                  <Textarea
-                    id={`observation-comment-${root.guardId}`}
-                    value={form.comment}
-                    maxLength={1000}
-                    disabled={!canChangeForm}
-                    onChange={(event) =>
-                      setForm((current) => ({ ...current, comment: event.target.value }))
-                    }
-                  />
-                </div>
+                <details className="min-w-0 rounded-md border px-3">
+                  <summary className="flex min-h-11 cursor-pointer items-center text-sm font-medium">
+                    Hora y comentario opcionales
+                  </summary>
+                  <div className="space-y-3 pb-3">
+                    <div className="space-y-2">
+                      <Label htmlFor={`observation-time-${root.guardId}`}>
+                        Hora real observada (opcional)
+                      </Label>
+                      <div className="grid min-w-0 grid-cols-1 items-end gap-2 min-[380px]:grid-cols-[minmax(0,1fr)_auto]">
+                        <Input
+                          id={`observation-time-${root.guardId}`}
+                          className="min-w-0"
+                          type="datetime-local"
+                          step="0.001"
+                          value={form.observedAt}
+                          disabled={!canChangeForm}
+                          onChange={(event) =>
+                            setForm((current) => ({ ...current, observedAt: event.target.value }))
+                          }
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="min-h-11"
+                          disabled={!canChangeForm}
+                          onClick={quickObservedAt}
+                        >
+                          Ahora
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor={`observation-comment-${root.guardId}`}>
+                        Comentario breve (opcional)
+                      </Label>
+                      <Textarea
+                        id={`observation-comment-${root.guardId}`}
+                        className="min-w-0 max-w-full"
+                        value={form.comment}
+                        maxLength={1000}
+                        disabled={!canChangeForm}
+                        onChange={(event) =>
+                          setForm((current) => ({ ...current, comment: event.target.value }))
+                        }
+                      />
+                    </div>
+                  </div>
+                </details>
                 {compact && visibleObservations.length === 0 && (
                   <p className="text-sm text-muted-foreground">
                     Aún no hay observaciones en este contexto; la ausencia de registros no es una

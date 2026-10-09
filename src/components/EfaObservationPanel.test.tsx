@@ -10,6 +10,7 @@ import {
   observationFrozenOperationMatches,
   observationFeedbackNeedsGlobalFallback,
   observationQueueEntryCanContinue,
+  observationRootScopeKey,
   restoreObservationUpdateForm,
   withCurrentEfaWriteAccess,
   EfaObservationPanel,
@@ -77,6 +78,25 @@ describe("EfaObservationPanel", () => {
     expect(captureObservationNow(() => new Date("2026-10-07T12:34:56.789Z"))).toBe(
       "2026-10-07T12:34:56.789Z",
     );
+  });
+
+  it("keeps equivalent root scopes stable and distinguishes meaningful scope changes", () => {
+    const root = {
+      guardId: "guard-1",
+      episodeId: "episode-1",
+      ownerUserId: "owner-1",
+      guardEndedAt: "2026-10-07T12:00:00.000Z",
+    };
+    const key = observationRootScopeKey(root);
+
+    expect(observationRootScopeKey({ ...root })).toBe(key);
+    expect(observationRootScopeKey({ ...root, guardEndedAt: new Date(root.guardEndedAt) })).toBe(
+      key,
+    );
+    expect(observationRootScopeKey({ ...root, guardId: "guard-2" })).not.toBe(key);
+    expect(observationRootScopeKey({ ...root, episodeId: "episode-2" })).not.toBe(key);
+    expect(observationRootScopeKey({ ...root, ownerUserId: "owner-2" })).not.toBe(key);
+    expect(observationRootScopeKey({ ...root, guardEndedAt: null })).not.toBe(key);
   });
 
   it("allows new captures only for a writable owner while the guard is open", () => {
