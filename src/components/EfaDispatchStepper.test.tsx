@@ -5,9 +5,11 @@ import {
   canEditSupportAssociation,
   captureActionTimestamp,
   dispatchErrorSurfaceForKind,
+  DispatchStepNavigation,
   DispatchInstitutionField,
   EfaDispatchStepper,
   FirstResponseRoleSelect,
+  isDispatchReviewStep,
 } from "./EfaDispatchStepper";
 
 vi.mock("@tanstack/react-start", () => ({
@@ -39,6 +41,40 @@ vi.mock("@/lib/efa-institutions.functions", () => ({
 }));
 
 describe("EfaDispatchStepper", () => {
+  it("keeps all dispatch steps available behind compact current-step navigation", () => {
+    const html = renderToStaticMarkup(
+      <DispatchStepNavigation step={5} onStepChange={() => undefined} />,
+    );
+
+    expect(html).toContain("Paso 6 de 11: Llegada a destino");
+    expect(html).toContain("Ver pasos");
+    expect(html.match(/aria-label="Ir al paso/g)).toHaveLength(11);
+    expect(html.match(/aria-current="step"/g)).toHaveLength(1);
+    expect(html).toContain('aria-label="Ir al paso 6: Llegada a destino" aria-current="step"');
+  });
+
+  it("allows dispatch finalization only from review", () => {
+    expect(Array.from({ length: 10 }, (_, step) => isDispatchReviewStep(step))).toEqual(
+      Array(10).fill(false),
+    );
+    expect(isDispatchReviewStep(10)).toBe(true);
+  });
+
+  it("keeps the terminal action out of the initial dispatch step", () => {
+    const html = renderToStaticMarkup(
+      <EfaDispatchStepper
+        episodeId="episode"
+        episodeLabel="Turno 1"
+        currentUserId="owner"
+        canWrite={true}
+        episodeCanEdit={true}
+      />,
+    );
+
+    expect(html).toContain("Guardar borrador");
+    expect(html).not.toContain("Finalizar despacho");
+  });
+
   it("keeps dispatch action failures beside the control that can retry them", () => {
     expect(dispatchErrorSurfaceForKind("create")).toBe("form");
     expect(dispatchErrorSurfaceForKind("update")).toBe("form");
