@@ -18,6 +18,10 @@ import {
 } from "../db/schema";
 import { effectiveRoles, type AccountRole } from "./access";
 import type { ObservationGroup } from "./efa-observations.catalog";
+import type {
+  EvaluatorParticipationLevel,
+  ObservationRecordKind,
+} from "./efa-observations.record-types";
 
 export type ObservationContextType =
   "guard" | "episode" | "communication" | "dispatch" | "coordination" | "police_event";
@@ -32,12 +36,14 @@ export type ObservationRecord = {
   dispatchId: string | null;
   coordinationId: string | null;
   policeEventId: string | null;
+  recordKind?: ObservationRecordKind;
+  participationLevel?: EvaluatorParticipationLevel | null;
   catalogItemKey: string | null;
-  catalogKeySnapshot: string;
-  catalogLabelSnapshot: string;
-  catalogGroupSnapshot: ObservationGroup;
+  catalogKeySnapshot: string | null;
+  catalogLabelSnapshot: string | null;
+  catalogGroupSnapshot: ObservationGroup | null;
   otherDescription: string | null;
-  classification: ObservationClassification;
+  classification: ObservationClassification | null;
   comment: string | null;
   observedAt: Date | null;
   clientCreationKey: string;
@@ -54,6 +60,44 @@ export type ObservationContext = {
   coordinationId?: string;
   policeEventId?: string;
 };
+type ObservationWriteFields = {
+  comment?: string | null | undefined;
+  observedAt?: string | Date | null | undefined;
+};
+type ObservationCreateInput = ObservationContext &
+  ObservationWriteFields &
+  { clientCreationKey: string; operationId: string } &
+  (
+    | {
+        recordKind?: "conduct" | undefined;
+        catalogItemKey: string;
+        classification: ObservationClassification;
+        otherDescription?: string | null | undefined;
+        otherGroup?: ObservationGroup | undefined;
+      }
+    | {
+        recordKind: "participation";
+        participationLevel: EvaluatorParticipationLevel;
+      }
+  );
+type ObservationUpdateInput = {
+  observationId: string;
+  expectedVersion: number;
+  operationId: string;
+} & ObservationWriteFields &
+  (
+    | {
+        recordKind?: "conduct" | undefined;
+        catalogItemKey?: string | undefined;
+        classification?: ObservationClassification | undefined;
+        otherDescription?: string | null | undefined;
+        otherGroup?: ObservationGroup | undefined;
+      }
+    | {
+        recordKind: "participation";
+        participationLevel?: EvaluatorParticipationLevel | undefined;
+      }
+  );
 export type ObservationAudit = {
   id: string;
   observationId: string;
@@ -206,6 +250,8 @@ function state(
     | "dispatchId"
     | "coordinationId"
     | "policeEventId"
+    | "recordKind"
+    | "participationLevel"
     | "catalogItemKey"
     | "catalogKeySnapshot"
     | "catalogLabelSnapshot"
@@ -217,6 +263,9 @@ function state(
   >,
 ): Record<string, string | null> {
   return {
+    recordKind: record.recordKind ?? "conduct",
+    participationLevel:
+      record.recordKind === "participation" ? (record.participationLevel ?? null) : null,
     guardId: record.guardId,
     episodeId: record.episodeId,
     contextType: record.contextType,
@@ -235,8 +284,11 @@ function state(
   };
 }
 function view(record: ObservationRecord, canEdit: boolean) {
+  const recordKind = record.recordKind ?? "conduct";
   return {
     ...record,
+    recordKind,
+    participationLevel: recordKind === "participation" ? (record.participationLevel ?? null) : null,
     observedAt: record.observedAt?.toISOString() ?? null,
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
@@ -475,19 +527,7 @@ export function createEfaObservationService(
         }));
       });
     },
-    async create(
-      userId: string,
-      input: ObservationContext & {
-        clientCreationKey: string;
-        operationId: string;
-        catalogItemKey: string;
-        classification: ObservationClassification;
-        otherDescription?: string | null | undefined;
-        otherGroup?: ObservationGroup | undefined;
-        comment?: string | null | undefined;
-        observedAt?: string | Date | null | undefined;
-      },
-    ) {
+    async create(userId: string, input: ObservationCreateInput) {
       return store.transaction(async (tx) => {
         const permission = await access(tx, userId, true);
         const guard = await tx.findGuard(input.guardId, true);
@@ -526,14 +566,30 @@ export function createEfaObservationService(
           };
         }
         const context = await validateContext(tx, input, userId, true);
-        const item = await validateItem(
-          tx,
-          context.contextType,
-          input.catalogItemKey,
-          input.otherDescription,
-          input.otherGroup,
-        );
-        if (input.classification !== "adequate" && input.classification !== "needs_improvement")
+        const recordKind = input.recordKind ?? "conduct";
+        const item =
+          input.recordKind === "participation"
+            ? {
+                catalogItemKey: null,
+                catalogKeySnapshot: null,
+                catalogLabelSnapshot: null,
+                catalogGroupSnapshot: null,
+                otherDescription: null,
+              }
+            : await validateItem(
+                tx,
+                context.contextType,
+                input.catalogItemKey,
+                input.otherDescription,
+                input.otherGroup,
+              );
+        const classification =
+          input.recordKind === "participation" ? null : input.classification;
+        if (
+          recordKind === "conduct" &&
+          classification !== "adequate" &&
+          classification !== "needs_improvement"
+        )
           throw new Error("La clasificación es obligatoria.");
         const observationId = id();
         const draft = {
@@ -546,8 +602,11 @@ export function createEfaObservationService(
           dispatchId: context.dispatchId ?? null,
           coordinationId: context.coordinationId ?? null,
           policeEventId: context.policeEventId ?? null,
+          recordKind,
+          participationLevel:
+            input.recordKind === "participation" ? input.participationLevel : null,
           ...item,
-          classification: input.classification,
+          classification,
           comment: clean(input.comment, 1000, "El comentario"),
           observedAt: parseObservedAt(input.observedAt),
           clientCreationKey: input.clientCreationKey,
@@ -590,20 +649,7 @@ export function createEfaObservationService(
         };
       });
     },
-    async update(
-      userId: string,
-      input: {
-        observationId: string;
-        expectedVersion: number;
-        operationId: string;
-        catalogItemKey?: string | undefined;
-        classification?: ObservationClassification | undefined;
-        otherDescription?: string | null | undefined;
-        otherGroup?: ObservationGroup | undefined;
-        comment?: string | null | undefined;
-        observedAt?: string | Date | null | undefined;
-      },
-    ) {
+    async update(userId: string, input: ObservationUpdateInput) {
       return store.transaction(async (tx) => {
         const { permission, record: current } = await authorizeRecord(
           tx,
@@ -611,6 +657,9 @@ export function createEfaObservationService(
           input.observationId,
           true,
         );
+        const currentKind = current.recordKind ?? "conduct";
+        if ((input.recordKind ?? "conduct") !== currentKind)
+          throw new Error("El tipo del registro no se puede cambiar.");
         const requestHash = sha256({ actor: userId, action: "updated", input });
         const prior = await tx.findOperation(current.id, input.operationId);
         if (prior) {
@@ -628,63 +677,90 @@ export function createEfaObservationService(
         }
         if (current.version !== input.expectedVersion)
           throw new Error("La observación cambió; actualiza el historial.");
-        if (
-          input.classification !== undefined &&
-          input.classification !== "adequate" &&
-          input.classification !== "needs_improvement"
-        )
-          throw new Error("La clasificación no es válida.");
-        const item =
-          input.catalogItemKey === undefined
-            ? current.catalogKeySnapshot === "other"
-              ? {
-                  catalogItemKey: null,
-                  catalogKeySnapshot: current.catalogKeySnapshot,
-                  catalogLabelSnapshot: current.catalogLabelSnapshot,
-                  catalogGroupSnapshot: input.otherGroup ?? current.catalogGroupSnapshot,
-                  otherDescription:
-                    input.otherDescription === undefined
-                      ? current.otherDescription
-                      : clean(input.otherDescription, 1000, "La descripción de otra conducta"),
-                }
-              : (() => {
-                  if (input.otherGroup !== undefined)
-                    throw new Error("El grupo solo se puede definir para otra conducta.");
-                  return {
-                    catalogItemKey: current.catalogItemKey,
+        let next: ObservationRecord;
+        if (input.recordKind === "participation") {
+          next = {
+            ...current,
+            recordKind: "participation",
+            participationLevel: input.participationLevel ?? current.participationLevel ?? null,
+            catalogItemKey: null,
+            catalogKeySnapshot: null,
+            catalogLabelSnapshot: null,
+            catalogGroupSnapshot: null,
+            otherDescription: null,
+            classification: null,
+            comment:
+              input.comment === undefined
+                ? current.comment
+                : clean(input.comment, 1000, "El comentario"),
+            observedAt:
+              input.observedAt === undefined
+                ? current.observedAt
+                : parseObservedAt(input.observedAt),
+          };
+        } else {
+          if (
+            input.classification !== undefined &&
+            input.classification !== "adequate" &&
+            input.classification !== "needs_improvement"
+          )
+            throw new Error("La clasificación no es válida.");
+          const item =
+            input.catalogItemKey === undefined
+              ? current.catalogKeySnapshot === "other"
+                ? {
+                    catalogItemKey: null,
                     catalogKeySnapshot: current.catalogKeySnapshot,
                     catalogLabelSnapshot: current.catalogLabelSnapshot,
-                    catalogGroupSnapshot: current.catalogGroupSnapshot,
+                    catalogGroupSnapshot: input.otherGroup ?? current.catalogGroupSnapshot,
                     otherDescription:
                       input.otherDescription === undefined
                         ? current.otherDescription
                         : clean(input.otherDescription, 1000, "La descripción de otra conducta"),
-                  };
-                })()
-            : await validateItem(
-                tx,
-                current.contextType,
-                input.catalogItemKey,
-                input.otherDescription === undefined && input.catalogItemKey === "other"
-                  ? current.otherDescription
-                  : input.otherDescription,
-                input.catalogItemKey === "other"
-                  ? (input.otherGroup ?? current.catalogGroupSnapshot)
-                  : input.otherGroup,
-              );
-        if (item.catalogKeySnapshot === "other" && !item.otherDescription)
-          throw new Error("La descripción de otra conducta es obligatoria.");
-        const next = {
-          ...current,
-          ...item,
-          classification: input.classification ?? current.classification,
-          comment:
-            input.comment === undefined
-              ? current.comment
-              : clean(input.comment, 1000, "El comentario"),
-          observedAt:
-            input.observedAt === undefined ? current.observedAt : parseObservedAt(input.observedAt),
-        };
+                  }
+                : (() => {
+                    if (input.otherGroup !== undefined)
+                      throw new Error("El grupo solo se puede definir para otra conducta.");
+                    return {
+                      catalogItemKey: current.catalogItemKey,
+                      catalogKeySnapshot: current.catalogKeySnapshot,
+                      catalogLabelSnapshot: current.catalogLabelSnapshot,
+                      catalogGroupSnapshot: current.catalogGroupSnapshot,
+                      otherDescription:
+                        input.otherDescription === undefined
+                          ? current.otherDescription
+                          : clean(input.otherDescription, 1000, "La descripción de otra conducta"),
+                    };
+                  })()
+              : await validateItem(
+                  tx,
+                  current.contextType,
+                  input.catalogItemKey,
+                  input.otherDescription === undefined && input.catalogItemKey === "other"
+                    ? current.otherDescription
+                    : input.otherDescription,
+                  input.catalogItemKey === "other"
+                    ? (input.otherGroup ?? current.catalogGroupSnapshot ?? undefined)
+                    : input.otherGroup,
+                );
+          if (item.catalogKeySnapshot === "other" && !item.otherDescription)
+            throw new Error("La descripción de otra conducta es obligatoria.");
+          next = {
+            ...current,
+            ...item,
+            recordKind: "conduct",
+            participationLevel: null,
+            classification: input.classification ?? current.classification ?? null,
+            comment:
+              input.comment === undefined
+                ? current.comment
+                : clean(input.comment, 1000, "El comentario"),
+            observedAt:
+              input.observedAt === undefined
+                ? current.observedAt
+                : parseObservedAt(input.observedAt),
+          };
+        }
         const before = state(current);
         const after = state(next);
         const changed = JSON.stringify(before) !== JSON.stringify(after);

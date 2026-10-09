@@ -2,48 +2,62 @@ import { createServerFn, createServerOnlyFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { currentAccessSession } from "./auth.functions";
 import { requireActiveSession, requireEfa } from "./access";
+import { evaluatorParticipationLevels } from "./efa-observations.record-types";
 
 const uuid = z.string().uuid();
 const version = z.number().int().positive();
 const observedAt = z.iso.datetime({ offset: true }).nullable().optional();
 const observationGroup = z.enum(["phone", "radio", "coordination", "duty", "record"]);
+const contextShapes = {
+  guard: { contextType: z.literal("guard"), guardId: uuid },
+  episode: { contextType: z.literal("episode"), guardId: uuid, episodeId: uuid },
+  communication: {
+    contextType: z.literal("communication"),
+    guardId: uuid,
+    episodeId: uuid,
+    communicationId: uuid,
+  },
+  dispatch: { contextType: z.literal("dispatch"), guardId: uuid, episodeId: uuid, dispatchId: uuid },
+  coordination: {
+    contextType: z.literal("coordination"),
+    guardId: uuid,
+    episodeId: uuid,
+    coordinationId: uuid,
+  },
+  police_event: {
+    contextType: z.literal("police_event"),
+    guardId: uuid,
+    episodeId: uuid,
+    coordinationId: uuid,
+    policeEventId: uuid,
+  },
+} as const;
+const contextVariants = {
+  guard: z.object(contextShapes.guard).strict(),
+  episode: z.object(contextShapes.episode).strict(),
+  communication: z.object(contextShapes.communication).strict(),
+  dispatch: z.object(contextShapes.dispatch).strict(),
+  coordination: z.object(contextShapes.coordination).strict(),
+  police_event: z.object(contextShapes.police_event).strict(),
+};
 const context = z.discriminatedUnion("contextType", [
-  z.object({ contextType: z.literal("guard"), guardId: uuid }).strict(),
-  z.object({ contextType: z.literal("episode"), guardId: uuid, episodeId: uuid }).strict(),
-  z
-    .object({
-      contextType: z.literal("communication"),
-      guardId: uuid,
-      episodeId: uuid,
-      communicationId: uuid,
-    })
-    .strict(),
-  z
-    .object({
-      contextType: z.literal("dispatch"),
-      guardId: uuid,
-      episodeId: uuid,
-      dispatchId: uuid,
-    })
-    .strict(),
-  z
-    .object({
-      contextType: z.literal("coordination"),
-      guardId: uuid,
-      episodeId: uuid,
-      coordinationId: uuid,
-    })
-    .strict(),
-  z
-    .object({
-      contextType: z.literal("police_event"),
-      guardId: uuid,
-      episodeId: uuid,
-      coordinationId: uuid,
-      policeEventId: uuid,
-    })
-    .strict(),
+  contextVariants.guard,
+  contextVariants.episode,
+  contextVariants.communication,
+  contextVariants.dispatch,
+  contextVariants.coordination,
+  contextVariants.police_event,
 ]);
+function withContextPayload<Payload extends z.ZodRawShape>(payload: Payload) {
+  return [
+    z.object({ ...contextShapes.guard, ...payload }).strict(),
+    z.object({ ...contextShapes.episode, ...payload }).strict(),
+    z.object({ ...contextShapes.communication, ...payload }).strict(),
+    z.object({ ...contextShapes.dispatch, ...payload }).strict(),
+    z.object({ ...contextShapes.coordination, ...payload }).strict(),
+    z.object({ ...contextShapes.police_event, ...payload }).strict(),
+  ] as const;
+}
 const serviceLoader = createServerOnlyFn(async () => {
   const { efaObservationService } = await import("./efa-observations.server");
   return efaObservationService;
@@ -67,33 +81,57 @@ export const observationIdSchema = uuid;
 export const observationNoticeIdSchema = uuid;
 export const observationCatalogKeySchema = z.string().min(1).max(100);
 export const observationContextSchema = context;
-export const observationCreateSchema = context.and(
-  z
-    .object({
-      clientCreationKey: uuid,
-      operationId: uuid,
-      catalogItemKey: observationCatalogKeySchema,
-      classification: z.enum(["adequate", "needs_improvement"]),
-      otherDescription: z.string().max(1000).nullable().optional(),
-      otherGroup: observationGroup.optional(),
-      comment: z.string().max(1000).nullable().optional(),
-      observedAt,
-    })
-    .strict(),
-);
-export const observationUpdateSchema = z
-  .object({
-    observationId: uuid,
-    expectedVersion: version,
-    operationId: uuid,
-    catalogItemKey: observationCatalogKeySchema.optional(),
-    classification: z.enum(["adequate", "needs_improvement"]).optional(),
+const createCommonShape = {
+  clientCreationKey: uuid,
+  operationId: uuid,
+};
+export const observationCreateSchema = z.union([
+  ...withContextPayload({
+    ...createCommonShape,
+    catalogItemKey: observationCatalogKeySchema,
+    classification: z.enum(["adequate", "needs_improvement"]),
     otherDescription: z.string().max(1000).nullable().optional(),
     otherGroup: observationGroup.optional(),
     comment: z.string().max(1000).nullable().optional(),
     observedAt,
-  })
-  .strict();
+    recordKind: z.literal("conduct").optional(),
+  }),
+  ...withContextPayload({
+    ...createCommonShape,
+    comment: z.string().max(1000).nullable().optional(),
+    observedAt,
+    recordKind: z.literal("participation"),
+    participationLevel: z.enum(evaluatorParticipationLevels),
+  }),
+]);
+const updateCommonShape = {
+  observationId: uuid,
+  expectedVersion: version,
+  operationId: uuid,
+};
+export const observationUpdateSchema = z.union([
+  z
+    .object({
+      ...updateCommonShape,
+      catalogItemKey: observationCatalogKeySchema.optional(),
+      classification: z.enum(["adequate", "needs_improvement"]).optional(),
+      otherDescription: z.string().max(1000).nullable().optional(),
+      otherGroup: observationGroup.optional(),
+      comment: z.string().max(1000).nullable().optional(),
+      observedAt,
+      recordKind: z.literal("conduct").optional(),
+    })
+    .strict(),
+  z
+    .object({
+      ...updateCommonShape,
+      comment: z.string().max(1000).nullable().optional(),
+      observedAt,
+      recordKind: z.literal("participation"),
+      participationLevel: z.enum(evaluatorParticipationLevels).optional(),
+    })
+    .strict(),
+]);
 
 export const getEfaObservationCatalog = createServerFn({ method: "GET" }).handler(() =>
   read((service, userId) => service.catalog(userId)),
