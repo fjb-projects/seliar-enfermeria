@@ -1,8 +1,19 @@
 import type { AccountRole } from "./access";
 
-export type PrivateReturnPath = "/panel" | "/admin-usuarios";
+export type PrivateSession = {
+  user: { id: string; name: string; email: string };
+  roles: string[];
+  expiresAt: string;
+};
 
-const privateDestinations = new Set<PrivateReturnPath>(["/panel", "/admin-usuarios"]);
+export type PrivateReturnPath = "/panel" | "/admin-usuarios" | "/guardia-efa" | "/episodios-efa";
+
+const privateDestinations = new Set<PrivateReturnPath>([
+  "/panel",
+  "/admin-usuarios",
+  "/guardia-efa",
+  "/episodios-efa",
+]);
 
 export function safePrivateReturnPath(value: unknown): PrivateReturnPath {
   if (typeof value !== "string") return "/panel";

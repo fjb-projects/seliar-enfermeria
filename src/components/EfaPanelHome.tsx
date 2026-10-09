@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { getEfaPanelQuickActions, type EfaPanelQuickAction } from "@/lib/efa-panel-quick-actions";
 
 export type EfaPanelSummary = {
   canWrite: boolean;
@@ -17,7 +18,7 @@ function ActionLink({
   children,
   variant = "default",
 }: {
-  to: "/guardia-efa" | "/episodios-efa" | "/admin-usuarios";
+  to: EfaPanelQuickAction["to"];
   children: React.ReactNode;
   variant?: "default" | "outline";
 }) {
@@ -29,6 +30,8 @@ function ActionLink({
 }
 export function EfaPanelHome({ summary }: { summary: EfaPanelSummary }) {
   const { canWrite, isAdmin, openGuard } = summary;
+  const quickActions = getEfaPanelQuickActions(summary);
+  const action = (id: EfaPanelQuickAction["id"]) => quickActions.find((item) => item.id === id)!;
 
   return (
     <Card>
@@ -42,7 +45,7 @@ export function EfaPanelHome({ summary }: { summary: EfaPanelSummary }) {
               <h2 id="efa-start-title" className="text-lg font-semibold">Tu próxima guardia EFA</h2>
               <p className="text-sm text-muted-foreground">Comienza por abrir tu guardia para registrar atenciones.</p>
             </div>
-            <ActionLink to="/guardia-efa">Iniciar guardia EFA</ActionLink>
+            <ActionLink to={action("start-guard").to}>{action("start-guard").label}</ActionLink>
             <ol className="list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
               <li>Inicia tu guardia.</li>
               <li>Selecciona las bases que cubrirás, si corresponde.</li>
@@ -57,8 +60,12 @@ export function EfaPanelHome({ summary }: { summary: EfaPanelSummary }) {
                 {openGuard.baseCount} {openGuard.baseCount === 1 ? "base" : "bases"} seleccionadas · {openGuard.activeEpisodeCount} {openGuard.activeEpisodeCount === 1 ? "atención activa" : "atenciones activas"}
               </p>
             </div>
-            <ActionLink to="/episodios-efa">Registrar o continuar atenciones</ActionLink>
-            <ActionLink to="/guardia-efa" variant="outline">Bases y dotación</ActionLink>
+            <ActionLink to={action("continue-episodes").to}>
+              {action("continue-episodes").label}
+            </ActionLink>
+            <ActionLink to={action("manage-guard").to} variant="outline">
+              {action("manage-guard").label}
+            </ActionLink>
           </section>
         ) : (
           <section aria-labelledby="efa-readonly-title" className="space-y-4">
@@ -70,14 +77,22 @@ export function EfaPanelHome({ summary }: { summary: EfaPanelSummary }) {
               </p>
             </div>
             <div className="flex flex-col gap-3 sm:flex-row">
-              <ActionLink to="/guardia-efa" variant="outline">Consultar mis guardias</ActionLink>
+              <ActionLink to={action("consult-guards").to} variant="outline">
+                {action("consult-guards").label}
+              </ActionLink>
             </div>
           </section>
         )}
         {isAdmin && (
           <nav aria-label="Administración" className="flex flex-col gap-3 border-t pt-4 sm:flex-row">
-            <ActionLink to="/admin-usuarios" variant="outline">Administrar cuentas</ActionLink>
-            <ActionLink to="/guardia-efa" variant="outline">Bases y dotación</ActionLink>
+            <ActionLink to={action("manage-accounts").to} variant="outline">
+              {action("manage-accounts").label}
+            </ActionLink>
+            {!openGuard && (
+              <ActionLink to={action("manage-guard").to} variant="outline">
+                {action("manage-guard").label}
+              </ActionLink>
+            )}
           </nav>
         )}
       </CardContent>

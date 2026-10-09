@@ -11,6 +11,7 @@ import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { SeliarMobileNav } from "@/components/SeliarMobileNav";
+import { SeliarNavigationProvider } from "@/components/SeliarNavigationProvider";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 
 function NotFoundComponent() {
@@ -141,9 +142,11 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-      <Outlet />
-      <SeliarMobileNav />
+      <SeliarNavigationProvider>
+        <SeliarMobileNav />
+        {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
+        <Outlet />
+      </SeliarNavigationProvider>
     </QueryClientProvider>
   );
 }

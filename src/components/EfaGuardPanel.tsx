@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { Button } from "@/components/ui/button";
@@ -586,6 +587,7 @@ export function EfaGuardPanel({
   isAdmin: boolean;
   canWrite: boolean;
 }) {
+  const queryClient = useQueryClient();
   const listGuards = useServerFn(listEfaGuards);
   const listBases = useServerFn(listActiveEfaGuardBases);
   const listStaffing = useServerFn(listEfaStaffing);
@@ -655,6 +657,7 @@ export function EfaGuardPanel({
     setMessage("");
     try {
       await action();
+      await queryClient.invalidateQueries({ queryKey: ["efa-panel-summary"] });
       await refresh();
       setMessage(success);
       return true;
@@ -696,6 +699,7 @@ export function EfaGuardPanel({
         );
       },
       onGuardConfirmed: (confirmed) => {
+        void queryClient.invalidateQueries({ queryKey: ["efa-panel-summary"] });
         setGuards((current) =>
           current.map((guard) => (guard.id === guardId ? { ...guard, ...confirmed } : guard)),
         );
@@ -705,7 +709,7 @@ export function EfaGuardPanel({
       },
     });
     return workspace;
-  }, [openOwnGuard?.id, currentUserId, canWrite]);
+  }, [openOwnGuard?.id, currentUserId, canWrite, queryClient]);
   const [workspaceSnapshot, setWorkspaceSnapshot] = useState<{
     guardId: string;
     snapshot: EfaGuardMobileWorkspaceSnapshot<GuardView, GuardBase>;

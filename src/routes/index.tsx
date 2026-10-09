@@ -1,4 +1,4 @@
-import { Link, createFileRoute } from "@tanstack/react-router";
+import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 import {
   ArrowLeftRight,
   CalendarDays,
@@ -8,8 +8,14 @@ import {
   HeartPulse,
   LogIn,
 } from "lucide-react";
+import { useSeliarNavigation } from "@/components/SeliarNavigationProvider";
+import { navigationSessionQueryOptions } from "@/lib/navigation-query-options";
 
 export const Route = createFileRoute("/")({
+  beforeLoad: async ({ context }) => {
+    const snapshot = await context.queryClient.fetchQuery(navigationSessionQueryOptions());
+    if (snapshot.status === "authenticated") throw redirect({ href: "/panel" });
+  },
   head: () => ({
     meta: [
       { title: "SeLIAR Enfermería" },
@@ -93,25 +99,39 @@ function ManagementLink({
 }
 
 function Home() {
+  const navigation = useSeliarNavigation();
+
+  if (navigation.sessionStatus === "unavailable") {
+    return (
+      <main className="workflow-background flex min-h-[calc(100vh-3.5rem)] items-center justify-center px-4 py-8">
+        <section className="max-w-md space-y-3 rounded-xl bg-card p-5 text-center shadow-sm" aria-labelledby="session-unavailable-title">
+          <h1 id="session-unavailable-title" className="text-lg font-semibold">No se pudo verificar la sesión</h1>
+          <p className="text-sm text-muted-foreground">Inténtalo nuevamente para continuar.</p>
+          <button onClick={navigation.retrySession} className="min-h-11 rounded-lg bg-primary px-4 font-semibold text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">Reintentar</button>
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className="workflow-background min-h-screen">
-      <div className="mx-auto min-h-screen w-full max-w-lg px-4 pb-28 pt-6 sm:px-5">
-        <header className="rounded-2xl bg-primary px-4 py-4 text-primary-foreground shadow-[0_12px_32px_oklch(0.27_0.035_202/0.22)] sm:px-5 sm:py-5">
+      <div className="mx-auto min-h-screen w-full max-w-lg px-4 pb-24 pt-2 sm:px-5 sm:pt-4 md:pb-8">
+        <header className="rounded-2xl bg-primary px-4 py-1.5 text-primary-foreground shadow-[0_12px_32px_oklch(0.27_0.035_202/0.22)] sm:px-5 sm:py-4">
           <div className="flex items-center gap-3">
-            <span className="flex h-9 w-14 shrink-0 items-center justify-center overflow-hidden rounded-[3px] bg-white p-1">
+            <span className="flex h-8 w-12 shrink-0 items-center justify-center overflow-hidden rounded-[3px] bg-white p-1 sm:h-9 sm:w-14">
               <img src="/logoSIES.jpg" alt="Logo SIES" className="h-full w-full object-contain" />
             </span>
-            <h1 className="min-w-0 font-display text-2xl font-bold leading-tight">
+            <h1 className="min-w-0 font-display text-lg font-bold leading-tight sm:text-2xl">
               Enfermería SeLIAR
             </h1>
           </div>
-          <p className="mt-2 max-w-md text-xs leading-5 text-primary-foreground/85 sm:text-sm">
+          <p className="mt-0 max-w-md text-[10px] leading-3 text-primary-foreground/85 sm:mt-2 sm:text-sm sm:leading-5">
             Panel operativo para el equipo de enfermería de la SeLIAR de Santa Fe.
           </p>
         </header>
 
         <section
-          className="mt-5 rounded-2xl bg-primary p-4 text-primary-foreground shadow-[0_18px_40px_oklch(0.2_0.04_202/0.28)] sm:p-5"
+          className="mt-3 rounded-2xl bg-primary p-4 text-primary-foreground shadow-[0_18px_40px_oklch(0.2_0.04_202/0.28)] sm:mt-5 sm:p-5"
           aria-labelledby="tu-guardia-heading"
         >
           <h2
@@ -145,7 +165,7 @@ function Home() {
         </section>
 
         <section
-          className="mt-5 min-h-[calc(100vh-17rem)] rounded-t-[24px] bg-white px-4 pb-8 pt-6 shadow-[0_-10px_28px_oklch(0.27_0.035_202/0.12)] sm:px-6"
+          className="mt-4 min-h-[calc(100vh-15rem)] rounded-t-[24px] bg-white px-4 pb-8 pt-5 shadow-[0_-10px_28px_oklch(0.27_0.035_202/0.12)] sm:mt-5 sm:px-6 sm:pt-6"
           aria-labelledby="gestiones-title"
         >
           <h2 id="gestiones-title" className="font-display text-2xl font-semibold text-foreground">

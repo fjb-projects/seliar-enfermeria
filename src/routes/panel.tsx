@@ -1,18 +1,24 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { PrivateAccountShell, type PrivateSession } from "@/components/PrivateAccountShell";
 import { EfaPanelHome, type EfaPanelSummary } from "@/components/EfaPanelHome";
-import { getEfaPanelSummary } from "@/lib/efa-panel.functions";
-import { readSession } from "@/lib/auth.functions";
 import { SessionLoadError } from "@/components/SessionLoadError";
+import { efaPanelSummaryQueryOptions, navigationSessionQueryOptions } from "@/lib/navigation-query-options";
 
 export const Route = createFileRoute("/panel")({
   errorComponent: SessionLoadError,
-  beforeLoad: async () => {
-    const session = await readSession();
-    if (!session) throw redirect({ href: "/login?returnTo=%2Fpanel" });
-    return { session: session as PrivateSession };
+  beforeLoad: async ({ context }) => {
+    const snapshot = await context.queryClient.fetchQuery(navigationSessionQueryOptions());
+    if (snapshot.status === "unavailable") throw new Error("Session could not be verified");
+    if (snapshot.status === "anonymous") throw redirect({ href: "/login?returnTo=%2Fpanel" });
+    return { session: snapshot.session as PrivateSession };
   },
-  loader: async () => ({ summary: (await getEfaPanelSummary()) as EfaPanelSummary }),
+  loader: async ({ context }) => {
+    const { session } = context as typeof context & { session: PrivateSession };
+    const summary = await context.queryClient.fetchQuery(
+      efaPanelSummaryQueryOptions(session.user.id),
+    );
+    return { summary: summary as EfaPanelSummary };
+  },
   component: PanelPage,
 });
 

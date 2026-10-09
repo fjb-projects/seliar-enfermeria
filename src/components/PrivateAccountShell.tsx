@@ -1,20 +1,16 @@
 import type { ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
-import { useServerFn } from "@tanstack/react-start";
-import { useReducer, useState } from "react";
+import { useReducer } from "react";
 import { ChevronDown } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { WorkflowHeader } from "@/components/WorkflowHeader";
 import { WorkflowShell } from "@/components/WorkflowShell";
-import { signOut } from "@/lib/auth.functions";
+import { useSeliarNavigation } from "@/components/SeliarNavigationProvider";
 import { isAdministrator } from "@/lib/private-ui";
+import type { PrivateSession } from "@/lib/private-ui";
 
-export type PrivateSession = {
-  user: { id: string; name: string; email: string };
-  roles: string[];
-  expiresAt: string;
-};
+export type { PrivateSession } from "@/lib/private-ui";
 
 export type AccountHeaderInteraction = {
   expanded: boolean;
@@ -74,25 +70,11 @@ export function PrivateAccountShell({
   session: PrivateSession;
   children: ReactNode;
 }) {
-  const signOutFn = useServerFn(signOut);
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
+  const { logout, logoutPending, logoutError } = useSeliarNavigation();
   const [headerInteraction, dispatchHeaderInteraction] = useReducer(
     reduceAccountHeaderInteraction,
     initialAccountHeaderInteraction,
   );
-  async function logout() {
-    setBusy(true);
-    setError("");
-    try {
-      await signOutFn();
-      window.location.assign("/login");
-    } catch {
-      setError("No se pudo cerrar la sesión. Inténtalo nuevamente.");
-      setBusy(false);
-    }
-  }
-
   const headerHandlers = {
     onPointerEnter: (event: React.PointerEvent<HTMLElement>) => {
       const fineHoverCapability =
@@ -168,14 +150,17 @@ export function PrivateAccountShell({
                         <Link to="/admin-usuarios">Administrar cuentas</Link>
                       </Button>
                     )}
-                    <Button
-                      onClick={logout}
-                      disabled={busy}
-                      variant="secondary"
-                      className="min-h-11"
-                    >
-                      {busy ? "Cerrando…" : "Cerrar sesión"}
-                    </Button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {logoutError && <p role="alert" className="max-w-56 text-xs text-destructive">{logoutError}</p>}
+                      <Button
+                        onClick={() => void logout()}
+                        disabled={logoutPending}
+                        variant="secondary"
+                        className="min-h-11"
+                      >
+                        {logoutPending ? "Logging out…" : "Logout"}
+                      </Button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -185,11 +170,6 @@ export function PrivateAccountShell({
       }
     >
       <div className="space-y-5">
-        {error && (
-          <p role="alert" className="text-sm text-destructive">
-            {error}
-          </p>
-        )}
         {children}
       </div>
     </WorkflowShell>

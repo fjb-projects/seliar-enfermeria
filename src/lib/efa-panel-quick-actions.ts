@@ -1,0 +1,67 @@
+import type { LucideIcon } from "lucide-react";
+import { CalendarCheck, ClipboardClock, ShieldCheck, Users } from "lucide-react";
+import type { EfaPanelSummary } from "@/components/EfaPanelHome";
+
+export type EfaPanelQuickAction = {
+  id: "start-guard" | "continue-episodes" | "manage-guard" | "consult-guards" | "manage-accounts";
+  to: "/guardia-efa" | "/episodios-efa" | "/admin-usuarios";
+  label: string;
+  navLabel: string;
+  icon: LucideIcon;
+};
+
+const actions: Record<EfaPanelQuickAction["id"], EfaPanelQuickAction> = {
+  "start-guard": {
+    id: "start-guard",
+    to: "/guardia-efa",
+    label: "Iniciar guardia EFA",
+    navLabel: "Iniciar guardia",
+    icon: ClipboardClock,
+  },
+  "continue-episodes": {
+    id: "continue-episodes",
+    to: "/episodios-efa",
+    label: "Registrar o continuar atenciones",
+    navLabel: "Atenciones",
+    icon: CalendarCheck,
+  },
+  "manage-guard": {
+    id: "manage-guard",
+    to: "/guardia-efa",
+    label: "Bases y dotación",
+    navLabel: "Bases y dotación",
+    icon: ClipboardClock,
+  },
+  "consult-guards": {
+    id: "consult-guards",
+    to: "/guardia-efa",
+    label: "Consultar mis guardias",
+    navLabel: "Consultar guardias",
+    icon: ShieldCheck,
+  },
+  "manage-accounts": {
+    id: "manage-accounts",
+    to: "/admin-usuarios",
+    label: "Administrar cuentas",
+    navLabel: "Cuentas",
+    icon: Users,
+  },
+};
+
+export function getEfaPanelQuickActions(summary: EfaPanelSummary): EfaPanelQuickAction[] {
+  const selected: EfaPanelQuickAction[] = [];
+
+  if (summary.canWrite) {
+    selected.push(actions[summary.openGuard ? "continue-episodes" : "start-guard"]);
+    if (summary.openGuard) selected.push(actions["manage-guard"]);
+  } else {
+    selected.push(actions["consult-guards"]);
+  }
+
+  if (summary.isAdmin) {
+    selected.push(actions["manage-accounts"]);
+    if (!summary.openGuard) selected.push(actions["manage-guard"]);
+  }
+
+  return selected;
+}

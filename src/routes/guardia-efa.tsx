@@ -6,17 +6,18 @@ import {
   listActiveEfaGuardBases,
   listEfaGuards,
 } from "@/lib/efa-guards.functions";
-import { readSession } from "@/lib/auth.functions";
 import { listEfaStaffing } from "@/lib/efa-staffing.functions";
 import { listEfaMobileArrivalsForGuard } from "@/lib/efa-mobile-arrivals.functions";
 import { SessionLoadError } from "@/components/SessionLoadError";
+import { navigationSessionQueryOptions } from "@/lib/navigation-query-options";
 
 export const Route = createFileRoute("/guardia-efa")({
   errorComponent: SessionLoadError,
-  beforeLoad: async () => {
-    const session = await readSession();
-    if (!session) throw redirect({ href: "/login?returnTo=%2Fguardia-efa" });
-    return { session: session as PrivateSession };
+  beforeLoad: async ({ context }) => {
+    const snapshot = await context.queryClient.fetchQuery(navigationSessionQueryOptions());
+    if (snapshot.status === "unavailable") throw new Error("Session could not be verified");
+    if (snapshot.status === "anonymous") throw redirect({ href: "/login?returnTo=%2Fguardia-efa" });
+    return { session: snapshot.session as PrivateSession };
   },
   loader: async ({ context }) => {
     const session = context.session as PrivateSession;
