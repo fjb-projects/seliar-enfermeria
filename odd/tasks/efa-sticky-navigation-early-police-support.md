@@ -44,7 +44,7 @@ The service tabs scroll away after the five-step call form. The mobile workflow 
 - Independent inspection closed a stale-adoption concern by repeating mounted/user/episode guards after the new asynchronous dispatch refresh; selection and dirty-state checks remain intact.
 - Viewport QA is unavailable: a disposable fixture using the real components/CSS started locally, but both IAB and Chrome browser automation were unavailable. Responsive scroll, resize, keyboard and collapse behavior require manual viewport confirmation. Fixture/baseline evidence remains in `.tmp/efa-service-flow-qa/` and is excluded from commits.
 - Final native assessment: medium, executable change, under budget (282 authored changed lines at assessment). RDD remains disabled/unmanaged; no review lifecycle was started. Independent verification was completed because the initial assessment was unassessable and the writer used a small-model profile.
-- Running committed authored-line count: 100 after T1; final count pending closing readback. The feature stays below the 400-line delivery heuristic.
+- Running authored-line count at closure: 299 across local work-unit/tracking commits (100 T1, 195 T2, four tracking-only lines); net feature diff is 289 lines. The feature stays below the 400-line delivery heuristic.
 
 ## Progress and next step
 
