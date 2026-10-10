@@ -12,8 +12,8 @@ import {
 
 const episode = { id: "episode-1", ownerUserId: "owner" };
 const dispatches = [
-  { id: "dispatch-1", episodeId: episode.id, ownerUserId: episode.ownerUserId },
-  { id: "dispatch-2", episodeId: episode.id, ownerUserId: episode.ownerUserId },
+  { id: "dispatch-1", episodeId: episode.id, ownerUserId: episode.ownerUserId, state: "finalized" },
+  { id: "dispatch-2", episodeId: episode.id, ownerUserId: episode.ownerUserId, state: "draft" },
   { id: "foreign", episodeId: "other-episode", ownerUserId: "other-owner" },
 ];
 const now = () => new Date("2026-10-07T10:00:00.000Z");
@@ -173,6 +173,46 @@ function fixture() {
 }
 
 describe("EFA police coordination service", () => {
+  it("creates support without a dispatch, records an earlier event, and accepts a later draft link", async () => {
+    const f = fixture();
+    const created = await f.service.create("owner", {
+      episodeId: episode.id,
+      clientCreationKey: "early-support",
+      operationId: "early-support-create",
+      initiator: "central",
+      placeType: "incident",
+      dispatchIds: [],
+    });
+
+    expect(created.coordination).toMatchObject({
+      initiatingDispatchId: null,
+      dispatchIds: [],
+    });
+
+    const event = await f.service.addEvent("owner", {
+      coordinationId: created.coordination.id,
+      expectedVersion: 1,
+      operationId: "early-support-event",
+      clientEventId: "early-support-event-id",
+      kind: "request",
+      dispatchId: null,
+      occurredAt: "2026-10-06T08:30:00.000Z",
+      timeStatus: "observed",
+    });
+    expect(event.event).toMatchObject({
+      dispatchId: null,
+      occurredAt: "2026-10-06T08:30:00.000Z",
+    });
+
+    const associated = await f.service.setDispatches("owner", {
+      coordinationId: created.coordination.id,
+      expectedVersion: 2,
+      operationId: "early-support-link-draft",
+      dispatchIds: ["dispatch-2"],
+    });
+    expect(associated.coordination.dispatchIds).toEqual(["dispatch-2"]);
+  });
+
   it("omits client placeholder timestamps at the production database insert boundary", () => {
     expect(
       omitDatabaseTimestamps({

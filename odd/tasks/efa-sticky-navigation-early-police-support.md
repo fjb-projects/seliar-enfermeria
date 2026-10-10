@@ -23,11 +23,13 @@ The service tabs scroll away after the five-step call form. The mobile workflow 
   - Acceptance: sticky tab bar at mobile/desktop sizes; variable header height respected; keyboard access and collapsed state preserved.
   - Checks: existing workspace tests; focused typecheck; inspect sticky layout when a local viewport harness is available.
   - Rollback: workspace sticky treatment and header offset measurement only.
-- [ ] T2: Refresh dispatch choices when Police support becomes active, retain unsaved support edits, and explain early activation and later association.
+  - Commit: `42ab958` (`feat(efa): keep service sections visible while scrolling`), 100 authored lines including tests and tracking.
+- [x] T2: Refresh dispatch choices when Police support becomes active, retain unsaved support edits, and explain early activation and later association.
   - Route: delegated direct; episode integration and police panel require coordinated logic.
   - Acceptance: save without call/dispatch; saved draft dispatch becomes selectable on return; associate later; earlier police timestamps accepted; ownership guards unchanged.
   - Checks: deterministic RED/GREEN for stale-list regression if runnable; focused episode/police/server tests; typecheck and production build.
   - Rollback: police activation refresh, its episode integration and related guidance/tests only.
+  - Commit: T2_COMMIT_ID (`fix(efa): refresh dispatch choices when revisiting police support`).
 
 ## Delivery and verification
 
@@ -42,8 +44,8 @@ The service tabs scroll away after the five-step call form. The mobile workflow 
 - Independent inspection closed a stale-adoption concern by repeating mounted/user/episode guards after the new asynchronous dispatch refresh; selection and dirty-state checks remain intact.
 - Viewport QA is unavailable: a disposable fixture using the real components/CSS started locally, but both IAB and Chrome browser automation were unavailable. Responsive scroll, resize, keyboard and collapse behavior require manual viewport confirmation. Fixture/baseline evidence remains in `.tmp/efa-service-flow-qa/` and is excluded from commits.
 - Final native assessment: medium, executable change, under budget (282 authored changed lines at assessment). RDD remains disabled/unmanaged; no review lifecycle was started. Independent verification was completed because the initial assessment was unassessable and the writer used a small-model profile.
-- Commit identities and running committed authored-line count: pending.
+- Running committed authored-line count: 100 after T1; final count pending closing readback. The feature stays below the 400-line delivery heuristic.
 
 ## Progress and next step
 
-Both implementations and independent source verification are complete. T1 measures the mobile header for the sticky tab offset and is ready for its work-unit commit. T2 refreshes dispatch choices on activation without replacing editable support data; its task closes after the separate work-unit commit. The final source/test diff is 238 authored lines. Manual viewport QA and pre-existing typecheck failures are explicitly pending. Engram mirror pending until confirmed readback.
+Both tasks are implemented and verified with their recorded checks. The final source/test diff is 238 authored lines. Manual viewport QA and pre-existing typecheck failures remain as follow-ups. This document is mirrored in Engram under `odd/efa-sticky-navigation-early-police-support/tasks`. No remote delivery is authorized.

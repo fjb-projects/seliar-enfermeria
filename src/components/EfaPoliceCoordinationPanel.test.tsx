@@ -40,6 +40,25 @@ describe("EfaPoliceCoordinationPanel", () => {
     notes,
   });
 
+  it("explains that police support can start early and dispatches can be associated later", () => {
+    const html = renderToStaticMarkup(
+      <EfaPoliceCoordinationPanel
+        episodeId="episode-1"
+        episodeLabel="Episodio de prueba"
+        currentUserId="owner"
+        canWrite={true}
+        episodeCanEdit={true}
+      />,
+    );
+
+    expect(html).toContain(
+      "Puede iniciar una coordinación antes de registrar una llamada o un despacho.",
+    );
+    expect(html).toContain(
+      "Más adelante podrá asociar los despachos de este episodio, incluso si siguen como borrador.",
+    );
+  });
+
   it("keeps all three coordination steps available from compact navigation", () => {
     const html = renderToStaticMarkup(
       <EfaPoliceCoordinationPanel
@@ -315,7 +334,7 @@ describe("EfaPoliceCoordinationPanel", () => {
         episodeCanEdit={false}
       />,
     );
-    expect(html).toContain("Coordinación policial");
+    expect(html).toContain("Apoyo policial");
     expect(html).toContain("Solo lectura");
     expect(html).not.toContain("Nueva coordinación");
   });

@@ -365,7 +365,8 @@ export function EfaEpisodePanel({
       setServiceIntroNotice({
         ownerUserId: currentUserId,
         visible: true,
-        feedback: "No se pudo consultar el almacenamiento del navegador; el aviso permanecerá visible.",
+        feedback:
+          "No se pudo consultar el almacenamiento del navegador; el aviso permanecerá visible.",
       });
     }
   }, [currentUserId]);
@@ -380,7 +381,8 @@ export function EfaEpisodePanel({
       setServiceIntroNotice({
         ownerUserId: currentUserId,
         visible: false,
-        feedback: "No se pudo recordar esta preferencia; el aviso volverá a mostrarse al regresar a esta sección.",
+        feedback:
+          "No se pudo recordar esta preferencia; el aviso volverá a mostrarse al regresar a esta sección.",
       });
     }
   }
@@ -2202,6 +2204,7 @@ export function EfaEpisodePanel({
                         currentUserId={currentUserId}
                         canWrite={canWrite}
                         episodeCanEdit={episode.canEdit}
+                        isActive={activeWorkspaceSection === "police"}
                       />
                     </div>
                   )}

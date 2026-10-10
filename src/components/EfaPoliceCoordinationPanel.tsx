@@ -30,6 +30,20 @@ type DispatchChoice = {
   state: string;
   priority: string | null;
 };
+function mapDispatchChoices(rows: Array<Record<string, unknown>>): DispatchChoice[] {
+  return rows.map((item) => ({
+    id: String(item["id"]),
+    baseName: String(item["baseName"] ?? "").trim() || "Base institucional",
+    version: Number(item["version"]),
+    canEdit: Boolean(item["canEdit"]),
+    createdAt:
+      typeof item["createdAt"] === "string" || item["createdAt"] instanceof Date
+        ? item["createdAt"]
+        : null,
+    state: String(item["state"] ?? ""),
+    priority: typeof item["priority"] === "string" ? item["priority"] : null,
+  }));
+}
 function formatLinkedDispatchDate(value: string | Date | null | undefined) {
   if (!value) return null;
   const date = value instanceof Date ? value : new Date(value);
@@ -60,12 +74,7 @@ function dispatchChoiceLabel(dispatch: DispatchChoice) {
         : dispatch.priority === "green"
           ? "Prioridad verde"
           : "";
-  return [
-    dispatch.baseName,
-    formatLinkedDispatchDate(dispatch.createdAt),
-    state,
-    priority,
-  ]
+  return [dispatch.baseName, formatLinkedDispatchDate(dispatch.createdAt), state, priority]
     .filter(Boolean)
     .join(" · ");
 }
@@ -414,12 +423,14 @@ export function EfaPoliceCoordinationPanel({
   currentUserId,
   canWrite,
   episodeCanEdit,
+  isActive = true,
 }: {
   episodeId: string;
   episodeLabel: string;
   currentUserId: string;
   canWrite: boolean;
   episodeCanEdit: boolean;
+  isActive?: boolean;
 }) {
   const listFn = useServerFn(listEfaPoliceCoordinationsForEpisode);
   const getFn = useServerFn(getEfaPoliceCoordination);
@@ -478,6 +489,7 @@ export function EfaPoliceCoordinationPanel({
     remote: PoliceCoordinationView | null;
   } | null>(null);
   const mounted = useRef(false);
+  const dispatchChoicesRequestRef = useRef(0);
   const context = useRef({ currentUserId, episodeId, canWrite, episodeCanEdit });
   const selectionTicket = useRef(0);
   const formDirtyRef = useRef(false);
@@ -523,14 +535,36 @@ export function EfaPoliceCoordinationPanel({
     setLinks(value);
   };
 
+  const refreshDispatchChoices = useCallback(async () => {
+    const requestId = ++dispatchChoicesRequestRef.current;
+    const requestContext = { ...context.current };
+    const isCurrentRequest = () =>
+      mounted.current &&
+      dispatchChoicesRequestRef.current === requestId &&
+      context.current.currentUserId === requestContext.currentUserId &&
+      context.current.episodeId === requestContext.episodeId;
+
+    try {
+      const rows = await listDispatchesFn({ data: requestContext.episodeId });
+      if (isCurrentRequest()) {
+        setDispatches(mapDispatchChoices(rows as Array<Record<string, unknown>>));
+      }
+    } catch (error) {
+      if (isCurrentRequest()) {
+        setMessage(
+          error instanceof Error ? error.message : "No se pudieron actualizar los despachos.",
+        );
+      }
+    }
+  }, [listDispatchesFn]);
+
   const refreshLists = useCallback(
     async (adopt?: PoliceCoordinationView) => {
       const ticket = selectionTicket.current;
       const requestContext = { ...context.current };
-      const [rows, noticesResult, dispatchRows] = await Promise.all([
+      const [rows, noticesResult] = await Promise.all([
         listFn({ data: requestContext.episodeId }),
         noticesFn(),
-        listDispatchesFn({ data: requestContext.episodeId }),
       ]);
       if (
         !mounted.current ||
@@ -540,20 +574,13 @@ export function EfaPoliceCoordinationPanel({
         return;
       setItems(rows as PoliceCoordinationView[]);
       setNotices(noticesResult as typeof notices);
-      setDispatches(
-        (dispatchRows as Array<Record<string, unknown>>).map((item) => ({
-          id: String(item["id"]),
-          baseName: String(item["baseName"] ?? "").trim() || "Base institucional",
-          version: Number(item["version"]),
-          canEdit: Boolean(item["canEdit"]),
-          createdAt:
-            typeof item["createdAt"] === "string" || item["createdAt"] instanceof Date
-              ? item["createdAt"]
-              : null,
-          state: String(item["state"] ?? ""),
-          priority: typeof item["priority"] === "string" ? item["priority"] : null,
-        })),
-      );
+      await refreshDispatchChoices();
+      if (
+        !mounted.current ||
+        context.current.currentUserId !== requestContext.currentUserId ||
+        context.current.episodeId !== requestContext.episodeId
+      )
+        return;
       if (
         adopt &&
         selectedRef.current === adopt.id &&
@@ -573,7 +600,7 @@ export function EfaPoliceCoordinationPanel({
         setDispatchesDirtyTracked(false);
       }
     },
-    [listDispatchesFn, listFn, noticesFn],
+    [listFn, noticesFn, refreshDispatchChoices],
   );
 
   useEffect(() => {
@@ -586,10 +613,9 @@ export function EfaPoliceCoordinationPanel({
         if (!live || !mounted.current) return;
         const store = queue.createPoliceQueueStore();
         storeRef.current = store;
-        const [rows, noticeRows, dispatchModule, pending] = await Promise.all([
+        const [rows, noticeRows, pending] = await Promise.all([
           listFn({ data: episodeId }),
           noticesFn(),
-          listDispatchesFn({ data: episodeId }),
           store.list(currentUserId, episodeId),
         ]);
         if (
@@ -600,27 +626,6 @@ export function EfaPoliceCoordinationPanel({
           return;
         setItems(rows as PoliceCoordinationView[]);
         setNotices(noticeRows as typeof notices);
-        const dispatchRows = dispatchModule;
-        if (
-          !live ||
-          context.current.currentUserId !== currentUserId ||
-          context.current.episodeId !== episodeId
-        )
-          return;
-        setDispatches(
-          (dispatchRows as Array<Record<string, unknown>>).map((item) => ({
-            id: String(item["id"]),
-            baseName: String(item["baseName"] ?? "").trim() || "Base institucional",
-            version: Number(item["version"]),
-            canEdit: Boolean(item["canEdit"]),
-            createdAt:
-              typeof item["createdAt"] === "string" || item["createdAt"] instanceof Date
-                ? item["createdAt"]
-                : null,
-            state: String(item["state"] ?? ""),
-            priority: typeof item["priority"] === "string" ? item["priority"] : null,
-          })),
-        );
         setQueueEntries(pending);
         setLoading(false);
       } catch (error) {
@@ -634,7 +639,19 @@ export function EfaPoliceCoordinationPanel({
       live = false;
       mounted.current = false;
     };
-  }, [currentUserId, episodeId, listDispatchesFn, listFn, noticesFn]);
+  }, [currentUserId, episodeId, listFn, noticesFn]);
+
+  useEffect(() => {
+    if (!isActive) {
+      dispatchChoicesRequestRef.current += 1;
+      return;
+    }
+
+    void refreshDispatchChoices();
+    return () => {
+      dispatchChoicesRequestRef.current += 1;
+    };
+  }, [currentUserId, episodeId, isActive, refreshDispatchChoices]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1466,6 +1483,10 @@ export function EfaPoliceCoordinationPanel({
         <CardTitle>Apoyo policial</CardTitle>
         <p className="text-sm text-muted-foreground">
           {canWrite ? "Acceso EFA vigente" : "Solo lectura"}
+        </p>
+        <p className="text-sm text-muted-foreground">
+          Puede iniciar una coordinación antes de registrar una llamada o un despacho. Más adelante
+          podrá asociar los despachos de este episodio, incluso si siguen como borrador.
         </p>
       </CardHeader>
       <CardContent
