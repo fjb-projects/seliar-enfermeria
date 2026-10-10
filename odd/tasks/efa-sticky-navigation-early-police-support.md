@@ -29,7 +29,7 @@ The service tabs scroll away after the five-step call form. The mobile workflow 
   - Acceptance: save without call/dispatch; saved draft dispatch becomes selectable on return; associate later; earlier police timestamps accepted; ownership guards unchanged.
   - Checks: deterministic RED/GREEN for stale-list regression if runnable; focused episode/police/server tests; typecheck and production build.
   - Rollback: police activation refresh, its episode integration and related guidance/tests only.
-  - Commit: T2_COMMIT_ID (`fix(efa): refresh dispatch choices when revisiting police support`).
+  - Commit: 201119c (`fix(efa): refresh dispatch choices when revisiting police support`).
 
 ## Delivery and verification
 
