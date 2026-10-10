@@ -42,9 +42,9 @@ Vercel rejected the deployment because `@tanstack/react-start@1.168.32` was belo
 - Independent verification: no manifest/lock mismatch; all 50 exact TanStack dependency edges resolve to declared versions. The successful build was accepted from the delegated command result and not rerun independently; it verifies local compilation, not Vercel runtime behavior. Node requirement for Start is `>=22.12.0`; Vercel's selected Node version remains unverified.
 - Focused test: N/A, per user preference. Runtime/build command: `npm run build` — exit 0.
 - Rollback boundary: revert only `package.json`, `package-lock.json`, and this task record to remove this dependency repair.
-- Commit: pending.
+- Work-unit commit: `050a3c5` — `fix(deps): align TanStack Start patch cohort`.
 - Delivery strategy: `ask-on-risk`; no push or PR requested in this task.
 
 ## Next Step
 
-Record the work-unit commit, then report whether the updated build is ready for the user to push to `main`.
+The patched dependency set and local build are complete. The user can push the work-unit commit to `main` to trigger Vercel; Vercel's selected Node version remains to be confirmed there.
