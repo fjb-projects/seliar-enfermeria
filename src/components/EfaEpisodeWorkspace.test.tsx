@@ -36,12 +36,12 @@ describe("EfaEpisodeWorkspace", () => {
     expect(html).toContain('role="tabpanel"');
     expect(html).toContain("Llamadas");
     expect(html).toContain("Despachos");
-    expect(html).toContain("Coordinación");
+    expect(html).toContain("Apoyo policial");
     expect(html).toContain("Conductas");
     expect(html).toContain("grid min-w-0 grid-cols-2");
     expect(html).toContain("whitespace-normal break-words");
     expect(html).toContain("h-auto min-h-11");
-    expect(html).toContain('<span class="min-w-0 break-words">Coordinación</span>');
+    expect(html).toContain('<span class="min-w-0 break-words">Apoyo policial</span>');
     expect(html).not.toContain("overflow-x-auto");
     expect(html).toContain("Contenido de la sección activa");
   });

@@ -1,4 +1,5 @@
 import type { WorkflowContentWidth } from "@/components/WorkflowShell";
+import { useEffect, useRef } from "react";
 import type { HTMLAttributes, ReactNode } from "react";
 
 const contentWidths: Record<WorkflowContentWidth, string> = {
@@ -30,9 +31,40 @@ export function WorkflowHeader({
   accountInteractionHandlers,
   compactLogo = false,
 }: WorkflowHeaderProps) {
+  const mobileHeaderRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const header = mobileHeaderRef.current;
+    if (!header) return;
+
+    const root = document.documentElement;
+    const previousHeight = root.style.getPropertyValue("--workflow-header-height");
+    const previousPriority = root.style.getPropertyPriority("--workflow-header-height");
+    const updateHeight = () => {
+      root.style.setProperty(
+        "--workflow-header-height",
+        `${header.getBoundingClientRect().height}px`,
+      );
+    };
+
+    updateHeight();
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(header);
+
+    return () => {
+      observer.disconnect();
+      if (previousHeight) {
+        root.style.setProperty("--workflow-header-height", previousHeight, previousPriority);
+      } else {
+        root.style.removeProperty("--workflow-header-height");
+      }
+    };
+  }, []);
+
   return (
     <>
       <header
+        ref={mobileHeaderRef}
         {...accountInteractionHandlers}
         className="sticky top-0 z-40 border-b-4 border-[var(--brand-orange)] bg-primary text-primary-foreground shadow-md md:hidden"
       >
@@ -63,9 +95,15 @@ export function WorkflowHeader({
         </div>
         {accountDetails}
       </header>
-      <div className={`mx-auto hidden w-full ${contentWidths[contentWidth]} px-4 pt-4 sm:px-6 md:block`}>
-        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{eyebrow}</p>
-        <h1 className="font-display text-xl font-semibold leading-tight text-foreground">{title}</h1>
+      <div
+        className={`mx-auto hidden w-full ${contentWidths[contentWidth]} px-4 pt-4 sm:px-6 md:block`}
+      >
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          {eyebrow}
+        </p>
+        <h1 className="font-display text-xl font-semibold leading-tight text-foreground">
+          {title}
+        </h1>
         <p className="mt-1 text-sm text-muted-foreground">{description}</p>
       </div>
     </>

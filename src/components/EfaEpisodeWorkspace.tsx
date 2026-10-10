@@ -148,7 +148,8 @@ export function EfaEpisodeWorkspace({
         <nav
           role="tablist"
           aria-label="Secciones del servicio"
-          className="grid min-w-0 grid-cols-2 gap-2"
+          className="sticky z-30 grid min-w-0 grid-cols-2 gap-2 bg-background py-2"
+          style={{ top: "var(--workflow-header-height, 0px)" }}
         >
           {sections.map((section) => (
             <Button
