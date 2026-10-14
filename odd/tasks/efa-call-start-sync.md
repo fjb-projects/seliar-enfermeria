@@ -36,7 +36,7 @@ Keep the service start data and the call consistent: when the first call is regi
 - [x] T1 — First call created with the episode gets `startedAt = eventAt` (server, deterministic, replay-safe); tests alongside. Commit 8e967d0.
 - [x] T2 — Call panel: new `episode` prop (eventAt, address), read-only echo line, prefill "Inicio real" for new calls (editable, correct `timeReviewed`/dirty semantics); wire from `EfaEpisodePanel`; tests alongside. Commit b5083e1.
 - [x] T3 — Summary and timeline: call without `startedAt` shows "Sin hora" (timeline puts it in the "Sin hora" group); tests alongside. Commit 1277d86.
-- [x] T4 — New service form must be blank: after a confirmed create with first-call continuation the form resets to a blank "new service" (`selectedId` null, `registerFirstCall` true) while the call area for the new service stays reachable; an always-available "Nuevo servicio" button replaces "Cancelar edición"; title "Nuevo episodio" -> "Nuevo servicio"; pure helpers `resolvePostCreateState`, `canBeginNewService`, `episodeFormTitle` unit-tested. Commit: see Evidence.
+- [x] T4 — New service form must be blank: after a confirmed create with first-call continuation the form resets to a blank "new service" (`selectedId` null, `registerFirstCall` true) while the call area for the new service stays reachable; an always-available "Nuevo servicio" button replaces "Cancelar edición"; title "Nuevo episodio" -> "Nuevo servicio"; pure helpers `resolvePostCreateState`, `canBeginNewService`, `episodeFormTitle` unit-tested. Commit 6e1a003.
 
 ## Acceptance criteria
 
@@ -63,4 +63,4 @@ Keep the service start data and the call consistent: when the first call is regi
 
 ## Next step
 
-T1–T3 done. Next: separate fix for "Editar servicio" form showing the active service's data when creating a new service (research in progress).
+T1–T4 done. Next: manual browser check of the post-create reset (clicks are untested), then delivery decisions (user).
