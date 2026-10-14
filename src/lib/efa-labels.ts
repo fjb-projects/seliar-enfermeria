@@ -7,12 +7,7 @@ export type CommunicationPriority = "red" | "yellow" | "green";
 export type CommunicationDirection = "incoming" | "outgoing";
 export type TimeStatus = "observed" | "not_observed" | "not_informed" | "not_applicable";
 export type PoliceEventKind =
-  | "request"
-  | "response"
-  | "reiteration"
-  | "arrival_meeting_point"
-  | "waiting"
-  | "actual_meeting";
+  "request" | "response" | "reiteration" | "arrival_meeting_point" | "waiting" | "actual_meeting";
 export type ObservationContextKind =
   "guard" | "episode" | "communication" | "dispatch" | "coordination" | "police_event";
 export type ObservationGroup = "phone" | "radio" | "coordination" | "duty" | "record";
@@ -110,7 +105,11 @@ export const observationGroupLabels: Record<ObservationGroup, string> = {
 };
 
 export const observationClassificationLabel = (value: ObservationClassification | null) =>
-  value === "adequate" ? "Adecuada" : value === "needs_improvement" ? "A mejorar" : "Sin clasificar";
+  value === "adequate"
+    ? "Adecuada"
+    : value === "needs_improvement"
+      ? "A mejorar"
+      : "Sin clasificar";
 
 function toValidDate(value: Date | string | null | undefined) {
   if (!value) return null;
