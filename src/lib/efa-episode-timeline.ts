@@ -98,7 +98,8 @@ export function buildEpisodeTimeline(input: EpisodeTimelineInput): EpisodeTimeli
     add(
       "call",
       `Llamada ${directionLabel(call.direction).toLowerCase()}`,
-      call.startedAt ?? call.createdAt,
+      // A call without a start time goes to "Sin hora"; its save time is not when it happened.
+      call.startedAt,
       joinDetail(
         call.priority ? `Prioridad ${formatDispatchPriority(call.priority)}` : null,
         call.state === "cancelled" ? "Anulada" : null,

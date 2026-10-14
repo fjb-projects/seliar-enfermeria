@@ -498,6 +498,9 @@ describe("EfaEpisodeSummaryView", () => {
     expect(html).toContain("Saliente");
     expect(html).toContain("Sin prioridad");
     expect(html).toContain("(Anulada)");
+    // The call has no start time: it must not borrow its save time (13:36 UTC = 10:36 in BA).
+    expect(html).toContain("Sin hora");
+    expect(html).not.toContain("10:36");
   });
 });
 

@@ -347,7 +347,7 @@ function CommunicationsSection({ id, state }: { id: string; state: EpisodeSummar
                 return (
                   <li key={call.id} className="flex flex-wrap items-center gap-x-2 gap-y-1">
                     <span className="font-medium">{directionLabel(call.direction)}</span>
-                    <span>{formatTimeMinutes(call.startedAt ?? call.createdAt)}</span>
+                    <span>{call.startedAt ? formatTimeMinutes(call.startedAt) : "Sin hora"}</span>
                     <PriorityBadge priority={call.priority} />
                     {status && <span className="text-muted-foreground">({status})</span>}
                   </li>

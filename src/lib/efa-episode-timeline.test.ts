@@ -48,7 +48,7 @@ describe("buildEpisodeTimeline", () => {
     ]);
   });
 
-  it("normalizes calls using the start time and falling back to the creation time", () => {
+  it("places calls by their start time and never by the creation time", () => {
     const timeline = buildEpisodeTimeline({
       ...empty,
       communications: [
@@ -73,17 +73,14 @@ describe("buildEpisodeTimeline", () => {
     expect(timeline.items).toEqual([
       { at: "2026-10-14T13:30:00.000Z", kind: "service", title: "Hora del hecho" },
       {
-        at: "2026-10-14T13:32:00.000Z",
-        kind: "call",
-        title: "Llamada saliente",
-        detail: "Anulada",
-      },
-      {
         at: "2026-10-14T13:35:00.000Z",
         kind: "call",
         title: "Llamada entrante",
         detail: "Prioridad roja",
       },
+    ]);
+    expect(timeline.withoutTime).toEqual([
+      { at: null, kind: "call", title: "Llamada saliente", detail: "Anulada" },
     ]);
   });
 
