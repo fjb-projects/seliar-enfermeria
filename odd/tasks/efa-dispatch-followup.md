@@ -64,7 +64,7 @@ vitest focused files, typecheck vs baseline, build.
 ## Commits
 - T1: 2119133 fix(efa): show selected mobile and clearer result in service summary
 - T2: 0283925 feat(efa): add mobile follow-up block to dispatch
-- T3: see `git log` (feat(efa): add service timeline to history summary)
+- T3: f3beb51 feat(efa): add service timeline to history summary
 
 ## Next step
 Review assessment and delivery decision by the parent.
