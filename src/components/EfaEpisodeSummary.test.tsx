@@ -287,6 +287,81 @@ describe("EfaEpisodeSummaryView", () => {
     expect(html).not.toContain("Institución sin nombre");
   });
 
+  it("renders the chronological service timeline with kind labels, times and an untimed group", () => {
+    const html = render({
+      status: "ready",
+      data: {
+        communications: [
+          {
+            id: "c1",
+            direction: "incoming",
+            priority: "red",
+            state: "finalized",
+            startedAt: "2026-10-14T13:35:00.000Z",
+            createdAt: "2026-10-14T13:36:00.000Z",
+          },
+        ],
+        dispatches: [
+          {
+            id: "d1",
+            baseName: "Móvil 1",
+            priority: null,
+            result: null,
+            state: "draft",
+            contactAttempts: [
+              { id: "a1", occurredAt: "2026-10-14T14:00:00.000Z", note: "Paciente estable" },
+            ],
+            t0At: "2026-10-14T13:40:00.000Z",
+            t1At: null,
+            t2At: null,
+            t3At: null,
+            t4At: null,
+            t5At: null,
+            t6At: null,
+          },
+        ],
+        coordinations: [
+          {
+            id: "p1",
+            initiator: "central",
+            placeType: "incident",
+            state: "draft",
+            events: [{ id: "e2", kind: "response", occurredAt: null, timeStatus: "not_informed" }],
+            meetingReference: "Esquina privada",
+            notes: "Nota privada",
+          } as never,
+        ],
+        observations: [],
+      },
+    });
+    expect(html).toContain("Cronología del servicio");
+    const section = html.slice(html.indexOf("Cronología del servicio"));
+    const order = [
+      "Hora del hecho",
+      "Llamada entrante",
+      "Despacho · Móvil 1",
+      "Seguimiento · Móvil 1",
+    ].map((text) => section.indexOf(text));
+    expect(order.every((position) => position >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    expect(section).toContain("14/10/2026 10:35");
+    expect(section).toContain("Paciente estable");
+    expect(section).toContain("<time");
+    expect(section).toContain("Sin hora");
+    expect(section).toContain("Respuesta");
+    expect(section.indexOf("Sin hora")).toBeGreaterThan(order[3] as number);
+    expect(section).not.toContain("Esquina privada");
+    expect(section).not.toContain("Nota privada");
+  });
+
+  it("keeps the timeline calm while loading and when there is nothing but the event time", () => {
+    expect(render({ status: "loading" })).toContain("Cronología del servicio");
+    const html = render({ status: "ready", data: emptyData });
+    const section = html.slice(html.indexOf("Cronología del servicio"));
+    expect(section).toContain("Hora del hecho");
+    expect(section).not.toContain("Sin hora");
+  });
+
   it("never exposes private police notes or meeting references", () => {
     const html = render({
       status: "ready",

@@ -87,6 +87,17 @@ export const policeInitiatorLabel = (value: "central" | "ambulance") =>
 export const policePlaceTypeLabel = (value: "incident" | "meeting_point") =>
   value === "incident" ? "Lugar del hecho" : "Punto de encuentro";
 
+export type TimelineKind = "service" | "call" | "dispatch" | "follow_up" | "police" | "conduct";
+
+export const timelineKindLabels: Record<TimelineKind, string> = {
+  service: "Servicio",
+  call: "Llamada",
+  dispatch: "Despacho",
+  follow_up: "Seguimiento",
+  police: "Apoyo policial",
+  conduct: "Conducta",
+};
+
 export const observationContextLabels: Record<ObservationContextKind, string> = {
   guard: "Guardia",
   episode: "Episodio",

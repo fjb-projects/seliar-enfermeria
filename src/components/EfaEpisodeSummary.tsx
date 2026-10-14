@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { Ambulance, ClipboardList, Eye, Phone, ShieldCheck, type LucideIcon } from "lucide-react";
+import {
+  Ambulance,
+  ClipboardList,
+  Eye,
+  History,
+  MessageSquareText,
+  Phone,
+  ShieldCheck,
+  type LucideIcon,
+} from "lucide-react";
 import { useServerFn } from "@tanstack/react-start";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,12 +30,15 @@ import {
   policeInitiatorLabel,
   policePlaceTypeLabel,
   timeStatusLabel,
+  timelineKindLabels,
   type CommunicationDirection,
   type CommunicationPriority,
   type ObservationClassification,
   type PoliceEventKind,
   type TimeStatus,
+  type TimelineKind,
 } from "@/lib/efa-labels";
+import { buildEpisodeTimeline, type EpisodeTimelineItem } from "@/lib/efa-episode-timeline";
 import type { EpisodeView } from "@/components/EfaEpisodePanel";
 
 type SummaryCommunication = {
@@ -46,7 +58,7 @@ type SummaryDispatch = {
   resultClarification?: string | null;
   finalizedAt?: string | null;
   state: "draft" | "finalized" | "cancelled";
-  contactAttempts?: Array<{ id: string }>;
+  contactAttempts?: Array<{ id: string; occurredAt?: string | null; note?: string | null }>;
 } & Record<(typeof dispatchTimeSteps)[number][0], string | null>;
 type SummaryPoliceEvent = {
   id: string;
@@ -69,6 +81,8 @@ type SummaryObservation = {
   otherDescription: string | null;
   classification: ObservationClassification | null;
   comment: string | null;
+  observedAt?: string | null;
+  createdAt?: string | null;
 };
 
 export type EpisodeSummaryData = {
@@ -196,6 +210,19 @@ const tones: Record<string, Tone> = {
     card: "border-l-teal-500",
     icon: "bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-100",
   },
+  timeline: {
+    card: "border-l-slate-500",
+    icon: "bg-slate-100 text-slate-800 dark:bg-slate-900 dark:text-slate-100",
+  },
+};
+
+const timelineIcons: Record<TimelineKind, LucideIcon> = {
+  service: ClipboardList,
+  call: Phone,
+  dispatch: Ambulance,
+  follow_up: MessageSquareText,
+  police: ShieldCheck,
+  conduct: Eye,
 };
 
 function SummarySection({
@@ -451,6 +478,77 @@ function ConductsSection({ id, state }: { id: string; state: EpisodeSummaryState
   );
 }
 
+function TimelineEntry({ item }: { item: EpisodeTimelineItem }) {
+  const Icon = timelineIcons[item.kind];
+  return (
+    <li className="flex min-w-0 gap-2">
+      <span
+        aria-hidden="true"
+        className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
+      >
+        <Icon className="size-3.5" />
+      </span>
+      <div className="min-w-0 space-y-0.5">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          {item.at && (
+            <time dateTime={item.at} className="text-xs text-muted-foreground">
+              {formatDateTimeMinutes(item.at)}
+            </time>
+          )}
+          <Badge variant="outline" className="font-medium">
+            {timelineKindLabels[item.kind]}
+          </Badge>
+        </div>
+        <p className="break-words font-medium">{item.title}</p>
+        {item.detail && <p className="break-words text-muted-foreground">{item.detail}</p>}
+      </div>
+    </li>
+  );
+}
+
+function TimelineSection({
+  id,
+  episode,
+  state,
+}: {
+  id: string;
+  episode: SummaryEpisode;
+  state: EpisodeSummaryState;
+}) {
+  return (
+    <SummarySection id={id} tone="timeline" icon={History} title="Cronología del servicio">
+      {renderRemote(state, ({ communications, dispatches, coordinations, observations }) => {
+        const timeline = buildEpisodeTimeline({
+          episode,
+          communications,
+          dispatches,
+          coordinations,
+          observations,
+        });
+        return (
+          <>
+            <ol className="space-y-3">
+              {timeline.items.map((item, index) => (
+                <TimelineEntry key={`${item.kind}-${item.at}-${index}`} item={item} />
+              ))}
+            </ol>
+            {timeline.withoutTime.length > 0 && (
+              <div className="space-y-2 border-t pt-2">
+                <h5 className="text-xs font-semibold text-muted-foreground">Sin hora</h5>
+                <ul className="space-y-3">
+                  {timeline.withoutTime.map((item, index) => (
+                    <TimelineEntry key={`${item.kind}-untimed-${index}`} item={item} />
+                  ))}
+                </ul>
+              </div>
+            )}
+          </>
+        );
+      })}
+    </SummarySection>
+  );
+}
+
 /** Presentational summary: every state is derived from props so it can be rendered statically. */
 export function EfaEpisodeSummaryView({
   episode,
@@ -489,6 +587,7 @@ export function EfaEpisodeSummaryView({
       <DispatchesSection id={`summary-dispatches-${episode.id}`} state={state} />
       <PoliceSection id={`summary-police-${episode.id}`} state={state} />
       <ConductsSection id={`summary-conducts-${episode.id}`} state={state} />
+      <TimelineSection id={`summary-timeline-${episode.id}`} episode={episode} state={state} />
       <p className="text-xs text-muted-foreground">
         Puede haber cambios sin sincronizar que todavía no aparecen en este resumen.
       </p>

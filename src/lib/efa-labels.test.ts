@@ -15,6 +15,7 @@ import {
   policePlaceTypeLabel,
   priorityLabel,
   timeStatusLabel,
+  timelineKindLabels,
 } from "./efa-labels";
 
 describe("efa-labels", () => {
@@ -49,6 +50,17 @@ describe("efa-labels", () => {
       "t5At",
       "t6At",
     ]);
+  });
+
+  it("labels timeline kinds in plain Spanish", () => {
+    expect(timelineKindLabels).toEqual({
+      service: "Servicio",
+      call: "Llamada",
+      dispatch: "Despacho",
+      follow_up: "Seguimiento",
+      police: "Apoyo policial",
+      conduct: "Conducta",
+    });
   });
 
   it("labels police coordination data", () => {

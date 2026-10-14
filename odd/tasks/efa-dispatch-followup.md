@@ -37,7 +37,7 @@ Make the service history coherent for dispatches: show the mobile exactly as sel
 ## Tasks
 - [x] T1 — Server+summary: add `baseName` to dispatch DTOs from `listForEpisode` (and `get`) via `tx.findBase`; summary card title "Móvil N" (fallback "Base histórica"), "Destino: …" line only when present, Resultado display (label + clarification + "Finalizado HH:mm" / "Pendiente"), "(En curso)" -> "Sin finalizar". Tests alongside (server + summary + labels).
 - [x] T2 — Stepper: rename the "Eventos relacionados" block to a visible "Seguimiento del móvil" (hint: register contacts and news with time + note); keep it available whenever it is today and show it expanded (not collapsed) once Llegada a escena (t2) is observed; relabel buttons ("Registrar novedad · Ahora", manual time variant); show entries in the dispatch history as "Seguimiento · hora · nota". Same queue kind/server function. Tests alongside.
-- [ ] T3 — Timeline: new pure module `src/lib/efa-episode-timeline.ts` that normalizes episode, calls, dispatch times, follow-up entries, police events and conductas into `{at, kind, title, detail}` sorted ascending with a "Sin hora" group; render it in `EfaEpisodeSummary` (section "Cronología del servicio") under/over the section cards. Tests alongside (pure function tests first, RED then GREEN).
+- [x] T3 — Timeline: new pure module `src/lib/efa-episode-timeline.ts` that normalizes episode, calls, dispatch times, follow-up entries, police events and conductas into `{at, kind, title, detail}` sorted ascending with a "Sin hora" group; render it in `EfaEpisodeSummary` (section "Cronología del servicio") under/over the section cards. Tests alongside (pure function tests first, RED then GREEN).
 
 ## Acceptance criteria
 - Dispatch card in history reads "Móvil 1" (exact selected base name), never "Institución sin nombre".
@@ -51,11 +51,20 @@ vitest focused files, typecheck vs baseline, build.
 
 ## Progress
 - Route: delegated direct, one writer; mapping by read-only explorer done.
-- Review assessment: pending.
+- Review assessment: pending (parent).
+- T1-T3 implemented by one writer, inline edits.
 
 ## Evidence
 - T1: server test "exposes the selected base name..." observed RED (`baseName` missing) then GREEN after adding `name` to `findBase` and `baseName` to `listForEpisode`/`get`. Summary tests were written before the implementation but RED was not run separately; GREEN observed. `vitest run` labels/summary/panel/server: 48 passed. Typecheck: only the 6 baseline errors. Route: delegated writer (inline edits). Commit: see "Commits".
 - T2: stepper tests for `isFollowUpOpen`, `followUpHistoryLine` and `DispatchFollowUpBlock` observed RED (component undefined) then GREEN (14 passed). Follow-up UI extracted into an exported `DispatchFollowUpBlock`; same `contact-attempt` queue kind/server function. The support-request controls that shared the old "Eventos relacionados" block now sit in their own "Solicitudes de apoyo" details (deviation: avoids mislabeling support as follow-up). SSR tests cannot click or toggle; they verify markup and the `open` attribute only. Typecheck: only the 6 baseline errors.
 
+- T3: `efa-episode-timeline.test.ts` and the `timelineKindLabels` labels test observed RED (module/export missing), then GREEN. Component SSR tests for "Cronología del servicio" observed RED then GREEN. The timeline excludes participation records (same as the conducts section) and never reads police `meetingReference`/`notes`. SSR only: no click or scroll behavior is exercised.
+- Final verification: focused vitest (9 files) 96 passed; `npm run typecheck` shows only the 6 baseline errors; `npm run build` exit 0.
+
+## Commits
+- T1: 2119133 fix(efa): show selected mobile and clearer result in service summary
+- T2: 0283925 feat(efa): add mobile follow-up block to dispatch
+- T3: see `git log` (feat(efa): add service timeline to history summary)
+
 ## Next step
-Launch writer for T1–T3.
+Review assessment and delivery decision by the parent.
