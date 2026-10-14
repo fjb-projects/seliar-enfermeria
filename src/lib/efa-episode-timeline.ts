@@ -44,6 +44,7 @@ export type EpisodeTimelineInput = {
     {
       id: string;
       baseName?: string | null;
+      state?: "draft" | "finalized" | "cancelled";
       contactAttempts?: Array<{ id: string; occurredAt?: string | null; note?: string | null }>;
     } & Record<(typeof dispatchTimeSteps)[number][0], string | null>
   >;
@@ -107,11 +108,18 @@ export function buildEpisodeTimeline(input: EpisodeTimelineInput): EpisodeTimeli
 
   for (const dispatch of input.dispatches) {
     const base = dispatch.baseName?.trim() || "Base histórica";
+    const cancelled = dispatch.state === "cancelled" ? "Anulada" : null;
     for (const [key, label] of dispatchTimeSteps) {
-      if (dispatch[key]) add("dispatch", `${label} · ${base}`, dispatch[key]);
+      if (dispatch[key])
+        add("dispatch", `${label} · ${base}`, dispatch[key], cancelled ?? undefined);
     }
     for (const attempt of dispatch.contactAttempts ?? []) {
-      add("follow_up", `Seguimiento · ${base}`, attempt.occurredAt, attempt.note?.trim());
+      add(
+        "follow_up",
+        `Seguimiento · ${base}`,
+        attempt.occurredAt,
+        joinDetail(attempt.note?.trim(), cancelled),
+      );
     }
   }
 

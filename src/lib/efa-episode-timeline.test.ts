@@ -113,6 +113,53 @@ describe("buildEpisodeTimeline", () => {
     ]);
   });
 
+  it("marks every entry of a cancelled dispatch as Anulada, like cancelled calls", () => {
+    const timeline = buildEpisodeTimeline({
+      ...empty,
+      dispatches: [
+        {
+          id: "d1",
+          baseName: "Móvil 1",
+          state: "cancelled",
+          ...noTimes,
+          t0At: "2026-10-14T13:40:00.000Z",
+          contactAttempts: [
+            { id: "a1", occurredAt: "2026-10-14T13:42:00.000Z", note: "Sin novedades" },
+            { id: "a2", occurredAt: "2026-10-14T13:44:00.000Z", note: null },
+          ],
+        },
+        {
+          id: "d2",
+          baseName: "Móvil 2",
+          state: "finalized",
+          ...noTimes,
+          t0At: "2026-10-14T13:41:00.000Z",
+        },
+      ],
+    });
+    expect(timeline.items.slice(1)).toEqual([
+      {
+        at: "2026-10-14T13:40:00.000Z",
+        kind: "dispatch",
+        title: "Despacho · Móvil 1",
+        detail: "Anulada",
+      },
+      { at: "2026-10-14T13:41:00.000Z", kind: "dispatch", title: "Despacho · Móvil 2" },
+      {
+        at: "2026-10-14T13:42:00.000Z",
+        kind: "follow_up",
+        title: "Seguimiento · Móvil 1",
+        detail: "Sin novedades · Anulada",
+      },
+      {
+        at: "2026-10-14T13:44:00.000Z",
+        kind: "follow_up",
+        title: "Seguimiento · Móvil 1",
+        detail: "Anulada",
+      },
+    ]);
+  });
+
   it("merges follow-up entries with their time and note, and keeps the order stable on ties", () => {
     const timeline = buildEpisodeTimeline({
       ...empty,
@@ -251,9 +298,7 @@ describe("buildEpisodeTimeline", () => {
       episode: { ...episode, eventAt: "not-a-date" },
     });
     expect(timeline.items).toEqual([]);
-    expect(timeline.withoutTime).toEqual([
-      { at: null, kind: "service", title: "Hora del hecho" },
-    ]);
+    expect(timeline.withoutTime).toEqual([{ at: null, kind: "service", title: "Hora del hecho" }]);
   });
 
   it("sorts items from every section chronologically", () => {

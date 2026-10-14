@@ -147,16 +147,20 @@ const dispatchStateText = (state: "draft" | "finalized" | "cancelled") =>
 /** One line with the outcome of a dispatch: result, optional clarification and finalization time. */
 // eslint-disable-next-line react-refresh/only-export-components -- Pure formatter tested beside its UI.
 export function dispatchResultLine(dispatch: {
+  state?: "draft" | "finalized" | "cancelled";
   result: string | null;
   resultClarification?: string | null;
   finalizedAt?: string | null;
 }) {
-  if (!dispatch.result) return "Resultado: Pendiente";
+  const cancelled = dispatch.state === "cancelled";
+  if (!dispatch.result) return cancelled ? "Resultado: Anulada" : "Resultado: Pendiente";
   const clarification = dispatch.resultClarification?.trim();
   return [
     `Resultado: ${dispatchResultLabel(dispatch.result)}`,
     clarification,
-    dispatch.finalizedAt ? `Finalizado ${formatTimeMinutes(dispatch.finalizedAt)}` : null,
+    dispatch.finalizedAt && !cancelled
+      ? `Finalizado ${formatTimeMinutes(dispatch.finalizedAt)}`
+      : null,
   ]
     .filter(Boolean)
     .join(" · ");

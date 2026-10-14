@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   EfaEpisodeSummary,
   EfaEpisodeSummaryView,
+  dispatchResultLine,
   episodeFinalStateLine,
   type EpisodeSummaryData,
 } from "./EfaEpisodeSummary";
@@ -56,6 +57,27 @@ const render = (
       onRetry={() => {}}
     />,
   );
+
+describe("dispatchResultLine", () => {
+  it("shows only the result label for a cancelled dispatch and Anulada when there is none", () => {
+    expect(
+      dispatchResultLine({
+        state: "cancelled",
+        result: "transported",
+        resultClarification: "Hospital cercano",
+        finalizedAt: "2026-10-14T14:05:00.000Z",
+      }),
+    ).toBe("Resultado: Con traslado · Hospital cercano");
+    expect(dispatchResultLine({ state: "cancelled", result: null })).toBe("Resultado: Anulada");
+    expect(
+      dispatchResultLine({
+        state: "finalized",
+        result: "transported",
+        finalizedAt: "2026-10-14T14:05:00.000Z",
+      }),
+    ).toContain("Finalizado 11:05");
+  });
+});
 
 describe("episodeFinalStateLine", () => {
   it("describes a closed service with the same-day update shown as a time only", () => {
@@ -285,6 +307,36 @@ describe("EfaEpisodeSummaryView", () => {
     expect(html).toContain("Base histórica");
     expect(html).toContain("(Anulada)");
     expect(html).not.toContain("Institución sin nombre");
+  });
+
+  it("does not show a finalization time for a cancelled dispatch", () => {
+    const html = render({
+      status: "ready",
+      data: {
+        ...emptyData,
+        dispatches: [
+          {
+            id: "d1",
+            baseName: "Móvil 1",
+            institutionName: null,
+            priority: null,
+            result: "transported",
+            finalizedAt: "2026-10-14T14:05:00.000Z",
+            state: "cancelled",
+            t0At: null,
+            t1At: null,
+            t2At: null,
+            t3At: null,
+            t4At: null,
+            t5At: null,
+            t6At: null,
+          },
+        ],
+      },
+    });
+    expect(html).toContain("(Anulada)");
+    expect(html).toContain("Resultado: Con traslado");
+    expect(html).not.toContain("Finalizado");
   });
 
   it("renders the chronological service timeline with kind labels, times and an untimed group", () => {
