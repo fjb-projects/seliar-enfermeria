@@ -14,6 +14,7 @@ import {
   isDispatchReviewStep,
   isFollowUpOpen,
 } from "./EfaDispatchStepper";
+import { FollowUpOpenButton } from "./EfaDispatchFollowUpModal";
 
 vi.mock("@tanstack/react-start", () => ({
   createClientOnlyFn: (fn: () => unknown) => fn,
@@ -55,6 +56,26 @@ describe("EfaDispatchStepper", () => {
     expect(html.match(/aria-label="Ir al paso/g)).toHaveLength(11);
     expect(html.match(/aria-current="step"/g)).toHaveLength(1);
     expect(html).toContain('aria-label="Ir al paso 6: Llegada a destino" aria-current="step"');
+  });
+
+  it("renders an optional action in the same row as the step indicator and Ver pasos", () => {
+    const html = renderToStaticMarkup(
+      <DispatchStepNavigation
+        step={0}
+        onStepChange={() => undefined}
+        action={<FollowUpOpenButton disabled={false} onClick={() => undefined} />}
+      />,
+    );
+    const row = html.match(/^<div class="[^"]*flex-wrap[^"]*">/);
+    expect(row).not.toBeNull();
+    expect(html.indexOf("Paso 1 de 11")).toBeLessThan(
+      html.indexOf("Comunicaciones de seguimiento"),
+    );
+    expect(html.indexOf("Comunicaciones de seguimiento")).toBeLessThan(html.indexOf("Ver pasos"));
+    const without = renderToStaticMarkup(
+      <DispatchStepNavigation step={0} onStepChange={() => undefined} />,
+    );
+    expect(without).not.toContain("Comunicaciones de seguimiento");
   });
 
   it("allows dispatch finalization only from review", () => {

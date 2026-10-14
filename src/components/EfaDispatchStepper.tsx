@@ -1,8 +1,16 @@
-import { useEffect, useRef, useState, type ComponentType } from "react";
+import { useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
 import {
   EfaActionConfirmation,
   isActionConfirmationCurrent,
 } from "@/components/EfaActionConfirmation";
+import {
+  DispatchFollowUpModal,
+  FollowUpFeedback,
+  FollowUpNoteField,
+  FollowUpOpenButton,
+  FollowUpTimeField,
+  followUpButtonState,
+} from "@/components/EfaDispatchFollowUpModal";
 import { createClientOnlyFn, useServerFn } from "@tanstack/react-start";
 import { listEfaBases } from "@/lib/efa-bases.functions";
 import { listEfaCommunicationsForEpisode } from "@/lib/efa-communications.functions";
@@ -157,9 +165,12 @@ export function isDispatchReviewStep(step: number): boolean {
 export function DispatchStepNavigation({
   step,
   onStepChange,
+  action,
 }: {
   step: number;
   onStepChange: (step: number) => void;
+  /** Optional extra control rendered in the same row, next to "Ver pasos". */
+  action?: ReactNode;
 }) {
   const title = dispatchStepTitles[step] ?? "Paso del despacho";
   const headingRef = useRef<HTMLParagraphElement>(null);
@@ -178,15 +189,16 @@ export function DispatchStepNavigation({
   }, [step]);
 
   return (
-    <div className="flex min-w-0 items-center justify-between gap-2">
+    <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
       <p
         ref={headingRef}
         aria-live="polite"
         tabIndex={-1}
-        className="min-w-0 scroll-mt-20 text-sm outline-none"
+        className="min-w-0 flex-1 basis-40 scroll-mt-20 text-sm outline-none"
       >
         Paso {step + 1} de {dispatchStepTitles.length}: {title}
       </p>
+      {action}
       <details className="relative shrink-0">
         <summary className="flex min-h-11 cursor-pointer items-center rounded border px-3 text-sm font-medium">
           Ver pasos
@@ -246,14 +258,9 @@ function dispatchCallOptionLabel(call: DispatchCallChoice) {
         : "Llamada";
   const time = formatLinkedCallTime(call.startedAt) ?? formatLinkedCallTime(call.createdAt);
   const state =
-    call.state === "cancelled"
-      ? "Anulada"
-      : call.state === "finalized"
-        ? "Finalizada"
-        : "En curso";
+    call.state === "cancelled" ? "Anulada" : call.state === "finalized" ? "Finalizada" : "En curso";
   const priority = formatDispatchPriority(call.priority);
-  const priorityLabel =
-    priority === "sin prioridad" ? "Sin prioridad" : `Prioridad ${priority}`;
+  const priorityLabel = priority === "sin prioridad" ? "Sin prioridad" : `Prioridad ${priority}`;
   return [direction, time, state, priorityLabel].filter(Boolean).join(" · ");
 }
 const emptyDispatchForm = (): DispatchForm => ({
@@ -389,24 +396,8 @@ export function DispatchFollowUpBlock({
         <p className="text-sm text-muted-foreground">
           Registrá contactos y novedades con hora y nota.
         </p>
-        <label className="block">
-          Nota del seguimiento
-          <input
-            className="mt-1 h-11 w-full min-w-0 max-w-full rounded border px-3"
-            value={note}
-            onChange={(event) => onNoteChange(event.target.value)}
-          />
-        </label>
-        <label className="block">
-          Hora de la novedad
-          <input
-            type="datetime-local"
-            step="0.001"
-            className="mt-1 h-11 w-full min-w-0 max-w-full rounded border px-3"
-            value={at}
-            onChange={(event) => onAtChange(event.target.value)}
-          />
-        </label>
+        <FollowUpNoteField note={note} onNoteChange={onNoteChange} />
+        <FollowUpTimeField at={at} onAtChange={onAtChange} />
         <button className="min-h-11 rounded border px-4" disabled={busy} onClick={onRegisterNow}>
           Registrar novedad · Ahora
         </button>
@@ -417,16 +408,7 @@ export function DispatchFollowUpBlock({
         >
           Registrar novedad con hora ingresada
         </button>
-        {error && (
-          <p role="alert" className="text-sm text-destructive" aria-live="assertive">
-            {error}
-          </p>
-        )}
-        {message && (
-          <p role="status" className="text-sm" aria-live="polite">
-            {message}
-          </p>
-        )}
+        <FollowUpFeedback error={error} message={message} />
       </div>
     </details>
   );
@@ -620,6 +602,8 @@ export function EfaDispatchStepper({
   >([]);
   const [contactNote, setContactNote] = useState("");
   const [contactAt, setContactAt] = useState("");
+  const [followUpModalOpen, setFollowUpModalOpen] = useState(false);
+  const confirmedOperations = useRef(new Set<string>());
   const [supportReason, setSupportReason] = useState("");
   const [supportAt, setSupportAt] = useState("");
   const [queueEntries, setQueueEntries] = useState<DispatchQueueEntry[]>([]);
@@ -893,6 +877,30 @@ export function EfaDispatchStepper({
     }
   };
 
+  const followUpButton = followUpButtonState({
+    hasDispatch: selected !== null,
+    canEdit: editable,
+    cancelled: selected?.state === "cancelled",
+    busy,
+  });
+
+  /** Registers one follow-up entry through the queue; resets the draft once the server confirmed it. */
+  const registerFollowUp = async (occurredAt: string, closeModal: boolean) => {
+    if (!selected) return;
+    const clientEventId = crypto.randomUUID();
+    await freeze("contact-attempt", {
+      dispatchId: selected.id,
+      clientEventId,
+      occurredAt,
+      note: contactNote || null,
+    });
+    if (!confirmedOperations.current.delete(clientEventId)) return;
+    if (!mounted.current) return;
+    setContactNote("");
+    setContactAt("");
+    if (closeModal) setFollowUpModalOpen(false);
+  };
+
   const executeEntry = async (entry: DispatchQueueEntry) => {
     const targetOwner = currentUserId;
     const ticketEpisode = episodeId;
@@ -1066,6 +1074,7 @@ export function EfaDispatchStepper({
     );
     if (!mounted.current || owner.current !== targetOwner || episodeId !== ticketEpisode) return;
     if (outcome.status === "confirmed" || outcome.status === "confirmed-cleanup-failed") {
+      confirmedOperations.current.add(entry.operationId);
       const rawResult: unknown = outcome.result;
       const rawDispatch =
         rawResult && typeof rawResult === "object" && "dispatch" in rawResult
@@ -1858,7 +1867,23 @@ export function EfaDispatchStepper({
         )}
         {editable && (
           <div className="min-w-0 border-t pb-3 pt-3">
-            <DispatchStepNavigation step={step} onStepChange={setStep} />
+            <DispatchStepNavigation
+              step={step}
+              onStepChange={setStep}
+              action={
+                followUpButton === "hidden" ? null : (
+                  <FollowUpOpenButton
+                    disabled={followUpButton === "disabled"}
+                    onClick={() => {
+                      // Do not show a previous follow-up result as if it belonged to this entry.
+                      if (errorSurface === "contact") setError("");
+                      if (messageSurface === "contact") setMessage("");
+                      setFollowUpModalOpen(true);
+                    }}
+                  />
+                )
+              }
+            />
           </div>
         )}
         {editable && (
@@ -2240,23 +2265,23 @@ export function EfaDispatchStepper({
             at={contactAt}
             onNoteChange={setContactNote}
             onAtChange={setContactAt}
-            onRegisterNow={() => {
-              const occurredAt = captureActionTimestamp(new Date());
-              void freeze("contact-attempt", {
-                dispatchId: selected.id,
-                clientEventId: crypto.randomUUID(),
-                occurredAt,
-                note: contactNote || null,
-              });
-            }}
-            onRegisterAt={() =>
-              void freeze("contact-attempt", {
-                dispatchId: selected.id,
-                clientEventId: crypto.randomUUID(),
-                occurredAt: inputToIso(contactAt)!,
-                note: contactNote || null,
-              })
-            }
+            onRegisterNow={() => void registerFollowUp(captureActionTimestamp(new Date()), false)}
+            onRegisterAt={() => void registerFollowUp(inputToIso(contactAt)!, false)}
+            error={errorSurface === "contact" && error ? error : null}
+            message={messageSurface === "contact" && message ? message : null}
+          />
+        )}
+        {selected && editable && followUpButton !== "hidden" && (
+          <DispatchFollowUpModal
+            open={followUpModalOpen}
+            onOpenChange={setFollowUpModalOpen}
+            busy={busy}
+            note={contactNote}
+            at={contactAt}
+            onNoteChange={setContactNote}
+            onAtChange={setContactAt}
+            onRegisterNow={() => void registerFollowUp(captureActionTimestamp(new Date()), true)}
+            onRegisterAt={() => void registerFollowUp(inputToIso(contactAt)!, true)}
             error={errorSurface === "contact" && error ? error : null}
             message={messageSurface === "contact" && message ? message : null}
           />
