@@ -19,6 +19,7 @@ import {
 } from "@/lib/efa-police-coordination.functions";
 import { listEfaDispatchesForEpisode } from "@/lib/efa-dispatches.functions";
 import { getEfaEpisode } from "@/lib/efa-episodes.functions";
+import { formatObservedDateTime, policeEventLabel, timeStatusLabel } from "@/lib/efa-labels";
 
 const loadQueue = createClientOnlyFn(() => import("@/lib/efa-police-coordination.queue"));
 type DispatchChoice = {
@@ -160,30 +161,8 @@ const timeStatuses: PoliceTimeStatus[] = [
   "not_applicable",
   "observed",
 ];
-const eventLabel = (kind: PoliceEventKind) =>
-  ({
-    request: "Solicitud",
-    response: "Respuesta",
-    reiteration: "Reiteración",
-    arrival_meeting_point: "Llegada al punto de encuentro",
-    waiting: "Espera",
-    actual_meeting: "Encuentro realizado",
-  })[kind];
-const timeStatusLabel = (status: PoliceTimeStatus) =>
-  ({
-    observed: "Observado",
-    not_observed: "No observado",
-    not_informed: "No informado",
-    not_applicable: "No aplica",
-  })[status];
-const formatDate = (value: string | null) =>
-  value
-    ? new Intl.DateTimeFormat("es-AR", {
-        dateStyle: "short",
-        timeStyle: "medium",
-        timeZone: "America/Argentina/Buenos_Aires",
-      }).format(new Date(value))
-    : "Sin hora observada";
+const eventLabel = policeEventLabel;
+const formatDate = (value: string | null) => formatObservedDateTime(value);
 const nextId = () => crypto.randomUUID();
 const coordinationSteps = ["Datos", "Despachos", "Eventos e historial"] as const;
 

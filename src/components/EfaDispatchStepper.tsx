@@ -27,6 +27,12 @@ import {
 } from "@/lib/efa-dispatches.functions";
 import type { DispatchForm, DispatchLifecycleOperation } from "@/lib/efa-dispatches.client";
 import type { DispatchQueueEntry, DispatchQueueStore } from "@/lib/efa-dispatches.queue";
+import {
+  dispatchResultOptions,
+  dispatchTimeSteps,
+  formatDispatchPriority,
+  timeStatusLabel,
+} from "@/lib/efa-labels";
 
 const loadQueue = createClientOnlyFn(() => import("@/lib/efa-dispatches.queue"));
 const loadClient = createClientOnlyFn(() => import("@/lib/efa-dispatches.client"));
@@ -134,15 +140,7 @@ function isDispatchMutationDto(value: unknown): value is DispatchMutationDto {
   );
 }
 type BaseChoice = { id: string; name: string };
-const timeSteps = [
-  ["t0At", "Despacho"],
-  ["t1At", "En camino"],
-  ["t2At", "Llegada a escena"],
-  ["t3At", "Sale de escena"],
-  ["t4At", "Llegada a destino"],
-  ["t5At", "Entrega efectiva"],
-  ["t6At", "Disponible"],
-] as const;
+const timeSteps = dispatchTimeSteps;
 const dispatchStepTitles = [
   "Base y vínculo",
   ...timeSteps.map(([, title]) => title),
@@ -217,27 +215,7 @@ export function DispatchStepNavigation({
 }
 
 const statuses = ["not_observed", "not_informed", "not_applicable", "observed"] as const;
-const statusLabel: Record<(typeof statuses)[number], string> = {
-  not_observed: "No observado",
-  not_informed: "No informado",
-  not_applicable: "No aplica",
-  observed: "Observado",
-};
-const resultOptions = [
-  ["transported", "Con traslado"],
-  ["treated_at_home", "Atención en domicilio sin traslado"],
-  ["refused", "Rechazo"],
-  ["not_located", "No ubicado"],
-  ["cancelled", "Cancelado"],
-  ["death", "Óbito"],
-  ["not_informed", "No informado"],
-] as const;
-const dispatchPriorityLabels = { red: "roja", yellow: "amarilla", green: "verde" } as const;
-function formatDispatchPriority(priority: string | null | undefined) {
-  return priority && priority in dispatchPriorityLabels
-    ? dispatchPriorityLabels[priority as keyof typeof dispatchPriorityLabels]
-    : "sin prioridad";
-}
+const resultOptions = dispatchResultOptions;
 type DispatchCallChoice = {
   id: string;
   direction: string;
@@ -1946,7 +1924,7 @@ export function EfaDispatchStepper({
                         >
                           {statuses.map((value) => (
                             <option key={value} value={value}>
-                              {statusLabel[value]}
+                              {timeStatusLabel(value)}
                             </option>
                           ))}
                         </select>

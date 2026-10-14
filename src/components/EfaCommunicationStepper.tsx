@@ -29,6 +29,7 @@ import type {
   CommunicationQueueEntry,
   CommunicationQueueStore,
 } from "@/lib/efa-communications.queue";
+import { directionLabel, priorityLabel } from "@/lib/efa-labels";
 
 const loadCommunicationClient = createClientOnlyFn(() => import("@/lib/efa-communications.client"));
 const loadCommunicationQueue = createClientOnlyFn(() => import("@/lib/efa-communications.queue"));
@@ -255,15 +256,6 @@ type Priority = "red" | "yellow" | "green";
 
 const nowBue = (value: string) =>
   new Date(value).toLocaleString("es-AR", { timeZone: "America/Argentina/Buenos_Aires" });
-const priorityLabel = (value: Priority | null) =>
-  value === "red"
-    ? "Roja"
-    : value === "yellow"
-      ? "Amarilla"
-      : value === "green"
-        ? "Verde"
-        : "Sin prioridad";
-const directionLabel = (value: Direction) => (value === "incoming" ? "Entrante" : "Saliente");
 // eslint-disable-next-line react-refresh/only-export-components -- Keep the tested permission gate beside its UI use.
 export const canEditCommunication = (canWrite: boolean, communication: { canEdit: boolean }) =>
   canWrite && communication.canEdit;
