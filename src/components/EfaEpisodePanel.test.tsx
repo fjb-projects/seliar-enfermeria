@@ -5,8 +5,11 @@ import {
   createEpisodeSubmissionGate,
   applyAfterEpisodeNavigationStable,
   canAutoOpenInitialCallAfterRefresh,
+  canBeginNewService,
+  episodeFormTitle,
   episodeSaveActionLabel,
   hasFirstCallCreateIntent,
+  resolvePostCreateState,
   EfaEpisodePanel,
   formatEpisodeDate,
   type EpisodeView,
@@ -265,7 +268,8 @@ describe("EfaEpisodePanel", () => {
 
     expect(html).toContain("Preparando el almacenamiento local");
     expect(html).toContain("se guardan en IndexedDB legible por este origen");
-    expect(html).toContain("Nuevo episodio");
+    expect(html).toContain("Nuevo servicio");
+    expect(html).not.toContain("Nuevo episodio");
     expect(html).toMatch(/id="episode-event-at"[^>]*disabled=""/);
     expect(html).toContain("Registrar primera llamada");
     expect(html).toMatch(/<input[^>]*type="checkbox"[^>]*checked=""/);
@@ -320,6 +324,64 @@ describe("EfaEpisodePanel", () => {
     expect(html).not.toContain("Episodio del");
     expect(html).toContain("Abrir servicio y registrar llamada");
     expect(html).not.toContain("Dejar de editar");
+  });
+
+  it("resets the form to a blank new service after a confirmed create, with or without a first call", () => {
+    const base = { operationKind: "create" as const, syncEditor: true, cleanupFailed: false };
+    expect(resolvePostCreateState({ ...base, hasContinuation: true })).toEqual({
+      exposeContinuation: true,
+      resetForm: true,
+    });
+    expect(resolvePostCreateState({ ...base, hasContinuation: false })).toEqual({
+      exposeContinuation: false,
+      resetForm: true,
+    });
+  });
+
+  it("keeps the frozen form when the confirmed write could not be cleaned from the local queue", () => {
+    expect(
+      resolvePostCreateState({
+        operationKind: "create",
+        syncEditor: true,
+        cleanupFailed: true,
+        hasContinuation: true,
+      }),
+    ).toEqual({ exposeContinuation: true, resetForm: false });
+  });
+
+  it("never resets or continues for updates, closes or operations the editor no longer shows", () => {
+    for (const operationKind of ["update", "close"] as const) {
+      expect(
+        resolvePostCreateState({
+          operationKind,
+          syncEditor: true,
+          cleanupFailed: false,
+          hasContinuation: false,
+        }),
+      ).toEqual({ exposeContinuation: false, resetForm: false });
+    }
+    expect(
+      resolvePostCreateState({
+        operationKind: "create",
+        syncEditor: false,
+        cleanupFailed: false,
+        hasContinuation: true,
+      }),
+    ).toEqual({ exposeContinuation: false, resetForm: false });
+  });
+
+  it("only starts a new service from a selected service when storage is ready and nothing is pending", () => {
+    const ready = { queueReady: true, queueAvailable: true, pending: false, hasSelection: true };
+    expect(canBeginNewService(ready)).toBe(true);
+    expect(canBeginNewService({ ...ready, hasSelection: false })).toBe(false);
+    expect(canBeginNewService({ ...ready, pending: true })).toBe(false);
+    expect(canBeginNewService({ ...ready, queueReady: false })).toBe(false);
+    expect(canBeginNewService({ ...ready, queueAvailable: false })).toBe(false);
+  });
+
+  it("titles the form as a new service or as the edited version", () => {
+    expect(episodeFormTitle(null)).toBe("Nuevo servicio");
+    expect(episodeFormTitle({ version: 3 })).toBe("Editar servicio · versión 3");
   });
 
   it("keeps the service summary closed and never renders raw version JSON before it is requested", () => {

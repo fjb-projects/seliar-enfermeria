@@ -164,6 +164,34 @@ export function episodeSaveActionLabel(isEditing: boolean, registerFirstCall: bo
   return registerFirstCall ? "Abrir servicio y registrar llamada" : "Abrir servicio";
 }
 // eslint-disable-next-line react-refresh/only-export-components
+export function episodeFormTitle(selected: { version: number } | null) {
+  return selected ? `Editar servicio · versión ${selected.version}` : "Nuevo servicio";
+}
+// eslint-disable-next-line react-refresh/only-export-components
+export function canBeginNewService(state: {
+  queueReady: boolean;
+  queueAvailable: boolean;
+  pending: boolean;
+  hasSelection: boolean;
+}) {
+  return state.queueReady && state.queueAvailable && !state.pending && state.hasSelection;
+}
+// What the panel does with the editor once a write is confirmed. A confirmed create always
+// hands the editor back as a blank "new service" form, even when the first-call continuation
+// stays reachable; a write whose local cleanup failed keeps its frozen form untouched.
+// eslint-disable-next-line react-refresh/only-export-components
+export function resolvePostCreateState(state: {
+  operationKind: "create" | "update" | "close";
+  syncEditor: boolean;
+  cleanupFailed: boolean;
+  hasContinuation: boolean;
+}) {
+  return {
+    exposeContinuation: state.syncEditor && state.hasContinuation,
+    resetForm: state.operationKind === "create" && state.syncEditor && !state.cleanupFailed,
+  };
+}
+// eslint-disable-next-line react-refresh/only-export-components
 export function hasFirstCallCreateIntent(
   payload: Pick<PendingEpisodeCreate["payload"], "childCreateKey" | "direction"> | null,
 ) {
@@ -452,8 +480,19 @@ export function EfaEpisodePanel({
         : "Cierre de servicio";
 
   function beginCreate() {
-    if (!queueReady || !queueAvailable || pendingRef.current || !selectedId) return;
-    if (formDirty && !window.confirm("¿Cancelar la edición y descartar esos cambios sin guardar?"))
+    if (
+      !canBeginNewService({
+        queueReady,
+        queueAvailable,
+        pending: Boolean(pendingRef.current),
+        hasSelection: Boolean(selectedId),
+      })
+    )
+      return;
+    if (
+      formDirty &&
+      !window.confirm("¿Descartar los cambios sin guardar y empezar un servicio nuevo?")
+    )
       return;
     advanceEpisodeNavigationRevision();
     setSelectedId(null);
@@ -904,12 +943,21 @@ export function EfaEpisodePanel({
       } else if (syncEditor) {
         selectedQueueOperationId.current = null;
         if (operation.kind === "create") {
-          if (continuation) {
-            exposeInitialCallContinuation(mayAutoOpenInitialCall);
-          } else {
+          const postCreate = resolvePostCreateState({
+            operationKind: operation.kind,
+            syncEditor,
+            cleanupFailed: false,
+            hasContinuation: Boolean(continuation),
+          });
+          // The continuation and its auto-open decision were computed against the submitted
+          // form above; only afterwards does the editor go back to a blank new service.
+          if (postCreate.exposeContinuation) exposeInitialCallContinuation(mayAutoOpenInitialCall);
+          if (postCreate.resetForm) {
             initialCallIntentRef.current = null;
             setForm(emptyForm());
+            setRegisterFirstCall(true);
             setSelectedId(null);
+            setServerConfirmedOperationId(null);
           }
         }
       }
@@ -1799,14 +1847,14 @@ export function EfaEpisodePanel({
               servicios de guardias anteriores.
             </p>
           )}
-          {selected && canWrite && selected.canEdit && (
+          {selected && canWrite && openOwnGuard && (
             <Button
               variant="outline"
               className="min-h-11"
               onClick={beginCreate}
               disabled={Boolean(pending) || Boolean(conflict)}
             >
-              Cancelar edición
+              Nuevo servicio
             </Button>
           )}
         </CardContent>
@@ -1815,9 +1863,7 @@ export function EfaEpisodePanel({
       {canWrite && (selected || openOwnGuard) && (
         <Card>
           <CardHeader className="px-3 py-3 sm:px-6 sm:py-6">
-            <CardTitle>
-              {selected ? `Editar servicio · versión ${selected.version}` : "Nuevo episodio"}
-            </CardTitle>
+            <CardTitle>{episodeFormTitle(selected)}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 px-3 pb-3 pt-0 sm:px-6 sm:pb-6">
             <div className="space-y-2">
