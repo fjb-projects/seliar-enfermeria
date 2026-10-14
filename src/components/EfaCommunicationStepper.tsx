@@ -37,7 +37,7 @@ const loadCommunicationQueue = createClientOnlyFn(() => import("@/lib/efa-commun
 
 // eslint-disable-next-line react-refresh/only-export-components
 export const communicationSteps = [
-  "Dirección",
+  "Tipo de llamada",
   "Inicio real",
   "Fin real",
   "Prioridad",
@@ -136,6 +136,21 @@ export function communicationStepResolution(input: {
     Boolean(input.endedAt) || input.endedAtReviewed,
     Boolean(input.priority),
     input.finalized,
+  ];
+}
+
+/** Review-step lines: human labels and dd/mm/yyyy hh:mm (Buenos Aires) instead of raw form values. */
+export function communicationReviewLines(input: {
+  direction: "incoming" | "outgoing";
+  startedAt: string;
+  endedAt: string;
+  priority: "red" | "yellow" | "green" | "";
+}) {
+  return [
+    `Tipo de llamada: ${directionLabel(input.direction)}`,
+    `Inicio real: ${formatDateTimeMinutes(input.startedAt, "Sin registrar")}`,
+    `Fin real: ${formatDateTimeMinutes(input.endedAt, "Sin registrar")}`,
+    `Prioridad: ${priorityLabel(input.priority || null)}`,
   ];
 }
 
@@ -256,6 +271,10 @@ export function EfaCommunicationStepper({
 }) {
   const currentStep = Math.min(Math.max(step, 0), communicationSteps.length - 1);
   const stepName = communicationSteps[currentStep];
+  // The last step has no "next": the action row below owns the forward actions.
+  const isLastStep = currentStep === communicationSteps.length - 1;
+  const stepNavigationClassName =
+    "min-h-11 min-w-0 w-full bg-background text-foreground hover:bg-accent";
   const headingRef = useRef<HTMLHeadingElement>(null);
   const previousStepRef = useRef(currentStep);
 
@@ -320,26 +339,28 @@ export function EfaCommunicationStepper({
 
       <div aria-live="polite">{children}</div>
 
-      <div className="grid grid-cols-2 gap-2">
+      <div className={`grid gap-2 ${isLastStep ? "grid-cols-1" : "grid-cols-2"}`}>
         <Button
           type="button"
           variant="outline"
-          className="min-h-11 min-w-0 w-full"
+          className={stepNavigationClassName}
           aria-label="Paso anterior"
           disabled={currentStep === 0}
           onClick={() => onStepChange(currentStep - 1)}
         >
           Anterior
         </Button>
-        <Button
-          type="button"
-          className="min-h-11 min-w-0 w-full"
-          aria-label="Siguiente paso"
-          disabled={currentStep === communicationSteps.length - 1}
-          onClick={() => onStepChange(currentStep + 1)}
-        >
-          Siguiente
-        </Button>
+        {!isLastStep && (
+          <Button
+            type="button"
+            variant="outline"
+            className={stepNavigationClassName}
+            aria-label="Siguiente paso"
+            onClick={() => onStepChange(currentStep + 1)}
+          >
+            Siguiente
+          </Button>
+        )}
       </div>
     </section>
   );
@@ -1791,9 +1812,7 @@ export function EfaCommunicationPanel({
             >
               {step === 0 && (
                 <fieldset className="space-y-3">
-                  <legend className="text-sm font-medium">
-                    Selecciona el sentido de la llamada
-                  </legend>
+                  <legend className="text-sm font-medium">Selecciona el tipo de llamada</legend>
                   {(["incoming", "outgoing"] as const).map((value) => (
                     <label
                       key={value}
@@ -1940,10 +1959,14 @@ export function EfaCommunicationPanel({
               {step === 4 && (
                 <div className="min-w-0 space-y-3 rounded-md border p-3">
                   <h3 className="font-medium">Revisa los datos de la llamada</h3>
-                  <p>Dirección: {directionLabel(direction)}</p>
-                  <p>Inicio real: {times.startedAt || "Sin registrar"}</p>
-                  <p>Fin real: {times.endedAt || "Sin registrar"}</p>
-                  <p>Prioridad: {priorityLabel(priority || null)}</p>
+                  {communicationReviewLines({
+                    direction,
+                    startedAt: times.startedAt,
+                    endedAt: times.endedAt,
+                    priority,
+                  }).map((line) => (
+                    <p key={line}>{line}</p>
+                  ))}
                   {selected?.state === "finalized" && (
                     <p>La llamada conservará su estado finalizada al guardar correcciones.</p>
                   )}
@@ -1970,7 +1993,7 @@ export function EfaCommunicationPanel({
                       )}
                       {dirty && (
                         <p className="text-sm">
-                          Hay cambios sin guardar; guarda la llamada antes de finalizar.
+                          Hay cambios sin guardar; guarda el borrador antes de finalizar.
                         </p>
                       )}
                       {pendingEntry && (
@@ -2006,7 +2029,7 @@ export function EfaCommunicationPanel({
                       <p>
                         {pendingEntry
                           ? "La operación local debe confirmarse antes de habilitar la finalización."
-                          : "Guarda la llamada primero; solo se puede finalizar una llamada guardada."}
+                          : "Guarda el borrador primero; solo se puede finalizar una llamada guardada."}
                       </p>
                       {dirty && !pendingEntry && <p>Hay cambios sin guardar.</p>}
                     </div>

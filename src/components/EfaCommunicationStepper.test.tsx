@@ -14,6 +14,7 @@ import {
   newCallStartedAtPrefill,
   CommunicationServiceEcho,
   CommunicationActionRow,
+  communicationReviewLines,
   communicationFinalizeActions,
   communicationFinalizeConfirmation,
   shouldContinueToDispatches,
@@ -173,6 +174,74 @@ describe("EfaCommunicationStepper", () => {
     expect(html).toContain("Paso anterior");
     expect(html).toContain("Siguiente paso");
     expect(html.indexOf("Dirección</p>")).toBeLessThan(html.indexOf("Paso anterior"));
+  });
+
+  it("names the first step after the call type instead of an address-like word", () => {
+    expect(communicationSteps[0]).toBe("Tipo de llamada");
+    expect(communicationSteps).not.toContain("Dirección");
+  });
+
+  it("keeps a single neutral previous control on the last step", () => {
+    const html = renderToStaticMarkup(
+      <EfaCommunicationStepper
+        step={4}
+        resolvedSteps={[true, true, true, true, false]}
+        onStepChange={vi.fn()}
+      >
+        <p>Revisión</p>
+      </EfaCommunicationStepper>,
+    );
+    expect(html).toContain("Paso anterior");
+    expect(html).not.toContain("Siguiente");
+    expect(html).not.toContain('disabled=""');
+    expect(html).toContain("border-input");
+    expect(html).not.toContain("bg-indigo");
+  });
+
+  it("uses the same neutral outline for previous and next on middle steps", () => {
+    const html = renderToStaticMarkup(
+      <EfaCommunicationStepper
+        step={2}
+        resolvedSteps={[true, true, false, false, false]}
+        onStepChange={vi.fn()}
+      >
+        <p>Fin</p>
+      </EfaCommunicationStepper>,
+    );
+    const buttons = html.match(/<button[^>]*aria-label="(Paso anterior|Siguiente paso)"[^>]*>/g);
+    expect(buttons).toHaveLength(2);
+    expect(buttons?.every((tag) => tag.includes("border-input"))).toBe(true);
+    expect(buttons?.some((tag) => tag.includes("bg-primary") || tag.includes("bg-indigo"))).toBe(
+      false,
+    );
+    expect(buttons?.every((tag) => tag.includes("bg-background"))).toBe(true);
+  });
+
+  it("summarizes the review with the call type and human dates in Buenos Aires time", () => {
+    expect(
+      communicationReviewLines({
+        direction: "incoming",
+        startedAt: "2026-10-14T16:32:00.000Z",
+        endedAt: "",
+        priority: "red",
+      }),
+    ).toEqual([
+      "Tipo de llamada: Entrante",
+      "Inicio real: 14/10/2026 13:32",
+      "Fin real: Sin registrar",
+      "Prioridad: Roja",
+    ]);
+    const outgoing = communicationReviewLines({
+      direction: "outgoing",
+      startedAt: "",
+      endedAt: "2026-10-14T17:05:00.000Z",
+      priority: "",
+    });
+    expect(outgoing[0]).toBe("Tipo de llamada: Saliente");
+    expect(outgoing[1]).toBe("Inicio real: Sin registrar");
+    expect(outgoing[2]).toBe("Fin real: 14/10/2026 14:05");
+    expect(outgoing.join(" ")).not.toContain("T17:05");
+    expect(outgoing.join(" ")).not.toContain("Dirección");
   });
 
   it("echoes the service time and private address as read-only text", () => {
