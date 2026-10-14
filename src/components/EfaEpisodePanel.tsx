@@ -2193,6 +2193,9 @@ export function EfaEpisodePanel({
                               }
                             : null
                         }
+                        onContinueToDispatches={() => {
+                          openWorkspace(episode.id, "dispatches");
+                        }}
                         onInitialCallSelected={(operationId, communicationId) => {
                           setInitialCallContinuation((current) => {
                             if (

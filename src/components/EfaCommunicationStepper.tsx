@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { useEffect, useRef, useState } from "react";
+import { ArrowRight } from "lucide-react";
 import { createClientOnlyFn, useServerFn } from "@tanstack/react-start";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -136,6 +137,110 @@ export function communicationStepResolution(input: {
     Boolean(input.priority),
     input.finalized,
   ];
+}
+
+export type FinalizeIntent = "finalize" | "finalize-and-continue";
+
+/** Which finalize buttons exist; eligibility (disabled state) is decided separately. */
+export function communicationFinalizeActions(input: {
+  step: number;
+  state: EfaCommunicationStatus | undefined;
+  hasContinueHandler: boolean;
+}) {
+  const available = input.step === 4 && input.state === "draft";
+  return { finalize: available, finalizeAndContinue: available && input.hasContinueHandler };
+}
+
+/** Confirmation copy per intent; it must only describe what the server really does. */
+export function communicationFinalizeConfirmation(intent: FinalizeIntent) {
+  return intent === "finalize-and-continue"
+    ? {
+        title: "Finalizar la llamada y pasar a Despacho",
+        description:
+          "Vas a finalizar los datos de la llamada y pasar a la sección de despacho de ambulancia.",
+        confirmLabel: "Finalizar y pasar a Despachos",
+      }
+    : {
+        title: "Finalizar la llamada",
+        description:
+          "La llamada pasará a estado finalizada y conservará la prioridad y los horarios registrados. Seguirás en la sección de llamadas.",
+        confirmLabel: "Finalizar llamada",
+      };
+}
+
+export type ConfirmedFinalizeOutcome = {
+  operationId: string;
+  status: string;
+  state: EfaCommunicationStatus | null;
+};
+
+/** Moves to Despachos only when the server confirmed this operation and the call is finalized. */
+export function shouldContinueToDispatches(input: {
+  intent: FinalizeIntent;
+  operationId: string;
+  outcome: ConfirmedFinalizeOutcome | null;
+}) {
+  return (
+    input.intent === "finalize-and-continue" &&
+    input.outcome !== null &&
+    input.outcome.operationId === input.operationId &&
+    input.outcome.status === "confirmed" &&
+    input.outcome.state === "finalized"
+  );
+}
+
+export function CommunicationActionRow({
+  saving,
+  canSave,
+  showFinalize,
+  showFinalizeAndContinue,
+  canFinalize,
+  onSave,
+  onFinalize,
+  onFinalizeAndContinue,
+}: {
+  saving: boolean;
+  canSave: boolean;
+  showFinalize: boolean;
+  showFinalizeAndContinue: boolean;
+  canFinalize: boolean;
+  onSave: () => void;
+  onFinalize: () => void;
+  onFinalizeAndContinue: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+      <Button
+        type="button"
+        className="min-h-11 w-full min-w-0 bg-slate-600 px-4 text-white hover:bg-slate-700 sm:w-auto dark:bg-slate-500 dark:hover:bg-slate-400"
+        disabled={!canSave}
+        onClick={onSave}
+      >
+        {saving ? "Guardando…" : "Guardar borrador"}
+      </Button>
+      {showFinalize && (
+        <Button
+          type="button"
+          className="min-h-11 w-full min-w-0 bg-emerald-800 px-4 text-white hover:bg-emerald-900 sm:w-auto dark:bg-emerald-700 dark:hover:bg-emerald-600"
+          disabled={!canFinalize}
+          onClick={onFinalize}
+        >
+          Finalizar llamada
+        </Button>
+      )}
+      {showFinalizeAndContinue && (
+        <Button
+          type="button"
+          className="min-h-11 w-full min-w-0 bg-orange-700 px-4 font-semibold text-white shadow-sm hover:bg-orange-800 sm:w-auto dark:bg-orange-600 dark:hover:bg-orange-500"
+          disabled={!canFinalize}
+          onClick={onFinalizeAndContinue}
+        >
+          Finalizar y pasar a Despachos
+          <ArrowRight aria-hidden="true" className="size-4" />
+        </Button>
+      )}
+    </div>
+  );
 }
 
 export function EfaCommunicationStepper({
@@ -321,6 +426,7 @@ export function EfaCommunicationPanel({
   episodeCanEdit,
   initialCallTarget,
   onInitialCallSelected,
+  onContinueToDispatches,
   episode,
 }: {
   episode?: CommunicationServiceContext | undefined;
@@ -331,6 +437,8 @@ export function EfaCommunicationPanel({
   episodeCanEdit: boolean;
   initialCallTarget?: { operationId: string; communicationId: string } | null;
   onInitialCallSelected?: (operationId: string, communicationId: string) => void;
+  /** Called only after the server confirmed a "finalize and continue" request. */
+  onContinueToDispatches?: () => void;
 }) {
   const listForEpisode = useServerFn(listEfaCommunicationsForEpisode);
   const listNotices = useServerFn(listEfaCommunicationNotices);
@@ -367,6 +475,7 @@ export function EfaCommunicationPanel({
     null,
   );
   const [finalizeConfirmationTarget, setFinalizeConfirmationTarget] = useState<string | null>(null);
+  const [finalizeIntent, setFinalizeIntent] = useState<FinalizeIntent>("finalize");
   const [refreshWarning, setRefreshWarning] = useState("");
   const [dirty, setDirty] = useState(false);
   const activeRef = useRef(true);
@@ -385,6 +494,8 @@ export function EfaCommunicationPanel({
   const dirtyRef = useRef(dirty);
   const initialCallTargetRef = useRef(initialCallTarget ?? null);
   const onInitialCallSelectedRef = useRef(onInitialCallSelected);
+  const onContinueToDispatchesRef = useRef(onContinueToDispatches);
+  const confirmedOutcomeRef = useRef<ConfirmedFinalizeOutcome | null>(null);
   const initialSelectionRevisionRef = useRef(0);
   const initialSelectionClaimedRef = useRef(false);
   const consumedInitialCallsRef = useRef(new Set<string>());
@@ -406,6 +517,7 @@ export function EfaCommunicationPanel({
   dirtyRef.current = dirty;
   initialCallTargetRef.current = initialCallTarget ?? null;
   onInitialCallSelectedRef.current = onInitialCallSelected;
+  onContinueToDispatchesRef.current = onContinueToDispatches;
   ownerRef.current = currentUserId;
   episodeRef.current = episodeId;
   canWriteRef.current = canWrite;
@@ -625,6 +737,11 @@ export function EfaCommunicationPanel({
     const ownsEditor = selectedOperationRef.current === entry.operationId;
     if (result.status === "confirmed" || result.status === "confirmed-cleanup-failed") {
       const saved = (result as { result: EfaCommunicationMutationResult }).result;
+      confirmedOutcomeRef.current = {
+        operationId: entry.operationId,
+        status: result.status,
+        state: saved.communication.state,
+      };
       setCalls((current) => [
         saved.communication,
         ...current.filter((call) => call.id !== saved.communication.id),
@@ -987,7 +1104,7 @@ export function EfaCommunicationPanel({
     }
   }
 
-  async function finalizeCurrent(confirmedTargetKey: string) {
+  async function finalizeCurrent(confirmedTargetKey: string, intent: FinalizeIntent = "finalize") {
     const currentTargetKey = selected
       ? `${currentUserId}:${episodeId}:${selected.id}:${selected.version}`
       : null;
@@ -1010,15 +1127,23 @@ export function EfaCommunicationPanel({
       return;
     const release = submissionGateRef.current.acquire();
     if (!release) return;
+    const operationId = crypto.randomUUID();
+    confirmedOutcomeRef.current = null;
     try {
       await submitPayload("finalize", {
         communicationId: selected.id,
         expectedVersion: selected.version,
-        operationId: crypto.randomUUID(),
+        operationId,
         priority,
       });
     } finally {
       release();
+    }
+    // Only a server-confirmed finalize may leave the call section; failures keep the error visible.
+    const outcome = confirmedOutcomeRef.current;
+    confirmedOutcomeRef.current = null;
+    if (currentContext() && shouldContinueToDispatches({ intent, operationId, outcome })) {
+      onContinueToDispatchesRef.current?.();
     }
   }
 
@@ -1363,6 +1488,19 @@ export function EfaCommunicationPanel({
     !pendingEntry &&
     !busy;
   const canEditSelected = Boolean(selected && canEditCommunication(canWrite, selected));
+  const finalizeActions = communicationFinalizeActions({
+    step,
+    state: selected?.state,
+    hasContinueHandler: Boolean(onContinueToDispatches),
+  });
+  const finalizeCopy = communicationFinalizeConfirmation(finalizeIntent);
+  function requestFinalize(intent: FinalizeIntent) {
+    if (!selected) return;
+    setFinalizeIntent(intent);
+    setFinalizeConfirmationTarget(
+      `${currentUserId}:${episodeId}:${selected.id}:${selected.version}`,
+    );
+  }
   const resolvedSteps = communicationStepResolution({
     directionPresent: Boolean(selected?.direction),
     directionReviewed,
@@ -1903,45 +2041,31 @@ export function EfaCommunicationPanel({
                 Reintentar guardar la misma operación local
               </Button>
             )}
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                type="button"
-                className={`min-h-11 min-w-0 ${step === 4 ? "flex-1 text-xs px-2 sm:text-sm sm:px-4" : "w-auto"}`}
-                disabled={
-                  !(selected ? canEditSelected : canCreateCall) ||
-                  !queueReady ||
-                  !callsReady ||
-                  busy ||
-                  Boolean(pendingEntry) ||
-                  (Boolean(selected) && !dirty)
-                }
-                onClick={() => void saveCurrent()}
-              >
-                {busy ? "Guardando…" : "Guardar llamada"}
-              </Button>
-              {step === 4 && selected?.state === "draft" && (
-                <Button
-                  type="button"
-                  className="min-h-11 min-w-0 flex-1 text-xs px-2 sm:flex-none sm:text-sm sm:px-4"
-                  disabled={
-                    !canEditSelected ||
-                    !queueReady ||
-                    !callsReady ||
-                    busy ||
-                    Boolean(pendingEntry) ||
-                    dirty ||
-                    !priority
-                  }
-                  onClick={() =>
-                    setFinalizeConfirmationTarget(
-                      `${currentUserId}:${episodeId}:${selected.id}:${selected.version}`,
-                    )
-                  }
-                >
-                  Finalizar llamada
-                </Button>
-              )}
-            </div>
+            <CommunicationActionRow
+              saving={busy}
+              canSave={
+                Boolean(selected ? canEditSelected : canCreateCall) &&
+                queueReady &&
+                callsReady &&
+                !busy &&
+                !pendingEntry &&
+                !(Boolean(selected) && !dirty)
+              }
+              showFinalize={finalizeActions.finalize}
+              showFinalizeAndContinue={finalizeActions.finalizeAndContinue}
+              canFinalize={
+                canEditSelected &&
+                queueReady &&
+                callsReady &&
+                !busy &&
+                !pendingEntry &&
+                !dirty &&
+                Boolean(priority)
+              }
+              onSave={() => void saveCurrent()}
+              onFinalize={() => requestFinalize("finalize")}
+              onFinalizeAndContinue={() => requestFinalize("finalize-and-continue")}
+            />
             {selected && (selected.canManageLifecycle ?? selected.canEdit) && (
               <details className="rounded-md border px-3">
                 <summary className="min-h-11 cursor-pointer py-3 font-medium">Más acciones</summary>
@@ -2007,10 +2131,10 @@ export function EfaCommunicationPanel({
         currentTargetKey={
           selected ? `${currentUserId}:${episodeId}:${selected.id}:${selected.version}` : null
         }
-        title="Finalizar llamada"
-        description="La llamada pasará a estado finalizada. Se conservarán la prioridad y los horarios registrados."
-        confirmLabel="Finalizar llamada"
-        onConfirm={(targetKey) => void finalizeCurrent(targetKey)}
+        title={finalizeCopy.title}
+        description={finalizeCopy.description}
+        confirmLabel={finalizeCopy.confirmLabel}
+        onConfirm={(targetKey) => void finalizeCurrent(targetKey, finalizeIntent)}
       />
     </div>
   );
