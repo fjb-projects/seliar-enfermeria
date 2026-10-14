@@ -70,7 +70,7 @@ vitest focused files, typecheck vs baseline, build.
 - T1: 2119133 fix(efa): show selected mobile and clearer result in service summary
 - T2: 0283925 feat(efa): add mobile follow-up block to dispatch
 - T3: f3beb51 feat(efa): add service timeline to history summary
-- T4: 1c9ee41 fix(efa): resolve dispatch base name in episode summary
+- T4: 82336e5 fix(efa): resolve dispatch base name in episode summary
 - T5: 85be98e fix(efa): mark cancelled dispatches in service timeline
 
 ## Next step
