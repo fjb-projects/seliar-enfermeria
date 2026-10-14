@@ -29,7 +29,7 @@ import type {
   CommunicationQueueEntry,
   CommunicationQueueStore,
 } from "@/lib/efa-communications.queue";
-import { directionLabel, priorityLabel } from "@/lib/efa-labels";
+import { directionLabel, formatDateTimeMinutes, priorityLabel } from "@/lib/efa-labels";
 
 const loadCommunicationClient = createClientOnlyFn(() => import("@/lib/efa-communications.client"));
 const loadCommunicationQueue = createClientOnlyFn(() => import("@/lib/efa-communications.queue"));
@@ -274,6 +274,32 @@ export function shouldShowCommunicationEditor(input: {
     ? input.canEditSelected
     : (input.dirty && input.canCreateCall) || input.pendingCreateRecovery;
 }
+export type CommunicationServiceContext = { eventAt: string; address: string | null };
+
+const isValidInstant = (value: string) => Number.isFinite(new Date(value).getTime());
+
+// New calls start at the service start time. Existing calls always keep their own stored time.
+// eslint-disable-next-line react-refresh/only-export-components -- Tested pure helper used by the panel.
+export function newCallStartedAtPrefill(episode: CommunicationServiceContext | undefined) {
+  return episode && isValidInstant(episode.eventAt) ? episode.eventAt : null;
+}
+
+/** Read-only echo of the current service time and (private) address; it never copies data. */
+export function CommunicationServiceEcho({
+  episode,
+}: {
+  episode?: CommunicationServiceContext | undefined;
+}) {
+  if (!episode || !isValidInstant(episode.eventAt)) return null;
+  const address = episode.address?.trim();
+  return (
+    <p className="min-w-0 break-words rounded-md border p-3 text-sm text-muted-foreground">
+      Servicio: {formatDateTimeMinutes(episode.eventAt)}
+      {address ? ` · Dirección del servicio: ${address}` : ""}
+    </p>
+  );
+}
+
 const queueStatusLabel = (status: CommunicationQueueEntry["status"]) =>
   status === "pending"
     ? "pendiente"
@@ -295,7 +321,9 @@ export function EfaCommunicationPanel({
   episodeCanEdit,
   initialCallTarget,
   onInitialCallSelected,
+  episode,
 }: {
+  episode?: CommunicationServiceContext | undefined;
   episodeId: string;
   episodeLabel: string;
   currentUserId: string;
@@ -1097,12 +1125,21 @@ export function EfaCommunicationPanel({
     )
       return;
     noteCallEditorInteraction();
+    // The prefilled start is editable and "Dejar sin hora" still clears it. It is not marked as
+    // reviewed: the step resolves because it holds a value, and existing calls are never touched.
+    const prefill = newCallStartedAtPrefill(episode);
+    let prefilledTimes: FormTimes = { startedAt: "", endedAt: "" };
+    if (prefill) {
+      const client = await loadCommunicationClient();
+      if (!currentContext() || pendingRef.current || busyRef.current) return;
+      prefilledTimes = client.communicationToFormTimes({ startedAt: prefill, endedAt: null });
+    }
     setSelected(null);
     selectedCallRef.current = null;
     setDirection("incoming");
     setDirectionReviewed(false);
     setPriority("");
-    setTimes({ startedAt: "", endedAt: "" });
+    setTimes(prefilledTimes);
     setTimeReviewed({ startedAt: false, endedAt: false });
     originalTimesRef.current = { startedAt: null, endedAt: null };
     setDirty(true);
@@ -1385,6 +1422,7 @@ export function EfaCommunicationPanel({
           )}
         </CardHeader>
         <CardContent className="min-w-0 space-y-3 p-0">
+          <CommunicationServiceEcho episode={episode} />
           {queueError && (
             <p role="alert" className="rounded-md border p-3 text-sm">
               {queueError}

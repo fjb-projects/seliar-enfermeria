@@ -2137,6 +2137,7 @@ export function EfaEpisodePanel({
                         currentUserId={currentUserId}
                         canWrite={canWrite}
                         episodeCanEdit={episode.canEdit}
+                        episode={{ eventAt: episode.eventAt, address: episode.address }}
                         initialCallTarget={
                           initialCallContinuation?.episodeId === episode.id &&
                           activeWorkspaceSection === "communications"
