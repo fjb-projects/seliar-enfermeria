@@ -5,6 +5,7 @@ import {
   EfaEpisodeSummaryView,
   dispatchResultLine,
   episodeFinalStateLine,
+  withResolvedBaseNames,
   type EpisodeSummaryData,
 } from "./EfaEpisodeSummary";
 
@@ -12,6 +13,7 @@ vi.mock("@tanstack/react-start", () => ({
   createClientOnlyFn: (fn: () => unknown) => fn,
   useServerFn: () => vi.fn(async () => []),
 }));
+vi.mock("@/lib/efa-bases.functions", () => ({ listEfaBases: vi.fn() }));
 vi.mock("@/lib/efa-communications.functions", () => ({ listEfaCommunicationsForEpisode: vi.fn() }));
 vi.mock("@/lib/efa-dispatches.functions", () => ({ listEfaDispatchesForEpisode: vi.fn() }));
 vi.mock("@/lib/efa-observations.functions", () => ({ listEfaObservationsForEpisode: vi.fn() }));
@@ -76,6 +78,38 @@ describe("dispatchResultLine", () => {
         finalizedAt: "2026-10-14T14:05:00.000Z",
       }),
     ).toContain("Finalizado 11:05");
+  });
+});
+
+describe("withResolvedBaseNames", () => {
+  const bases = [
+    { id: "b1", name: "Móvil 1" },
+    { id: "b2", name: "Móvil 2" },
+  ];
+  it("fills a missing or blank base name from the base catalog by id and keeps server names", () => {
+    const rows = [
+      { id: "d1", baseId: "b1", baseName: null },
+      { id: "d2", baseId: "b2" },
+      { id: "d3", baseId: "b2", baseName: "  " },
+      { id: "d4", baseId: "b1", baseName: "Nombre del servidor" },
+      { id: "d5", baseId: "unknown", baseName: null },
+    ];
+    expect(withResolvedBaseNames(rows, bases).map((row) => row.baseName ?? null)).toEqual([
+      "Móvil 1",
+      "Móvil 2",
+      "Móvil 2",
+      "Nombre del servidor",
+      null,
+    ]);
+  });
+
+  it("returns the same rows when there is nothing to resolve", () => {
+    const rows = [{ id: "d1", baseId: "b1", baseName: "Móvil 1" }];
+    expect(withResolvedBaseNames(rows, [])).toBe(rows);
+    const unnamed: Array<{ id: string; baseId: string; baseName?: string | null }> = [
+      { id: "d1", baseId: "b1" },
+    ];
+    expect(withResolvedBaseNames(unnamed, bases)[0]?.baseName).toBe("Móvil 1");
   });
 });
 

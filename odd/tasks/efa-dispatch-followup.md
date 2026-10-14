@@ -38,7 +38,7 @@ Make the service history coherent for dispatches: show the mobile exactly as sel
 - [x] T1 — Server+summary: add `baseName` to dispatch DTOs from `listForEpisode` (and `get`) via `tx.findBase`; summary card title "Móvil N" (fallback "Base histórica"), "Destino: …" line only when present, Resultado display (label + clarification + "Finalizado HH:mm" / "Pendiente"), "(En curso)" -> "Sin finalizar". Tests alongside (server + summary + labels).
 - [x] T2 — Stepper: rename the "Eventos relacionados" block to a visible "Seguimiento del móvil" (hint: register contacts and news with time + note); keep it available whenever it is today and show it expanded (not collapsed) once Llegada a escena (t2) is observed; relabel buttons ("Registrar novedad · Ahora", manual time variant); show entries in the dispatch history as "Seguimiento · hora · nota". Same queue kind/server function. Tests alongside.
 - [x] T3 — Timeline: new pure module `src/lib/efa-episode-timeline.ts` that normalizes episode, calls, dispatch times, follow-up entries, police events and conductas into `{at, kind, title, detail}` sorted ascending with a "Sin hora" group; render it in `EfaEpisodeSummary` (section "Cronología del servicio") under/over the section cards. Tests alongside (pure function tests first, RED then GREEN).
-- [ ] T4 — Real-data base name: the history card showed "Base histórica" for a real service although fixture tests passed; resolve the mobile name robustly (see Evidence).
+- [x] T4 — Real-data base name: the history card showed "Base histórica" for a real service although fixture tests passed; the summary now also resolves the mobile name from the base catalog (`listEfaBases`, same source as the stepper) by `baseId` when the dispatch read carries no `baseName` (see Evidence).
 - [x] T5 — Mark cancelled dispatches: timeline entries of a cancelled dispatch (time entries and follow-up entries) carry the "Anulada" detail like cancelled calls; the summary Resultado line of a cancelled dispatch never shows "Finalizado HH:mm" (no result -> "Resultado: Anulada").
 
 ## Acceptance criteria
@@ -63,11 +63,15 @@ vitest focused files, typecheck vs baseline, build.
 - T3: `efa-episode-timeline.test.ts` and the `timelineKindLabels` labels test observed RED (module/export missing), then GREEN. Component SSR tests for "Cronología del servicio" observed RED then GREEN. The timeline excludes participation records (same as the conducts section) and never reads police `meetingReference`/`notes`. SSR only: no click or scroll behavior is exercised.
 - Final verification: focused vitest (9 files) 96 passed; `npm run typecheck` shows only the 6 baseline errors; `npm run build` exit 0.
 - T5: timeline test "marks every entry of a cancelled dispatch as Anulada" and summary tests (`dispatchResultLine` cancelled cases, card without "Finalizado") observed RED, then GREEN (26 passed in the two files). Route: delegated writer, inline edits.
+- T4 diagnosis: traced the real path and found NO code defect. `drizzleStore.findBase` (`efa-dispatches.server.ts:1353`) selects `efa_base.name` by id with no active/owner filter (FK `efa_dispatch.base_id -> efa_base.id`); `listForEpisode` (`:390-410`) and `get` add `baseName`; `efa-dispatches.functions.ts:135-137` has a validator only for the input and no output schema/mapper; the summary casts the result without mapping (`EfaEpisodeSummary.tsx` fetch effect). Nothing strips `baseName` in the repo, so the most likely cause is a server process still running the pre-T1 module (client new, server old). Not verifiable without the live DB / running server. Police panel `mapDispatchChoices` reads the same `baseName` and had silently fallen back to "Base institucional" before T1 for the same reason.
+- T4 hardening: new pure `withResolvedBaseNames` observed RED (not a function) then GREEN; the summary fetches `listEfaBases` best effort (failures ignored, e.g. read-only accounts) and fills missing names by `baseId`. Limitation: the catalog is active-only, so an inactive base still falls back to "Base histórica" when the server omits the name.
 
 ## Commits
 - T1: 2119133 fix(efa): show selected mobile and clearer result in service summary
 - T2: 0283925 feat(efa): add mobile follow-up block to dispatch
 - T3: f3beb51 feat(efa): add service timeline to history summary
+- T4: 1c9ee41 fix(efa): resolve dispatch base name in episode summary
+- T5: 85be98e fix(efa): mark cancelled dispatches in service timeline
 
 ## Next step
 Review assessment and delivery decision by the parent.

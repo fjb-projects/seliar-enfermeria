@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { listEfaBases } from "@/lib/efa-bases.functions";
 import { listEfaCommunicationsForEpisode } from "@/lib/efa-communications.functions";
 import { listEfaDispatchesForEpisode } from "@/lib/efa-dispatches.functions";
 import { listEfaObservationsForEpisode } from "@/lib/efa-observations.functions";
@@ -51,6 +52,7 @@ type SummaryCommunication = {
 };
 type SummaryDispatch = {
   id: string;
+  baseId?: string;
   baseName?: string | null;
   institutionName?: string | null;
   priority: string | null;
@@ -115,6 +117,24 @@ function updatedAtText(updatedAt: string, reference: string | null | undefined) 
   return reference && dayPart(reference) === dayPart(updatedAt)
     ? formatTimeMinutes(updatedAt)
     : formatDateTimeMinutes(updatedAt);
+}
+
+/**
+ * Fills a missing mobile name from the base catalog (the same list the dispatch stepper uses), so
+ * the card still names the selected mobile when the dispatch read did not carry `baseName`.
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- Pure helper tested beside its UI.
+export function withResolvedBaseNames<T extends { baseId?: string; baseName?: string | null }>(
+  dispatches: T[],
+  bases: Array<{ id: string; name: string }>,
+): T[] {
+  if (bases.length === 0) return dispatches;
+  const names = new Map(bases.map((base) => [base.id, base.name]));
+  return dispatches.map((dispatch) => {
+    if (dispatch.baseName?.trim()) return dispatch;
+    const name = dispatch.baseId ? names.get(dispatch.baseId)?.trim() : undefined;
+    return name ? { ...dispatch, baseName: name } : dispatch;
+  });
 }
 
 /** One human line describing where the service ended up, instead of a version list. */
@@ -609,6 +629,7 @@ export function EfaEpisodeSummary({ episode }: { episode: SummaryEpisode }) {
   const listDispatches = useServerFn(listEfaDispatchesForEpisode);
   const listCoordinations = useServerFn(listEfaPoliceCoordinationsForEpisode);
   const listObservations = useServerFn(listEfaObservationsForEpisode);
+  const listBases = useServerFn(listEfaBases);
   const episodeId = episode.id;
   const [state, setState] = useState<EpisodeSummaryState>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
@@ -620,14 +641,22 @@ export function EfaEpisodeSummary({ episode }: { episode: SummaryEpisode }) {
       listDispatches({ data: episodeId }),
       listCoordinations({ data: episodeId }),
       listObservations({ data: episodeId }),
+      // Best effort: only used to name the mobile when the dispatch read lacks `baseName`.
+      // It needs EFA access, so any failure (e.g. a read-only account) is ignored.
+      Promise.resolve()
+        .then(() => listBases())
+        .catch(() => []),
     ])
-      .then(([communications, dispatches, coordinations, observations]) => {
+      .then(([communications, dispatches, coordinations, observations, bases]) => {
         if (!current) return;
         setState({
           status: "ready",
           data: {
             communications: communications as unknown as SummaryCommunication[],
-            dispatches: dispatches as unknown as SummaryDispatch[],
+            dispatches: withResolvedBaseNames(
+              dispatches as unknown as SummaryDispatch[],
+              (Array.isArray(bases) ? bases : []) as Array<{ id: string; name: string }>,
+            ),
             coordinations: coordinations as unknown as SummaryPoliceCoordination[],
             observations: observations as unknown as SummaryObservation[],
           },
