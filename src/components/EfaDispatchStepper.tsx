@@ -345,6 +345,92 @@ function formatDispatchDate(value: string | Date) {
 function captureDispatchTime(now: Date) {
   return dateToLocalInput(now);
 }
+
+/** The follow-up block opens by itself once arrival on scene (t2) has a recorded time. */
+// eslint-disable-next-line react-refresh/only-export-components -- Pure helper exported for deterministic tests.
+export function isFollowUpOpen(dispatch: { t2At: string | Date | null }) {
+  return Boolean(dispatch.t2At);
+}
+
+/** History line for one mobile follow-up entry (contact or news). */
+// eslint-disable-next-line react-refresh/only-export-components -- Pure helper exported for deterministic tests.
+export function followUpHistoryLine(item: { occurredAt: string | Date; note: string | null }) {
+  const note = item.note?.trim();
+  return ["Seguimiento", formatDispatchDate(item.occurredAt), note].filter(Boolean).join(" · ");
+}
+
+export function DispatchFollowUpBlock({
+  open,
+  busy,
+  note,
+  at,
+  onNoteChange,
+  onAtChange,
+  onRegisterNow,
+  onRegisterAt,
+  error,
+  message,
+}: {
+  open: boolean;
+  busy: boolean;
+  note: string;
+  at: string;
+  onNoteChange: (value: string) => void;
+  onAtChange: (value: string) => void;
+  onRegisterNow: () => void;
+  onRegisterAt: () => void;
+  error: string | null;
+  message: string | null;
+}) {
+  return (
+    <details className="min-w-0 border-t pt-3" open={open}>
+      <summary className="min-h-11 cursor-pointer py-3 font-medium">Seguimiento del móvil</summary>
+      <div className="min-w-0 space-y-3 pb-3">
+        <p className="text-sm text-muted-foreground">
+          Registrá contactos y novedades con hora y nota.
+        </p>
+        <label className="block">
+          Nota del seguimiento
+          <input
+            className="mt-1 h-11 w-full min-w-0 max-w-full rounded border px-3"
+            value={note}
+            onChange={(event) => onNoteChange(event.target.value)}
+          />
+        </label>
+        <label className="block">
+          Hora de la novedad
+          <input
+            type="datetime-local"
+            step="0.001"
+            className="mt-1 h-11 w-full min-w-0 max-w-full rounded border px-3"
+            value={at}
+            onChange={(event) => onAtChange(event.target.value)}
+          />
+        </label>
+        <button className="min-h-11 rounded border px-4" disabled={busy} onClick={onRegisterNow}>
+          Registrar novedad · Ahora
+        </button>
+        <button
+          className="min-h-11 rounded border px-4"
+          disabled={busy || !inputToIso(at)}
+          onClick={onRegisterAt}
+        >
+          Registrar novedad con hora ingresada
+        </button>
+        {error && (
+          <p role="alert" className="text-sm text-destructive" aria-live="assertive">
+            {error}
+          </p>
+        )}
+        {message && (
+          <p role="status" className="text-sm" aria-live="polite">
+            {message}
+          </p>
+        )}
+      </div>
+    </details>
+  );
+}
 // eslint-disable-next-line react-refresh/only-export-components -- exported for deterministic tests; this helper is used by the quick-action handlers.
 export function captureActionTimestamp(now = new Date()) {
   return inputToIso(captureDispatchTime(now)) ?? now.toISOString();
@@ -1723,7 +1809,7 @@ export function EfaDispatchStepper({
           <details className="min-w-0 border-t pt-3">
             <summary className="min-h-11 cursor-pointer py-2 font-medium">
               Historial del despacho · {history.length} cambios, {selected.contactAttempts.length}{" "}
-              intentos
+              seguimientos
             </summary>
             <div className="space-y-2">
               {history.map((item, index) => (
@@ -1764,7 +1850,7 @@ export function EfaDispatchStepper({
               ))}
               {selected.contactAttempts.map((item) => (
                 <p key={item.id} className="text-sm">
-                  Intento de contacto · {formatDispatchDate(item.occurredAt)} {item.note}
+                  {followUpHistoryLine(item)}
                 </p>
               ))}
             </div>
@@ -2147,68 +2233,40 @@ export function EfaDispatchStepper({
           </fieldset>
         )}
         {selected && editable && (
+          <DispatchFollowUpBlock
+            open={isFollowUpOpen(selected)}
+            busy={busy}
+            note={contactNote}
+            at={contactAt}
+            onNoteChange={setContactNote}
+            onAtChange={setContactAt}
+            onRegisterNow={() => {
+              const occurredAt = captureActionTimestamp(new Date());
+              void freeze("contact-attempt", {
+                dispatchId: selected.id,
+                clientEventId: crypto.randomUUID(),
+                occurredAt,
+                note: contactNote || null,
+              });
+            }}
+            onRegisterAt={() =>
+              void freeze("contact-attempt", {
+                dispatchId: selected.id,
+                clientEventId: crypto.randomUUID(),
+                occurredAt: inputToIso(contactAt)!,
+                note: contactNote || null,
+              })
+            }
+            error={errorSurface === "contact" && error ? error : null}
+            message={messageSurface === "contact" && message ? message : null}
+          />
+        )}
+        {selected && editable && (
           <details className="min-w-0 border-t pt-3">
             <summary className="min-h-11 cursor-pointer py-3 font-medium">
-              Eventos relacionados
+              Solicitudes de apoyo
             </summary>
             <div className="min-w-0 space-y-3 pb-3">
-              <label className="block">
-                Nota del intento de contacto
-                <input
-                  className="mt-1 h-11 w-full min-w-0 max-w-full rounded border px-3"
-                  value={contactNote}
-                  onChange={(event) => setContactNote(event.target.value)}
-                />
-              </label>
-              <label className="block">
-                Hora del intento
-                <input
-                  type="datetime-local"
-                  step="0.001"
-                  className="mt-1 h-11 w-full min-w-0 max-w-full rounded border px-3"
-                  value={contactAt}
-                  onChange={(event) => setContactAt(event.target.value)}
-                />
-              </label>
-              <button
-                className="min-h-11 rounded border px-4"
-                disabled={busy}
-                onClick={() => {
-                  const occurredAt = captureActionTimestamp(new Date());
-                  void freeze("contact-attempt", {
-                    dispatchId: selected.id,
-                    clientEventId: crypto.randomUUID(),
-                    occurredAt,
-                    note: contactNote || null,
-                  });
-                }}
-              >
-                Registrar intento de contacto · Ahora
-              </button>
-              <button
-                className="min-h-11 rounded border px-4"
-                disabled={busy || !inputToIso(contactAt)}
-                onClick={() =>
-                  void freeze("contact-attempt", {
-                    dispatchId: selected.id,
-                    clientEventId: crypto.randomUUID(),
-                    occurredAt: inputToIso(contactAt)!,
-                    note: contactNote || null,
-                  })
-                }
-              >
-                Registrar intento con hora ingresada
-              </button>
-              {error && errorSurface === "contact" && (
-                <p role="alert" className="text-sm text-destructive" aria-live="assertive">
-                  {error}
-                </p>
-              )}
-              {message && messageSurface === "contact" && (
-                <p role="status" className="text-sm" aria-live="polite">
-                  {message}
-                </p>
-              )}
               <label className="block">
                 Motivo de apoyo
                 <input

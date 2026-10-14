@@ -6,10 +6,13 @@ import {
   captureActionTimestamp,
   dispatchErrorSurfaceForKind,
   DispatchStepNavigation,
+  DispatchFollowUpBlock,
   DispatchInstitutionField,
   EfaDispatchStepper,
   FirstResponseRoleSelect,
+  followUpHistoryLine,
   isDispatchReviewStep,
+  isFollowUpOpen,
 } from "./EfaDispatchStepper";
 
 vi.mock("@tanstack/react-start", () => ({
@@ -141,6 +144,68 @@ describe("EfaDispatchStepper", () => {
     expect(html).not.toContain("Despachos · Turno 1");
     expect(html).toContain("Solo lectura");
     expect(html).toContain("<section");
+  });
+
+  it("opens the mobile follow-up only once arrival on scene was observed", () => {
+    expect(isFollowUpOpen({ t2At: "2026-10-14T13:55:00.000Z" })).toBe(true);
+    expect(isFollowUpOpen({ t2At: null })).toBe(false);
+    expect(isFollowUpOpen({ t2At: "" })).toBe(false);
+  });
+
+  it("lists follow-up entries as Seguimiento with the time and the note", () => {
+    const withNote = followUpHistoryLine({
+      occurredAt: "2026-10-14T14:09:00.000Z",
+      note: "Paciente estable",
+    });
+    expect(withNote).toMatch(/^Seguimiento · .*11:09.* · Paciente estable$/);
+    expect(followUpHistoryLine({ occurredAt: "2026-10-14T14:09:00.000Z", note: null })).toMatch(
+      /^Seguimiento · [^·]*11:09[^·]*$/,
+    );
+  });
+
+  it("renders a visible follow-up block with hint and relabeled actions", () => {
+    const props = {
+      open: true,
+      busy: false,
+      note: "",
+      at: "",
+      onNoteChange: () => undefined,
+      onAtChange: () => undefined,
+      onRegisterNow: () => undefined,
+      onRegisterAt: () => undefined,
+      error: null,
+      message: null,
+    };
+    const html = renderToStaticMarkup(<DispatchFollowUpBlock {...props} />);
+    expect(html).toContain("Seguimiento del móvil");
+    expect(html).toContain("Registrá contactos y novedades con hora y nota.");
+    expect(html).toContain("Registrar novedad · Ahora");
+    expect(html).toContain("Registrar novedad con hora ingresada");
+    expect(html).not.toContain("intento de contacto");
+    expect(html).not.toContain("Eventos relacionados");
+    expect(html).toMatch(/<details[^>]*\bopen(?:="")?[^>]*>/);
+    const collapsed = renderToStaticMarkup(<DispatchFollowUpBlock {...props} open={false} />);
+    expect(collapsed).toContain("Seguimiento del móvil");
+    expect(collapsed).not.toMatch(/<details[^>]*\bopen(?:="")?[^>]*>/);
+  });
+
+  it("shows follow-up failures and confirmations inside the block", () => {
+    const html = renderToStaticMarkup(
+      <DispatchFollowUpBlock
+        open={true}
+        busy={false}
+        note=""
+        at=""
+        onNoteChange={() => undefined}
+        onAtChange={() => undefined}
+        onRegisterNow={() => undefined}
+        onRegisterAt={() => undefined}
+        error="No se pudo guardar"
+        message="Guardado"
+      />,
+    );
+    expect(html).toContain("No se pudo guardar");
+    expect(html).toContain("Guardado");
   });
 
   it("renders active destination choices and preserves a historical inactive destination", () => {
