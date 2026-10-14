@@ -11,6 +11,7 @@ import {
   FollowUpTimeField,
   followUpButtonState,
 } from "@/components/EfaDispatchFollowUpModal";
+import { Check, Circle, CircleDot } from "lucide-react";
 import { createClientOnlyFn, useServerFn } from "@tanstack/react-start";
 import { listEfaBases } from "@/lib/efa-bases.functions";
 import { listEfaCommunicationsForEpisode } from "@/lib/efa-communications.functions";
@@ -162,6 +163,39 @@ export function isDispatchReviewStep(step: number): boolean {
   return step === dispatchStepTitles.length - 1;
 }
 
+type DispatchStepState = "complete" | "current" | "pending";
+
+/** Progress is derived from the index only: every step before the current one counts as completed. */
+// eslint-disable-next-line react-refresh/only-export-components -- Pure helper exported for deterministic tests.
+export function dispatchStepState(index: number, currentStep: number): DispatchStepState {
+  if (index === currentStep) return "current";
+  return index < currentStep ? "complete" : "pending";
+}
+
+const dispatchStepStyles: Record<DispatchStepState, string> = {
+  current: "border border-primary bg-primary font-semibold text-primary-foreground",
+  complete:
+    "border border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100",
+  pending: "border bg-background text-foreground",
+};
+const dispatchStepBarStyles: Record<DispatchStepState, string> = {
+  current: "bg-primary",
+  complete: "bg-emerald-300 dark:bg-emerald-700",
+  pending: "bg-muted",
+};
+const dispatchStepStateText: Record<DispatchStepState, string | null> = {
+  current: "Actual",
+  complete: "Completado",
+  pending: null,
+};
+
+function DispatchStepIcon({ state }: { state: DispatchStepState }) {
+  const className = "size-4 shrink-0";
+  if (state === "complete") return <Check aria-hidden="true" className={className} />;
+  if (state === "current") return <CircleDot aria-hidden="true" className={className} />;
+  return <Circle aria-hidden="true" className={className} />;
+}
+
 export function DispatchStepNavigation({
   step,
   onStepChange,
@@ -194,7 +228,7 @@ export function DispatchStepNavigation({
         ref={headingRef}
         aria-live="polite"
         tabIndex={-1}
-        className="min-w-0 flex-1 basis-40 scroll-mt-20 text-sm outline-none"
+        className="min-w-0 flex-1 basis-40 scroll-mt-20 rounded bg-primary px-3 py-2 text-sm font-medium text-primary-foreground outline-none"
       >
         Paso {step + 1} de {dispatchStepTitles.length}: {title}
       </p>
@@ -204,24 +238,41 @@ export function DispatchStepNavigation({
           Ver pasos
         </summary>
         <div className="absolute right-0 z-10 grid min-w-52 max-w-[calc(100vw-2rem)] gap-1 rounded border bg-background p-2 shadow-lg">
-          {dispatchStepTitles.map((stepTitle, index) => (
-            <button
-              type="button"
-              key={stepTitle}
-              aria-label={`Ir al paso ${index + 1}: ${stepTitle}`}
-              aria-current={step === index ? "step" : undefined}
-              className={`min-h-11 min-w-0 rounded px-3 text-left text-sm ${step === index ? "bg-primary text-primary-foreground" : "border"}`}
-              onClick={(event) => {
-                onStepChange(index);
-                const details = event.currentTarget.closest("details");
-                if (details) details.open = false;
-              }}
-            >
-              {index + 1}. {stepTitle}
-            </button>
-          ))}
+          {dispatchStepTitles.map((stepTitle, index) => {
+            const state = dispatchStepState(index, step);
+            const stateText = dispatchStepStateText[state];
+            return (
+              <button
+                type="button"
+                key={stepTitle}
+                aria-label={`Ir al paso ${index + 1}: ${stepTitle}${state === "complete" ? " (completado)" : ""}`}
+                aria-current={state === "current" ? "step" : undefined}
+                data-step-state={state}
+                className={`flex min-h-11 min-w-0 items-center gap-2 rounded px-3 text-left text-sm ${dispatchStepStyles[state]}`}
+                onClick={(event) => {
+                  onStepChange(index);
+                  const details = event.currentTarget.closest("details");
+                  if (details) details.open = false;
+                }}
+              >
+                <DispatchStepIcon state={state} />
+                <span className="min-w-0 flex-1">
+                  {index + 1}. {stepTitle}
+                </span>
+                {stateText && <span className="shrink-0 text-xs">{stateText}</span>}
+              </button>
+            );
+          })}
         </div>
       </details>
+      <div aria-hidden="true" className="flex basis-full gap-1">
+        {dispatchStepTitles.map((stepTitle, index) => (
+          <span
+            key={stepTitle}
+            className={`h-1.5 flex-1 rounded-full ${dispatchStepBarStyles[dispatchStepState(index, step)]}`}
+          />
+        ))}
+      </div>
     </div>
   );
 }

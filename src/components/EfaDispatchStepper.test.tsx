@@ -5,6 +5,7 @@ import {
   canEditSupportAssociation,
   captureActionTimestamp,
   dispatchErrorSurfaceForKind,
+  dispatchStepState,
   DispatchStepNavigation,
   DispatchFollowUpBlock,
   DispatchInstitutionField,
@@ -76,6 +77,33 @@ describe("EfaDispatchStepper", () => {
       <DispatchStepNavigation step={0} onStepChange={() => undefined} />,
     );
     expect(without).not.toContain("Comunicaciones de seguimiento");
+  });
+
+  it("derives step progress from the step index", () => {
+    expect(dispatchStepState(0, 3)).toBe("complete");
+    expect(dispatchStepState(2, 3)).toBe("complete");
+    expect(dispatchStepState(3, 3)).toBe("current");
+    expect(dispatchStepState(4, 3)).toBe("pending");
+    expect(dispatchStepState(0, 0)).toBe("current");
+  });
+
+  it("colors steps by progress with text and icon cues beyond color", () => {
+    const html = renderToStaticMarkup(
+      <DispatchStepNavigation step={5} onStepChange={() => undefined} />,
+    );
+    expect(html.match(/data-step-state="complete"/g)).toHaveLength(5);
+    expect(html.match(/data-step-state="current"/g)).toHaveLength(1);
+    expect(html.match(/data-step-state="pending"/g)).toHaveLength(5);
+    // Completed steps carry a check icon and text; the current step carries text.
+    expect(html.match(/lucide-check/g)).toHaveLength(5);
+    expect(html.match(/>Completado</g)).toHaveLength(5);
+    expect(html.match(/>Actual</g)).toHaveLength(1);
+    expect(html).toContain('aria-label="Ir al paso 1: Base y vínculo (completado)"');
+    // The "Paso N de 11" indicator uses the strong primary color.
+    expect(html).toMatch(/<p[^>]*bg-primary[^>]*>Paso 6 de 11: Llegada a destino/);
+    // Completed steps use soft green, pending steps stay neutral.
+    expect(html).toMatch(/data-step-state="complete"[^>]*bg-emerald-50/);
+    expect(html).toMatch(/data-step-state="pending"[^>]*bg-background/);
   });
 
   it("allows dispatch finalization only from review", () => {
