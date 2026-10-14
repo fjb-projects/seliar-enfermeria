@@ -141,9 +141,12 @@ describe("EfaEpisodeSummaryView", () => {
           dispatches: [
             {
               id: "d1",
+              baseName: "Móvil 1",
               institutionName: "Hospital Central",
               priority: "yellow",
               result: "transported",
+              resultClarification: "Hospital cercano",
+              finalizedAt: "2026-10-14T14:05:00.000Z",
               state: "finalized",
               contactAttempts: [{ id: "a1" }, { id: "a2" }],
               t0At: "2026-10-14T13:40:00.000Z",
@@ -207,13 +210,17 @@ describe("EfaEpisodeSummaryView", () => {
     expect(html).toContain("Entrante");
     expect(html).toContain("10:35");
     expect(html).toContain("Prioridad roja");
-    expect(html).toContain("Hospital Central");
+    expect(html).toContain("Móvil 1");
+    expect(html).not.toContain("Institución sin nombre");
+    expect(html).toContain("Destino: Hospital Central");
     expect(html).toContain("Prioridad amarilla");
-    expect(html).toContain("Resultado:");
-    expect(html).toContain("Con traslado");
+    expect(html).toContain("Resultado: Con traslado");
+    expect(html).toContain("Hospital cercano");
+    expect(html).toContain("Finalizado 11:05");
     expect(html).toContain("Despacho 10:40");
     expect(html).toContain("Llegada a escena 10:55");
-    expect(html).toContain("2 intentos de contacto");
+    expect(html).toContain("2 registros de seguimiento");
+    expect(html).not.toContain("intentos de contacto");
     expect(html).toContain("Inició: Ambulancia");
     expect(html).toContain("Punto de encuentro");
     expect(html).toContain("Solicitud");
@@ -229,6 +236,55 @@ describe("EfaEpisodeSummaryView", () => {
     expect(html).not.toContain("{&quot;");
     expect(html).not.toContain("versión");
     expect(html).not.toContain("Antes");
+  });
+
+  it("titles unfinished dispatches with the mobile, hides an absent destination and shows a pending result", () => {
+    const html = render({
+      status: "ready",
+      data: {
+        ...emptyData,
+        dispatches: [
+          {
+            id: "d1",
+            baseName: "Móvil 2",
+            institutionName: null,
+            priority: null,
+            result: null,
+            state: "draft",
+            t0At: null,
+            t1At: null,
+            t2At: null,
+            t3At: null,
+            t4At: null,
+            t5At: null,
+            t6At: null,
+          },
+          {
+            id: "d2",
+            baseName: null,
+            institutionName: "  ",
+            priority: null,
+            result: null,
+            state: "cancelled",
+            t0At: null,
+            t1At: null,
+            t2At: null,
+            t3At: null,
+            t4At: null,
+            t5At: null,
+            t6At: null,
+          },
+        ],
+      },
+    });
+    expect(html).toContain("Móvil 2");
+    expect(html).toContain("(Sin finalizar)");
+    expect(html).not.toContain("En curso");
+    expect(html).toContain("Resultado: Pendiente");
+    expect(html).not.toContain("Destino:");
+    expect(html).toContain("Base histórica");
+    expect(html).toContain("(Anulada)");
+    expect(html).not.toContain("Institución sin nombre");
   });
 
   it("never exposes private police notes or meeting references", () => {
@@ -261,7 +317,7 @@ describe("EfaEpisodeSummaryView", () => {
     expect(failed.match(/<button/g)).toHaveLength(1);
   });
 
-  it("marks cancelled and in-progress records with text, not only color", () => {
+  it("marks cancelled and unfinished records with text, not only color", () => {
     const html = render({
       status: "ready",
       data: {

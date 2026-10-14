@@ -30,7 +30,7 @@ function makeStore() {
     [episodeId, { id: episodeId, ownerUserId: owner, cancelledAt: null as Date | null }],
   ]);
   const lockOrder: string[] = [];
-  const bases = new Map([[baseId, { id: baseId, isActive: true }]]);
+  const bases = new Map([[baseId, { id: baseId, name: "Móvil 1", isActive: true }]]);
   const institutions = new Map([
     ["institution-active", { id: "institution-active", name: "Hospital Central", isActive: true }],
     [
@@ -647,6 +647,27 @@ describe("EFA dispatch service", () => {
     });
   });
 
+  it("exposes the selected base name in list and detail, including a deactivated base", async () => {
+    const fixture = makeStore();
+    const created = await fixture.service.create(owner, {
+      clientCreationKey: "create-base-name",
+      episodeId,
+      baseId,
+    });
+    expect((await fixture.service.listForEpisode(owner, episodeId))[0]).toMatchObject({
+      baseId,
+      baseName: "Móvil 1",
+    });
+    expect(await fixture.service.get(owner, created.dispatch.id)).toMatchObject({
+      baseName: "Móvil 1",
+    });
+    fixture.bases.set(baseId, { id: baseId, name: "Móvil 1", isActive: false });
+    expect((await fixture.service.listForEpisode(owner, episodeId))[0]?.baseName).toBe("Móvil 1");
+    fixture.bases.delete(baseId);
+    expect((await fixture.service.listForEpisode(owner, episodeId))[0]?.baseName).toBeNull();
+    expect((await fixture.service.get(owner, created.dispatch.id)).baseName).toBeNull();
+  });
+
   it("copies a linked call priority only at creation and replays after the base is deactivated", async () => {
     const fixture = makeStore();
     const input = {
@@ -661,7 +682,7 @@ describe("EFA dispatch service", () => {
     expect(created.dispatch.priority).toBe("red");
     expect(created.dispatch.t0At).toBe(time);
     expect(created.operation.appliedVersion).toBe(1);
-    fixture.bases.set(baseId, { id: baseId, isActive: false });
+    fixture.bases.set(baseId, { id: baseId, name: "Móvil 1", isActive: false });
     const replay = await fixture.service.create(owner, input);
     expect(replay.operation.replayed).toBe(true);
     expect(fixture.audits).toHaveLength(1);

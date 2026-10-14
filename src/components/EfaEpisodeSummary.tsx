@@ -39,9 +39,12 @@ type SummaryCommunication = {
 };
 type SummaryDispatch = {
   id: string;
+  baseName?: string | null;
   institutionName?: string | null;
   priority: string | null;
   result: string | null;
+  resultClarification?: string | null;
+  finalizedAt?: string | null;
   state: "draft" | "finalized" | "cancelled";
   contactAttempts?: Array<{ id: string }>;
 } & Record<(typeof dispatchTimeSteps)[number][0], string | null>;
@@ -122,6 +125,28 @@ const episodeStatusText = (episode: SummaryEpisode) =>
 
 const recordStateText = (state: "draft" | "finalized" | "cancelled") =>
   state === "cancelled" ? "Anulada" : state === "draft" ? "En curso" : null;
+
+/** A dispatch that was not finalized is "Sin finalizar": it does not mean the mobile is on scene. */
+const dispatchStateText = (state: "draft" | "finalized" | "cancelled") =>
+  state === "cancelled" ? "Anulada" : state === "draft" ? "Sin finalizar" : null;
+
+/** One line with the outcome of a dispatch: result, optional clarification and finalization time. */
+// eslint-disable-next-line react-refresh/only-export-components -- Pure formatter tested beside its UI.
+export function dispatchResultLine(dispatch: {
+  result: string | null;
+  resultClarification?: string | null;
+  finalizedAt?: string | null;
+}) {
+  if (!dispatch.result) return "Resultado: Pendiente";
+  const clarification = dispatch.resultClarification?.trim();
+  return [
+    `Resultado: ${dispatchResultLabel(dispatch.result)}`,
+    clarification,
+    dispatch.finalizedAt ? `Finalizado ${formatTimeMinutes(dispatch.finalizedAt)}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
 
 const priorityTone: Record<string, string> = {
   red: "border-red-300 bg-red-100 text-red-900 dark:border-red-800 dark:bg-red-950 dark:text-red-100",
@@ -296,32 +321,29 @@ function DispatchesSection({ id, state }: { id: string; state: EpisodeSummarySta
             <p>{count(dispatches.length, "despacho registrado", "despachos registrados")}</p>
             <ul className="space-y-3">
               {dispatches.map((dispatch) => {
-                const status = recordStateText(dispatch.state);
+                const status = dispatchStateText(dispatch.state);
                 const times = dispatchTimeSteps
                   .filter(([key]) => dispatch[key])
                   .map(([key, label]) => `${label} ${formatTimeMinutes(dispatch[key])}`);
                 const attempts = dispatch.contactAttempts?.length ?? 0;
+                const destination = dispatch.institutionName?.trim();
                 return (
                   <li key={dispatch.id} className="space-y-1 rounded-md bg-muted/50 p-2">
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                       <span className="break-words font-medium">
-                        {dispatch.institutionName?.trim() || "Institución sin nombre"}
+                        {dispatch.baseName?.trim() || "Base histórica"}
                       </span>
                       <PriorityBadge priority={dispatch.priority} />
                       {status && <span className="text-muted-foreground">({status})</span>}
                     </div>
-                    <p>
-                      Resultado:{" "}
-                      {dispatch.result
-                        ? dispatchResultLabel(dispatch.result)
-                        : "Sin resultado todavía"}
-                    </p>
+                    {destination && <p className="break-words">Destino: {destination}</p>}
+                    <p className="break-words">{dispatchResultLine(dispatch)}</p>
                     <p className="text-muted-foreground">
                       {times.length > 0 ? times.join(" · ") : "Sin horarios registrados"}
                     </p>
                     {attempts > 0 && (
                       <p className="text-muted-foreground">
-                        {count(attempts, "intento de contacto", "intentos de contacto")}
+                        {count(attempts, "registro de seguimiento", "registros de seguimiento")}
                       </p>
                     )}
                   </li>
