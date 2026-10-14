@@ -40,7 +40,7 @@ Replace the raw JSON "Antes/Después" version dump inside the service card's his
 
 ## Progress
 - Route: delegated direct, one writer (3 non-trivial files touched across tasks; mapping already done by read-only explorer).
-- Review assessment per commit: pending (parent).
+- Review assessment (branch range vs main, untracked excluded): medium (executable_change), 1319 changed lines, review_due=false (under_budget). RDD is off (clone-local), so no native review; writer self-verification plus parent spot check (28 tests passed on summary, panel and labels files).
 
 ## Evidence
 (commits and observed results recorded per task)
@@ -67,4 +67,4 @@ Replace the raw JSON "Antes/Después" version dump inside the service card's his
 - Commit: b00a694
 
 ## Next step
-Review assessment per commit, then manual check in the browser (click "Ver historial").
+Manual check in the browser (click "Ver historial"); decide whether "Ver historial" should toggle the summary closed when pressed again.
