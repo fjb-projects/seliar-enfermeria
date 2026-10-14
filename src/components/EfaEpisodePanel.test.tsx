@@ -322,6 +322,27 @@ describe("EfaEpisodePanel", () => {
     expect(html).not.toContain("Dejar de editar");
   });
 
+  it("keeps the service summary closed and never renders raw version JSON before it is requested", () => {
+    const html = renderToStaticMarkup(
+      <EfaEpisodePanel
+        initialEpisodes={[{ ...episode, canEdit: true }]}
+        initialNotices={[]}
+        openOwnGuard={{ id: "guard-1", startedAt: "2026-10-06T09:00:00.000Z", endedAt: null }}
+        currentUserId="owner"
+        canWrite={true}
+        isAdmin={false}
+      />,
+    );
+
+    expect(html).toContain("Ver historial");
+    expect(html).not.toContain("Resumen del servicio");
+    expect(html).not.toContain("Historial y versiones");
+    expect(html).not.toContain("Antes");
+    expect(html).not.toContain("Después");
+    expect(html).not.toContain("{&quot;");
+    expect(html).not.toContain("Cargando…");
+  });
+
   it("keeps a cancelled episode visible and read-only while offering reactivation", () => {
     const cancelled = {
       ...episode,

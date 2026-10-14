@@ -15,6 +15,7 @@ import { EfaCommunicationPanel } from "@/components/EfaCommunicationStepper";
 import { EfaDispatchStepper } from "@/components/EfaDispatchStepper";
 import { EfaPoliceCoordinationPanel } from "@/components/EfaPoliceCoordinationPanel";
 import { EfaObservationPanel } from "@/components/EfaObservationPanel";
+import { EfaEpisodeSummary } from "@/components/EfaEpisodeSummary";
 import { readSession } from "@/lib/auth.functions";
 import {
   createEfaEpisode,
@@ -22,7 +23,6 @@ import {
   cancelEfaEpisode,
   reactivateEfaEpisode,
   getEfaEpisode,
-  getEfaEpisodeHistory,
   listEfaEpisodes,
   listEfaEpisodeNotices,
   markEfaEpisodeNoticeRead,
@@ -91,17 +91,6 @@ type ActiveEpisodeConflict = {
   ownerUserId: string;
   operationId: string;
   episodeId: string;
-};
-export type EpisodeAuditView = {
-  id: string;
-  episodeId: string;
-  actorUserId: string;
-  action: "created" | "updated" | "closed" | "cancelled" | "reactivated";
-  versionBefore: number | null;
-  versionAfter: number;
-  beforeState: Record<string, unknown> | null;
-  afterState: Record<string, unknown>;
-  occurredAt: string;
 };
 export type EpisodeNoticeView = {
   id: string;
@@ -255,7 +244,6 @@ export function EfaEpisodePanel({
   const listEpisodes = useServerFn(listEfaEpisodes);
   const listNotices = useServerFn(listEfaEpisodeNotices);
   const getEpisode = useServerFn(getEfaEpisode);
-  const getHistory = useServerFn(getEfaEpisodeHistory);
   const acknowledgeNotice = useServerFn(markEfaEpisodeNoticeRead);
   const [serviceIntroNotice, setServiceIntroNotice] = useState({
     ownerUserId: currentUserId,
@@ -267,7 +255,6 @@ export function EfaEpisodePanel({
   const [form, setForm] = useState<EpisodeFormValues>(emptyForm);
   const [registerFirstCall, setRegisterFirstCall] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [history, setHistory] = useState<EpisodeAuditView[]>([]);
   const [historyFor, setHistoryFor] = useState<string | null>(null);
   const [workspaceEpisodeId, setWorkspaceEpisodeId] = useState<string | null>(null);
   const [activeWorkspaceSection, setActiveWorkspaceSection] =
@@ -1102,7 +1089,6 @@ export function EfaEpisodePanel({
     setWorkspaceEpisodeId(null);
     setVisitedWorkspaceSections(new Set());
     setActiveConflict(null);
-    setHistory([]);
     setHistoryFor(null);
     setEpisodes(initialEpisodes);
     setNotices(initialNotices);
@@ -1585,22 +1571,11 @@ export function EfaEpisodePanel({
     }
   }
 
-  async function showHistory(episodeId: string) {
-    const ticket = ownerTicketRef.current;
-    if (!ticket) return;
-    setBusy(true);
+  // The summary reads each section on its own once it mounts, so opening it needs no request here.
+  function showHistory(episodeId: string) {
+    if (!ownerTicketRef.current) return;
     setError("");
-    try {
-      const rows = (await getHistory({ data: episodeId })) as EpisodeAuditView[];
-      if (!ownerFenceRef.current?.isCurrent(ticket)) return;
-      setHistory(rows);
-      setHistoryFor(episodeId);
-    } catch {
-      if (!ownerFenceRef.current?.isCurrent(ticket)) return;
-      setError("No se pudo cargar el historial autorizado.");
-    } finally {
-      if (ownerFenceRef.current?.isCurrent(ticket)) setBusy(false);
-    }
+    setHistoryFor(episodeId);
   }
 
   async function markRead(noticeId: string) {
@@ -2104,7 +2079,7 @@ export function EfaEpisodePanel({
                         variant="outline"
                         className="min-h-11 border-indigo-200 bg-indigo-50 px-3 text-indigo-950 hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-100 dark:hover:bg-indigo-950/60"
                         disabled={busy}
-                        onClick={() => void showHistory(episode.id)}
+                        onClick={() => showHistory(episode.id)}
                       >
                         <History aria-hidden="true" className="size-4" />
                         Ver historial
@@ -2228,38 +2203,12 @@ export function EfaEpisodePanel({
                 </EfaEpisodeWorkspace>
               )}
               {historyFor === episode.id && (
-                <details className="border-t pt-3">
+                <details className="border-t pt-3" open>
                   <summary className="min-h-11 cursor-pointer py-2 font-medium">
-                    Historial y versiones
+                    Resumen del servicio
                   </summary>
-                  <div className="space-y-3 pt-2">
-                    {history.map((item) => (
-                      <div key={item.id} className="rounded-md bg-muted p-3 text-sm">
-                        <p>
-                          {item.action === "created"
-                            ? "Creación"
-                            : item.action === "closed"
-                              ? "Cierre"
-                              : "Corrección"}{" "}
-                          · versión {item.versionBefore ?? "—"} → {item.versionAfter} ·{" "}
-                          {formatEpisodeDate(item.occurredAt)}
-                        </p>
-                        <dl className="mt-2 grid gap-2 sm:grid-cols-2">
-                          <div>
-                            <dt className="font-medium">Antes</dt>
-                            <dd className="break-words">
-                              {item.beforeState
-                                ? JSON.stringify(item.beforeState)
-                                : "Sin estado previo"}
-                            </dd>
-                          </div>
-                          <div>
-                            <dt className="font-medium">Después</dt>
-                            <dd className="break-words">{JSON.stringify(item.afterState)}</dd>
-                          </div>
-                        </dl>
-                      </div>
-                    ))}
+                  <div className="pt-2">
+                    <EfaEpisodeSummary key={episode.id} episode={episode} />
                   </div>
                 </details>
               )}
