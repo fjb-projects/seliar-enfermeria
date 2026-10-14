@@ -327,7 +327,7 @@ describe("EFA episode draft persistence", () => {
         episodeId: result.episode.id,
         clientCreationKey: "22222222-2222-4222-8222-222222222222",
         direction: "incoming",
-        startedAt: null,
+        startedAt: eventTime.toISOString(),
         endedAt: null,
         priority: null,
         state: "draft",
@@ -340,6 +340,35 @@ describe("EFA episode draft persistence", () => {
         changed: true,
       },
     });
+  });
+
+  it("starts the first call at the service event time and keeps the replay receipt stable", async () => {
+    const db = createStore();
+    const service = createEfaEpisodesService(db.store, {
+      newId: (() => {
+        let id = 0;
+        return () => `record-${++id}`;
+      })(),
+    });
+    const input = createInput({
+      childCreateKey: "22222222-2222-4222-8222-222222222222",
+      direction: "incoming",
+    });
+    const first = await service.create(owner, input);
+    expect(db.communications[0]?.startedAt).toEqual(eventTime);
+
+    const replayed = await service.create(owner, input);
+    expect(replayed.initialCall?.replayed).toBe(true);
+    expect(replayed.initialCall?.creationReceipt).toEqual(first.initialCall?.creationReceipt);
+    expect(db.communications).toHaveLength(1);
+  });
+
+  it("creates no call and no start time when the first call is not registered", async () => {
+    const db = createStore();
+    const service = createEfaEpisodesService(db.store, { newId: () => "episode-1" });
+    const result = await service.create(owner, createInput());
+    expect(result.initialCall).toBeUndefined();
+    expect(db.communications).toHaveLength(0);
   });
 
   it("replays the original first-call receipt after the call and episode change", async () => {

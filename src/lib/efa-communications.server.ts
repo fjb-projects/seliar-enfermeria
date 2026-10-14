@@ -340,6 +340,9 @@ export async function createInitialIncomingCommunicationOnTransaction(
   episodeId: string,
   clientCreationKey: string,
   newId: () => string = randomId,
+  // The first call registered with a service starts at the service start time. The caller
+  // derives it deterministically from the episode event time so replays keep the same hash.
+  startedAt: Date | null = null,
 ) {
   const result = await createCommunicationOnTransaction(
     tx,
@@ -348,7 +351,7 @@ export async function createInitialIncomingCommunicationOnTransaction(
       episodeId,
       clientCreationKey,
       direction: "incoming",
-      startedAt: null,
+      startedAt,
       endedAt: null,
       priority: null,
     },

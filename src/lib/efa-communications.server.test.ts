@@ -288,6 +288,46 @@ describe("EFA phone communication persistence", () => {
     expect(db.communications).toHaveLength(2);
   });
 
+  it("creates the initial call with the given start time and rejects replay with another one", async () => {
+    const db = createStore();
+    let id = 0;
+    const key = "22222222-2222-4222-8222-222222222222";
+    const startedAt = new Date("2026-10-06T09:30:00.000Z");
+    const createInitial = (at: Date | null) =>
+      db.store.transaction((tx) =>
+        createInitialIncomingCommunicationOnTransaction(
+          {
+            findActor: (userId) => tx.findActor(userId),
+            findEpisodeForCommunication: (id, lock) => tx.findEpisode(id, lock),
+            lockCreationKey: (ownerUserId, creationKey) =>
+              tx.lockCreationKey(ownerUserId, creationKey),
+            findCommunicationByCreationKey: (ownerUserId, creationKey) =>
+              tx.findCommunicationByCreationKey(ownerUserId, creationKey),
+            findCreationOperation: (communicationId, creationKey) =>
+              tx.findOperation(communicationId, creationKey),
+            insertCommunication: (input) => tx.insertCommunication(input),
+            appendCreationAudit: (input) => tx.appendAudit(input),
+            insertCreationOperation: (input) => tx.insertOperation(input),
+            findCommunication: (communicationId) => tx.findCommunication(communicationId),
+          },
+          owner,
+          episodeId,
+          key,
+          () => `communication-${++id}`,
+          at,
+        ),
+      );
+    const first = await createInitial(startedAt);
+    expect(first.communication.startedAt).toEqual(startedAt);
+
+    const replayed = await createInitial(new Date(startedAt.getTime()));
+    expect(replayed.replayed).toBe(true);
+    expect(replayed.creationReceipt).toEqual(first.creationReceipt);
+    await expect(createInitial(null)).rejects.toThrow(
+      "La identidad de operación ya se usó para otro cambio.",
+    );
+  });
+
   it("keeps public outgoing creation with precise times and priority", async () => {
     const db = createStore();
     const service = createEfaCommunicationsService(db.store, { newId: () => "communication-1" });

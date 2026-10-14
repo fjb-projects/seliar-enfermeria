@@ -377,6 +377,7 @@ export function createEfaEpisodesService(
               existing.id,
               input.childCreateKey,
               newId,
+              eventAt,
             );
             const communication = createdCall.communication;
             result["initialCall"] = {
@@ -453,6 +454,7 @@ export function createEfaEpisodesService(
             id,
             input.childCreateKey,
             newId,
+            eventAt,
           );
           const communication = createdCall.communication;
           initialCall = {
