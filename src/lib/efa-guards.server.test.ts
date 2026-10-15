@@ -25,6 +25,13 @@ function createStore() {
     occurredAt: Date;
   }> = [];
   const guardAudit: unknown[] = [];
+  const hygienePeriods: Array<{
+    id: string;
+    guardId: string;
+    availableAt: Date | null;
+    notInformed: boolean;
+  }> = [];
+  const hygieneClosures: Array<{ guardId: string; actorUserId: string; operationId: string }> = [];
   let actor = { isActive: true, roles: ["efa"] as Array<"efa" | "admin"> };
   let now = new Date("2026-10-06T10:00:00.000Z");
   let databaseClockValue: unknown = now;
@@ -76,6 +83,15 @@ function createStore() {
     async appendGuardAudit(input: unknown) {
       guardAudit.push(input);
     },
+    async markOpenHygienePeriodsNotInformed(input: (typeof hygieneClosures)[number]) {
+      hygieneClosures.push(input);
+      const open = hygienePeriods.filter(
+        (period) =>
+          period.guardId === input.guardId && period.availableAt === null && !period.notInformed,
+      );
+      for (const period of open) period.notInformed = true;
+      return open.length;
+    },
     async databaseNow() {
       return databaseClockValue;
     },
@@ -89,6 +105,8 @@ function createStore() {
     guards,
     events,
     guardAudit,
+    hygienePeriods,
+    hygieneClosures,
     setActor(next: typeof actor) {
       actor = next;
     },
@@ -353,6 +371,55 @@ describe("EFA guard lifecycle service", () => {
       service.setBases("user-1", { guardId: "guard-1", expectedVersion: 2, baseIds: [] }),
     ).rejects.toThrow(/terminada/i);
     expect(db.events).toHaveLength(0);
+  });
+
+  it("flags open hygiene periods as not informed in the same close without blocking it", async () => {
+    const db = createStore();
+    const service = createEfaGuardsService(db.store, { newId: () => "guard-1" });
+    await service.start("user-1", { declaredAtCentral: true });
+    db.hygienePeriods.push(
+      { id: "open", guardId: "guard-1", availableAt: null, notInformed: false },
+      {
+        id: "closed",
+        guardId: "guard-1",
+        availableAt: new Date("2026-10-06T11:00:00.000Z"),
+        notInformed: false,
+      },
+    );
+    db.setNow(new Date("2026-10-06T18:00:00.000Z"));
+
+    await service.end("user-1", { guardId: "guard-1", expectedVersion: 1 });
+
+    expect(db.guards[0]!.endedAt).toEqual(new Date("2026-10-06T18:00:00.000Z"));
+    expect(db.hygienePeriods.map((period) => [period.id, period.notInformed])).toEqual([
+      ["open", true],
+      ["closed", false],
+    ]);
+    expect(db.hygienePeriods[0]!.availableAt).toBeNull();
+    expect(db.hygieneClosures).toEqual([
+      { guardId: "guard-1", actorUserId: "user-1", operationId: "guard-1" },
+    ]);
+  });
+
+  it("closes a guard that has no open hygiene periods and never marks a rejected close", async () => {
+    const db = createStore();
+    const service = createEfaGuardsService(db.store, { newId: () => "guard-1" });
+    await service.start("user-1", { declaredAtCentral: true });
+    db.hygienePeriods.push({
+      id: "open",
+      guardId: "guard-1",
+      availableAt: null,
+      notInformed: false,
+    });
+    await expect(service.end("user-1", { guardId: "guard-1", expectedVersion: 9 })).rejects.toThrow(
+      /cambió/i,
+    );
+    expect(db.hygieneClosures).toEqual([]);
+    expect(db.hygienePeriods[0]!.notInformed).toBe(false);
+    db.hygienePeriods.length = 0;
+    await service.end("user-1", { guardId: "guard-1", expectedVersion: 1 });
+    expect(db.guards[0]!.endedAt).not.toBeNull();
+    expect(db.hygieneClosures).toHaveLength(1);
   });
 
   it("lets only administrators correct a retained end time and audits the previous value", async () => {

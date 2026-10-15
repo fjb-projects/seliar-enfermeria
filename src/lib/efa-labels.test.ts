@@ -4,8 +4,11 @@ import {
   dispatchResultOptions,
   dispatchTimeSteps,
   directionLabel,
+  hygienePeriodStatus,
+  hygieneStatusLabel,
   formatDateTimeMinutes,
   formatDispatchPriority,
+  formatHygieneDuration,
   formatObservedDateTime,
   formatTimeMinutes,
   observationClassificationLabel,
@@ -85,5 +88,30 @@ describe("efa-labels", () => {
     expect(formatObservedDateTime(null)).toBe("Sin hora observada");
     expect(formatDateTimeMinutes("not-a-date")).toBe("—");
     expect(formatTimeMinutes(null, "sin hora")).toBe("sin hora");
+  });
+
+  it("derives the hygiene period status and label", () => {
+    expect(hygienePeriodStatus({ availableAt: null, notInformed: false })).toBe("open");
+    expect(
+      hygienePeriodStatus({ availableAt: "2026-10-14T14:09:00.000Z", notInformed: false }),
+    ).toBe("available");
+    expect(hygienePeriodStatus({ availableAt: null, notInformed: true })).toBe("not_informed");
+    expect(hygieneStatusLabel("open")).toBe("En higiene y reposición");
+    expect(hygieneStatusLabel("available")).toBe("Disponible");
+    expect(hygieneStatusLabel("not_informed")).toBe("No informado");
+  });
+
+  it("formats the hygiene duration and ignores open or inconsistent periods", () => {
+    const start = "2026-10-14T14:00:00.000Z";
+    expect(formatHygieneDuration(start, "2026-10-14T14:00:30.000Z")).toBe("Menos de 1 min");
+    expect(formatHygieneDuration(start, "2026-10-14T14:45:59.000Z")).toBe("45 min");
+    expect(formatHygieneDuration(start, "2026-10-14T15:00:00.000Z")).toBe("1 h");
+    expect(formatHygieneDuration(start, "2026-10-14T15:05:00.000Z")).toBe("1 h 05 min");
+    expect(formatHygieneDuration(new Date(start), new Date("2026-10-14T16:30:00.000Z"))).toBe(
+      "2 h 30 min",
+    );
+    expect(formatHygieneDuration(start, null)).toBeNull();
+    expect(formatHygieneDuration(start, "2026-10-14T13:59:00.000Z")).toBeNull();
+    expect(formatHygieneDuration("not-a-date", start)).toBeNull();
   });
 });

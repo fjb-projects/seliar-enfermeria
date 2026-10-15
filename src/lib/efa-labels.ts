@@ -173,3 +173,35 @@ export const formatTimeMinutes = (value: Date | string | null | undefined, fallb
       }).format(date)
     : fallback;
 };
+
+export type HygienePeriodStatus = "open" | "available" | "not_informed";
+
+/** Status of a mobile hygiene period: still open, closed by an "available" mark, or left open at guard close. */
+export const hygienePeriodStatus = (period: {
+  availableAt: Date | string | null;
+  notInformed: boolean;
+}): HygienePeriodStatus =>
+  period.notInformed ? "not_informed" : period.availableAt ? "available" : "open";
+
+export const hygieneStatusLabel = (status: HygienePeriodStatus) =>
+  ({
+    open: "En higiene y reposición",
+    available: "Disponible",
+    not_informed: "No informado",
+  })[status];
+
+/** "45 min" or "1 h 05 min"; null while the period is open or when the times are inconsistent. */
+export function formatHygieneDuration(
+  requestedAt: Date | string | null | undefined,
+  availableAt: Date | string | null | undefined,
+): string | null {
+  const start = toValidDate(requestedAt);
+  const end = toValidDate(availableAt);
+  if (!start || !end || end.getTime() < start.getTime()) return null;
+  const minutes = Math.floor((end.getTime() - start.getTime()) / 60_000);
+  if (minutes < 1) return "Menos de 1 min";
+  if (minutes < 60) return `${minutes} min`;
+  const remainder = minutes % 60;
+  const hours = Math.floor(minutes / 60);
+  return remainder === 0 ? `${hours} h` : `${hours} h ${String(remainder).padStart(2, "0")} min`;
+}
