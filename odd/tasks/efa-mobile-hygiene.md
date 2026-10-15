@@ -41,10 +41,11 @@ Let the guard record, per active mobile, the period that starts when the mobile 
 - `npx vitest run <touched tests>`, `npx tsc --noEmit -p .` (baseline 6 pre-existing errors: RouteTransition.tsx x2, SeliarMobileNav.tsx x2, router.tsx, routes/__root.tsx), `npm run build` pass; known pre-existing failing test `EfaObservationPanel.test.tsx` "keeps the neutral empty-history context in a compact read-only server render".
 
 ## Progress
-- Route: delegated direct, one writer.
+- Route: delegated direct, one writer. T1-T3 done; migration NOT applied.
 - Review assessment: pending.
 
 ## Evidence
+- Commits: T1 `0c15b54`, T2 `c1287a6`, T3 `4456712`.
 - T1: migration generated offline with `drizzle-kit generate --name efa_mobile_hygiene_periods` (no DB connection; `DATABASE_URL` empty), then the append-only/soft-delete triggers were appended by hand like 0021. `npx vitest run src/db/schema.test.ts`: 26 passed. No RED observed: schema, migration and tests were written before the first run. Not verifiable without a database: the partial unique index, CHECK constraints and triggers were only reviewed as SQL, never executed.
 
 - T2: `npx vitest run src/lib/efa-mobile-hygiene src/lib/efa-guards src/lib/efa-labels.test.ts` passed (hygiene service 14 tests + functions 3, guards incl. 2 new close tests, labels 9). `npx tsc --noEmit -p .`: only the 6 baseline errors. No RED observed (tests written after implementation). Service rules: one open period per (guard, base) checked under the guard row lock, explicit times must be >= guard start and <= database now + 5 min drift, available >= requested, edits cannot clear an available time, guard close flags open periods `notInformed` (audit action `not_informed`, no operation receipt) after the guard row update in the same transaction. Only unit-tested against a fake store; the Drizzle layer (`efa-mobile-hygiene.server.db.ts` and the close query in `efa-guards.server.ts`) is type-checked, never run.
@@ -58,4 +59,4 @@ Nothing was applied. When the user explicitly authorizes a target database (see 
 3. Apply it BEFORE deploying this branch: closing a guard now touches `efa_mobile_hygiene_period` in the same transaction, and `/guardia-efa` loads the periods, so both fail while the tables do not exist.
 
 ## Next step
-Launch writer for T1–T3.
+Review the branch, then apply migration 0023 with explicit authorization BEFORE deploying (see "How to apply"). Review assessment of the three work units is still pending.
