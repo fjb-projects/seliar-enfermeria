@@ -24,6 +24,7 @@ import {
   listEfaPoliceCoordinationsForEpisode,
 } from "@/lib/efa-police-coordination.functions";
 import { listActiveEfaGuardBases, listEfaGuards } from "@/lib/efa-guards.functions";
+import { observationContextLabels, observationGroupLabels } from "@/lib/efa-labels";
 import {
   evaluatorParticipationLevelLabels,
   evaluatorParticipationLevels,
@@ -181,21 +182,8 @@ const groupForContext: Record<ContextKind, ObservationCatalogItem["group"]> = {
   coordination: "coordination",
   police_event: "coordination",
 };
-const contextLabels: Record<ContextKind, string> = {
-  guard: "Guardia",
-  episode: "Episodio",
-  communication: "Llamada",
-  dispatch: "Despacho",
-  coordination: "Apoyo policial",
-  police_event: "Evento policial",
-};
-const groupLabels: Record<ObservationCatalogItem["group"], string> = {
-  phone: "Teléfono",
-  radio: "Radio",
-  coordination: "Coordinación",
-  duty: "Relevo y colaboración",
-  record: "Registro",
-};
+const contextLabels: Record<ContextKind, string> = observationContextLabels;
+const groupLabels: Record<ObservationCatalogItem["group"], string> = observationGroupLabels;
 const observationDate = (value: string | null) =>
   value
     ? new Intl.DateTimeFormat("es-AR", {

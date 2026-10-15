@@ -52,6 +52,9 @@ import {
   efaMobileArrival,
   efaMobileArrivalAudit,
   efaMobileArrivalOperation,
+  efaMobileHygienePeriod,
+  efaMobileHygienePeriodAudit,
+  efaMobileHygienePeriodOperation,
 } from "./schema";
 
 describe("ambulance dispatch persistence", () => {
@@ -238,6 +241,105 @@ describe("EFA mobile arrival persistence", () => {
     expect(migration).toContain("efa_mobile_arrival_audit_append_only");
     expect(migration).toContain("efa_mobile_arrival_operation_append_only");
     expect(migration).toContain('CONSTRAINT "efa_mobile_arrival_guard_base_role_unique" UNIQUE');
+  });
+});
+
+describe("EFA mobile hygiene period persistence", () => {
+  const sqlOf = (value: Parameters<PgDialect["sqlToQuery"]>[0]) =>
+    new PgDialect().sqlToQuery(value).sql.replaceAll('"', "");
+
+  it("models versioned soft-deletable periods per guard and mobile with append-only history", () => {
+    expect(getTableName(efaMobileHygienePeriod)).toBe("efa_mobile_hygiene_period");
+    expect(getTableName(efaMobileHygienePeriodAudit)).toBe("efa_mobile_hygiene_period_audit");
+    expect(getTableName(efaMobileHygienePeriodOperation)).toBe(
+      "efa_mobile_hygiene_period_operation",
+    );
+    const period = getTableConfig(efaMobileHygienePeriod);
+    expect(period.columns.map((column) => column.name)).toEqual(
+      expect.arrayContaining([
+        "guard_id",
+        "base_id",
+        "base_name_snapshot",
+        "requested_at",
+        "available_at",
+        "not_informed",
+        "note",
+        "deleted_at",
+        "client_creation_key",
+        "version",
+      ]),
+    );
+    expect(period.columns.find((column) => column.name === "available_at")?.notNull).toBe(false);
+    expect(period.columns.find((column) => column.name === "requested_at")?.notNull).toBe(true);
+    expect(period.uniqueConstraints.map((item) => item.name)).toEqual(
+      expect.arrayContaining([
+        "efa_mobile_hygiene_period_id_guard_unique",
+        "efa_mobile_hygiene_period_guard_creation_key_unique",
+      ]),
+    );
+    expect(period.checks.map((item) => item.name)).toEqual(
+      expect.arrayContaining([
+        "efa_mobile_hygiene_period_version_positive",
+        "efa_mobile_hygiene_period_available_after_requested",
+        "efa_mobile_hygiene_period_not_informed_is_open",
+      ]),
+    );
+    expect(getTableConfig(efaMobileHygienePeriodAudit).foreignKeys).toHaveLength(2);
+    expect(getTableConfig(efaMobileHygienePeriodOperation).foreignKeys).toHaveLength(2);
+    expect(
+      getTableConfig(efaMobileHygienePeriodOperation).uniqueConstraints.map((item) => item.name),
+    ).toContain("efa_mobile_hygiene_period_guard_operation_unique");
+  });
+
+  it("allows only one open, not-deleted, informed period per guard and mobile", () => {
+    const index = getTableConfig(efaMobileHygienePeriod).indexes.find(
+      (item) => item.config.name === "efa_mobile_hygiene_period_one_open_per_mobile_unique",
+    );
+    expect(index?.config.unique).toBe(true);
+    expect(index?.config.columns.map((column) => ("name" in column ? column.name : ""))).toEqual([
+      "guard_id",
+      "base_id",
+    ]);
+    const predicate = index?.config.where && sqlOf(index.config.where);
+    expect(predicate).toContain("available_at is null");
+    expect(predicate).toContain("deleted_at is null");
+    expect(predicate).toContain("not_informed = false");
+  });
+
+  it("orders the available time after the request and keeps not-informed periods open", () => {
+    const checks = getTableConfig(efaMobileHygienePeriod).checks;
+    const order = checks.find(
+      (item) => item.name === "efa_mobile_hygiene_period_available_after_requested",
+    );
+    expect(order && sqlOf(order.value)).toContain("available_at >= ");
+    const notInformed = checks.find(
+      (item) => item.name === "efa_mobile_hygiene_period_not_informed_is_open",
+    );
+    expect(notInformed && sqlOf(notInformed.value)).toContain("available_at is null");
+  });
+
+  it("ships a migration with append-only history, receipt guards and soft delete only", () => {
+    const migration = readFileSync(
+      resolve(process.cwd(), "drizzle/0023_efa_mobile_hygiene_periods.sql"),
+      "utf8",
+    );
+    expect(migration).toContain("efa_mobile_hygiene_period_audit_append_only");
+    expect(migration).toContain("efa_mobile_hygiene_period_operation_append_only");
+    expect(migration).toContain("efa_mobile_hygiene_period_soft_delete_only");
+    expect(migration).toContain(
+      'CREATE UNIQUE INDEX "efa_mobile_hygiene_period_one_open_per_mobile_unique"',
+    );
+    expect(migration).toMatch(
+      /WHERE .*"available_at" is null.*"deleted_at" is null.*"not_informed" = false/,
+    );
+    expect(migration).not.toMatch(/DROP TABLE|TRUNCATE|DELETE FROM|ON DELETE cascade/i);
+    const journal = JSON.parse(
+      readFileSync(resolve(process.cwd(), "drizzle/meta/_journal.json"), "utf8"),
+    ) as { entries: { idx: number; tag: string }[] };
+    expect(journal.entries.at(-1)).toMatchObject({
+      idx: 23,
+      tag: "0023_efa_mobile_hygiene_periods",
+    });
   });
 });
 

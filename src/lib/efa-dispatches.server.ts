@@ -123,7 +123,7 @@ export type SupportOperation = {
 };
 type Actor = { isActive: boolean; roles: AccountRole[] };
 type Episode = { id: string; ownerUserId: string; cancelledAt?: Date | null };
-type Base = { id: string; isActive: boolean };
+type Base = { id: string; name: string; isActive: boolean };
 type Institution = { id: string; name: string; isActive: boolean };
 type Communication = {
   id: string;
@@ -397,6 +397,7 @@ export function createEfaDispatchesService(
         return Promise.all(
           records.map(async (record) => ({
             ...view(record, access.canEdit),
+            baseName: (await tx.findBase(record.baseId))?.name ?? null,
             ...(record.institutionId
               ? await tx.findInstitution(record.institutionId).then((institution) => ({
                   institutionName: institution?.name ?? null,
@@ -416,6 +417,7 @@ export function createEfaDispatchesService(
           throw new Error("No se encontró el despacho.");
         return {
           ...view(record, access.canEdit),
+          baseName: (await tx.findBase(record.baseId))?.name ?? null,
           ...(record.institutionId
             ? await tx.findInstitution(record.institutionId).then((institution) => ({
                 institutionName: institution?.name ?? null,
@@ -1352,7 +1354,7 @@ const drizzleStore: DispatchStore = {
           return (
             (
               await db
-                .select({ id: efaBase.id, isActive: efaBase.isActive })
+                .select({ id: efaBase.id, name: efaBase.name, isActive: efaBase.isActive })
                 .from(efaBase)
                 .where(eq(efaBase.id, baseId))
                 .limit(1)

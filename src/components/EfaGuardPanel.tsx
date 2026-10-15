@@ -30,7 +30,9 @@ import { previewEfaStaffingPlan } from "@/lib/efa-staffing-plan.functions";
 import { getOperationalDateRange } from "@/lib/efa-staffing-plan.date";
 import type { DatedSlot } from "@/lib/efa-staffing-plan.server";
 import { listEfaMobileArrivalsForGuard } from "@/lib/efa-mobile-arrivals.functions";
+import { listEfaMobileHygieneForGuard } from "@/lib/efa-mobile-hygiene.functions";
 import { EfaMobileArrivalPanel, type MobileArrivalView } from "./EfaMobileArrivalPanel";
+import type { MobileHygieneView } from "./EfaMobileHygienePanel";
 import {
   createEfaGuardMobileWorkspace,
   sortGuardMobileBases,
@@ -575,6 +577,7 @@ export function EfaGuardPanel({
   activeBases,
   initialStaffing,
   initialArrivals,
+  initialHygiene,
   currentUserId,
   isAdmin,
   canWrite,
@@ -583,6 +586,7 @@ export function EfaGuardPanel({
   activeBases: GuardBase[];
   initialStaffing: Record<string, StaffingView[]>;
   initialArrivals?: Record<string, MobileArrivalView[]>;
+  initialHygiene?: Record<string, MobileHygieneView[]>;
   currentUserId: string;
   isAdmin: boolean;
   canWrite: boolean;
@@ -592,6 +596,7 @@ export function EfaGuardPanel({
   const listBases = useServerFn(listActiveEfaGuardBases);
   const listStaffing = useServerFn(listEfaStaffing);
   const listArrivals = useServerFn(listEfaMobileArrivalsForGuard);
+  const listHygiene = useServerFn(listEfaMobileHygieneForGuard);
   const startGuard = useServerFn(startEfaGuard);
   const updateBases = useServerFn(setEfaGuardBases);
   const endGuard = useServerFn(endEfaGuard);
@@ -600,6 +605,7 @@ export function EfaGuardPanel({
   const [bases, setBases] = useState(activeBases);
   const [staffingByGuard, setStaffingByGuard] = useState(initialStaffing);
   const [arrivalsByGuard, setArrivalsByGuard] = useState(initialArrivals ?? {});
+  const [hygieneByGuard, setHygieneByGuard] = useState(initialHygiene ?? {});
   const [centralConfirmed, setCentralConfirmed] = useState(false);
   const [corrections, setCorrections] = useState<Record<string, string>>({});
   const [guardDetailsOpen, setGuardDetailsOpen] = useState<Record<string, boolean>>(() =>
@@ -630,8 +636,9 @@ export function EfaGuardPanel({
     const guardEntries = await Promise.all(
       currentGuards.map(async (guard) => {
         const arrivals = await listArrivals({ data: guard.id });
+        const hygiene = await listHygiene({ data: guard.id });
         const staffing = canWrite ? await listStaffing({ data: { guardId: guard.id } }) : [];
-        return { id: guard.id, staffing, arrivals };
+        return { id: guard.id, staffing, arrivals, hygiene };
       }),
     );
     setGuards(currentGuards);
@@ -648,6 +655,19 @@ export function EfaGuardPanel({
         MobileArrivalView[]
       >,
     );
+    setHygieneByGuard(
+      Object.fromEntries(guardEntries.map(({ id, hygiene }) => [id, hygiene])) as Record<
+        string,
+        MobileHygieneView[]
+      >,
+    );
+  }
+
+  function upsertHygiene(guardId: string, period: MobileHygieneView) {
+    setHygieneByGuard((current) => ({
+      ...current,
+      [guardId]: [...(current[guardId] ?? []).filter((item) => item.id !== period.id), period],
+    }));
   }
 
   async function runAction(action: () => Promise<unknown>, success: string): Promise<boolean> {
@@ -948,6 +968,8 @@ export function EfaGuardPanel({
                     }
                     onArrivalMutationStart={(key) => activeWorkspace?.beginArrival(key) ?? null}
                     arrivals={arrivalsByGuard[openOwnGuard.id] ?? []}
+                    hygienePeriods={hygieneByGuard[openOwnGuard.id] ?? []}
+                    onHygieneChange={(period) => upsertHygiene(openOwnGuard.id, period)}
                     canWrite={canWrite}
                     onArrivalsChange={(arrival) =>
                       setArrivalsByGuard((current) => ({
@@ -1153,6 +1175,8 @@ export function EfaGuardPanel({
                         guardId={guard.id}
                         bases={guard.bases}
                         arrivals={arrivalsByGuard[guard.id] ?? []}
+                        hygienePeriods={hygieneByGuard[guard.id] ?? []}
+                        onHygieneChange={(period) => upsertHygiene(guard.id, period)}
                         canWrite={canWrite && guard.ownerUserId === currentUserId && !guard.endedAt}
                         onArrivalsChange={(arrival) =>
                           setArrivalsByGuard((current) => ({

@@ -1,5 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ComponentProps } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 import { getOperationalDateRange } from "@/lib/efa-staffing-plan.date";
 import {
@@ -41,6 +42,13 @@ vi.mock("@/lib/efa-mobile-arrivals.functions", () => ({
   deleteEfaMobileArrival: vi.fn(),
   listEfaMobileArrivalsForGuard: vi.fn(),
   updateEfaMobileArrival: vi.fn(),
+}));
+vi.mock("@/lib/efa-mobile-hygiene.functions", () => ({
+  deleteEfaMobileHygiene: vi.fn(),
+  listEfaMobileHygieneForGuard: vi.fn(),
+  markEfaMobileHygieneAvailable: vi.fn(),
+  requestEfaMobileHygiene: vi.fn(),
+  updateEfaMobileHygiene: vi.fn(),
 }));
 vi.mock("@/lib/efa-staffing-plan.functions", () => ({ previewEfaStaffingPlan: vi.fn() }));
 vi.mock("@/lib/efa-observations.functions", () => ({
@@ -525,5 +533,70 @@ describe("EfaGuardPanel", () => {
     expect(html).not.toContain("Registrar ingreso");
     expect(html).toContain("Registrar egreso");
     expect(html).toContain("Registrar llegada al destino");
+  });
+});
+
+describe("EfaGuardPanel hygiene and restocking", () => {
+  const central = { id: "base-a", name: "Central", isActive: true };
+  const guard = (overrides: Partial<GuardView>): GuardView => ({
+    id: "guard-1",
+    ownerUserId: "current-user",
+    startedAt: "2026-10-07T08:00:00.000Z",
+    endedAt: null,
+    declaredAtCentral: true,
+    version: 2,
+    bases: [central],
+    baseEvents: [],
+    ...overrides,
+  });
+  const hygiene = (overrides: Record<string, unknown> = {}) => ({
+    id: "period-1",
+    guardId: "guard-1",
+    baseId: "base-a",
+    baseNameSnapshot: "Central",
+    requestedAt: "2026-10-07T10:00:00.000Z",
+    availableAt: null,
+    notInformed: false,
+    note: null,
+    deletedAt: null,
+    version: 1,
+    canEdit: true,
+    ...overrides,
+  });
+  const render = (guards: GuardView[], periods: ReturnType<typeof hygiene>[]) =>
+    renderToStaticMarkup(
+      <QueryClientProvider client={new QueryClient()}>
+        <EfaGuardPanel
+          initialGuards={guards}
+          activeBases={[central]}
+          initialStaffing={{}}
+          initialHygiene={{ "guard-1": periods }}
+          currentUserId="current-user"
+          isAdmin={false}
+          canWrite
+        />
+      </QueryClientProvider>,
+    );
+
+  it("offers both actions and the period list inside the mobile card of the open guard", () => {
+    const html = render([guard({})], [hygiene()]);
+
+    expect(html.match(/Solicitó higiene y reposición/g)).toHaveLength(1);
+    expect(html).toContain("Disponible (handy)");
+    expect(html).toContain("En higiene y reposición");
+    expect(html.indexOf('aria-label="Móvil Central"')).toBeLessThan(
+      html.indexOf("Solicitó higiene y reposición"),
+    );
+  });
+
+  it("shows a period left open at close as not informed and read-only in the closed guard", () => {
+    const html = render(
+      [guard({ endedAt: "2026-10-07T12:00:00.000Z", version: 3 })],
+      [hygiene({ notInformed: true, canEdit: false })],
+    );
+
+    expect(html).toContain("No informado");
+    expect(html).not.toContain("Solicitó higiene y reposición");
+    expect(html).not.toContain("Disponible (handy)");
   });
 });

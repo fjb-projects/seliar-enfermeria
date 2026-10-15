@@ -1,8 +1,17 @@
-import { useEffect, useRef, useState, type ComponentType } from "react";
+import { useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
 import {
   EfaActionConfirmation,
   isActionConfirmationCurrent,
 } from "@/components/EfaActionConfirmation";
+import {
+  DispatchFollowUpModal,
+  FollowUpFeedback,
+  FollowUpNoteField,
+  FollowUpOpenButton,
+  FollowUpTimeField,
+  followUpButtonState,
+} from "@/components/EfaDispatchFollowUpModal";
+import { Check, Circle, CircleDot } from "lucide-react";
 import { createClientOnlyFn, useServerFn } from "@tanstack/react-start";
 import { listEfaBases } from "@/lib/efa-bases.functions";
 import { listEfaCommunicationsForEpisode } from "@/lib/efa-communications.functions";
@@ -27,6 +36,12 @@ import {
 } from "@/lib/efa-dispatches.functions";
 import type { DispatchForm, DispatchLifecycleOperation } from "@/lib/efa-dispatches.client";
 import type { DispatchQueueEntry, DispatchQueueStore } from "@/lib/efa-dispatches.queue";
+import {
+  dispatchResultOptions,
+  dispatchTimeSteps,
+  formatDispatchPriority,
+  timeStatusLabel,
+} from "@/lib/efa-labels";
 
 const loadQueue = createClientOnlyFn(() => import("@/lib/efa-dispatches.queue"));
 const loadClient = createClientOnlyFn(() => import("@/lib/efa-dispatches.client"));
@@ -134,15 +149,7 @@ function isDispatchMutationDto(value: unknown): value is DispatchMutationDto {
   );
 }
 type BaseChoice = { id: string; name: string };
-const timeSteps = [
-  ["t0At", "Despacho"],
-  ["t1At", "En camino"],
-  ["t2At", "Llegada a escena"],
-  ["t3At", "Sale de escena"],
-  ["t4At", "Llegada a destino"],
-  ["t5At", "Entrega efectiva"],
-  ["t6At", "Disponible"],
-] as const;
+const timeSteps = dispatchTimeSteps;
 const dispatchStepTitles = [
   "Base y vínculo",
   ...timeSteps.map(([, title]) => title),
@@ -156,12 +163,48 @@ export function isDispatchReviewStep(step: number): boolean {
   return step === dispatchStepTitles.length - 1;
 }
 
+type DispatchStepState = "complete" | "current" | "pending";
+
+/** Progress is derived from the index only: every step before the current one counts as completed. */
+// eslint-disable-next-line react-refresh/only-export-components -- Pure helper exported for deterministic tests.
+export function dispatchStepState(index: number, currentStep: number): DispatchStepState {
+  if (index === currentStep) return "current";
+  return index < currentStep ? "complete" : "pending";
+}
+
+const dispatchStepStyles: Record<DispatchStepState, string> = {
+  current: "border border-primary bg-primary font-semibold text-primary-foreground",
+  complete:
+    "border border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100",
+  pending: "border bg-background text-foreground",
+};
+const dispatchStepBarStyles: Record<DispatchStepState, string> = {
+  current: "bg-primary",
+  complete: "bg-emerald-300 dark:bg-emerald-700",
+  pending: "bg-muted",
+};
+const dispatchStepStateText: Record<DispatchStepState, string | null> = {
+  current: "Actual",
+  complete: "Completado",
+  pending: null,
+};
+
+function DispatchStepIcon({ state }: { state: DispatchStepState }) {
+  const className = "size-4 shrink-0";
+  if (state === "complete") return <Check aria-hidden="true" className={className} />;
+  if (state === "current") return <CircleDot aria-hidden="true" className={className} />;
+  return <Circle aria-hidden="true" className={className} />;
+}
+
 export function DispatchStepNavigation({
   step,
   onStepChange,
+  action,
 }: {
   step: number;
   onStepChange: (step: number) => void;
+  /** Optional extra control rendered in the same row, next to "Ver pasos". */
+  action?: ReactNode;
 }) {
   const title = dispatchStepTitles[step] ?? "Paso del despacho";
   const headingRef = useRef<HTMLParagraphElement>(null);
@@ -180,64 +223,62 @@ export function DispatchStepNavigation({
   }, [step]);
 
   return (
-    <div className="flex min-w-0 items-center justify-between gap-2">
+    <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
       <p
         ref={headingRef}
         aria-live="polite"
         tabIndex={-1}
-        className="min-w-0 scroll-mt-20 text-sm outline-none"
+        className="min-w-0 flex-1 basis-40 scroll-mt-20 rounded bg-primary px-3 py-2 text-sm font-medium text-primary-foreground outline-none"
       >
         Paso {step + 1} de {dispatchStepTitles.length}: {title}
       </p>
+      {action}
       <details className="relative shrink-0">
         <summary className="flex min-h-11 cursor-pointer items-center rounded border px-3 text-sm font-medium">
           Ver pasos
         </summary>
         <div className="absolute right-0 z-10 grid min-w-52 max-w-[calc(100vw-2rem)] gap-1 rounded border bg-background p-2 shadow-lg">
-          {dispatchStepTitles.map((stepTitle, index) => (
-            <button
-              type="button"
-              key={stepTitle}
-              aria-label={`Ir al paso ${index + 1}: ${stepTitle}`}
-              aria-current={step === index ? "step" : undefined}
-              className={`min-h-11 min-w-0 rounded px-3 text-left text-sm ${step === index ? "bg-primary text-primary-foreground" : "border"}`}
-              onClick={(event) => {
-                onStepChange(index);
-                const details = event.currentTarget.closest("details");
-                if (details) details.open = false;
-              }}
-            >
-              {index + 1}. {stepTitle}
-            </button>
-          ))}
+          {dispatchStepTitles.map((stepTitle, index) => {
+            const state = dispatchStepState(index, step);
+            const stateText = dispatchStepStateText[state];
+            return (
+              <button
+                type="button"
+                key={stepTitle}
+                aria-label={`Ir al paso ${index + 1}: ${stepTitle}${state === "complete" ? " (completado)" : ""}`}
+                aria-current={state === "current" ? "step" : undefined}
+                data-step-state={state}
+                className={`flex min-h-11 min-w-0 items-center gap-2 rounded px-3 text-left text-sm ${dispatchStepStyles[state]}`}
+                onClick={(event) => {
+                  onStepChange(index);
+                  const details = event.currentTarget.closest("details");
+                  if (details) details.open = false;
+                }}
+              >
+                <DispatchStepIcon state={state} />
+                <span className="min-w-0 flex-1">
+                  {index + 1}. {stepTitle}
+                </span>
+                {stateText && <span className="shrink-0 text-xs">{stateText}</span>}
+              </button>
+            );
+          })}
         </div>
       </details>
+      <div aria-hidden="true" className="flex basis-full gap-1">
+        {dispatchStepTitles.map((stepTitle, index) => (
+          <span
+            key={stepTitle}
+            className={`h-1.5 flex-1 rounded-full ${dispatchStepBarStyles[dispatchStepState(index, step)]}`}
+          />
+        ))}
+      </div>
     </div>
   );
 }
 
 const statuses = ["not_observed", "not_informed", "not_applicable", "observed"] as const;
-const statusLabel: Record<(typeof statuses)[number], string> = {
-  not_observed: "No observado",
-  not_informed: "No informado",
-  not_applicable: "No aplica",
-  observed: "Observado",
-};
-const resultOptions = [
-  ["transported", "Con traslado"],
-  ["treated_at_home", "Atención en domicilio sin traslado"],
-  ["refused", "Rechazo"],
-  ["not_located", "No ubicado"],
-  ["cancelled", "Cancelado"],
-  ["death", "Óbito"],
-  ["not_informed", "No informado"],
-] as const;
-const dispatchPriorityLabels = { red: "roja", yellow: "amarilla", green: "verde" } as const;
-function formatDispatchPriority(priority: string | null | undefined) {
-  return priority && priority in dispatchPriorityLabels
-    ? dispatchPriorityLabels[priority as keyof typeof dispatchPriorityLabels]
-    : "sin prioridad";
-}
+const resultOptions = dispatchResultOptions;
 type DispatchCallChoice = {
   id: string;
   direction: string;
@@ -268,14 +309,9 @@ function dispatchCallOptionLabel(call: DispatchCallChoice) {
         : "Llamada";
   const time = formatLinkedCallTime(call.startedAt) ?? formatLinkedCallTime(call.createdAt);
   const state =
-    call.state === "cancelled"
-      ? "Anulada"
-      : call.state === "finalized"
-        ? "Finalizada"
-        : "En curso";
+    call.state === "cancelled" ? "Anulada" : call.state === "finalized" ? "Finalizada" : "En curso";
   const priority = formatDispatchPriority(call.priority);
-  const priorityLabel =
-    priority === "sin prioridad" ? "Sin prioridad" : `Prioridad ${priority}`;
+  const priorityLabel = priority === "sin prioridad" ? "Sin prioridad" : `Prioridad ${priority}`;
   return [direction, time, state, priorityLabel].filter(Boolean).join(" · ");
 }
 const emptyDispatchForm = (): DispatchForm => ({
@@ -366,6 +402,67 @@ function formatDispatchDate(value: string | Date) {
 }
 function captureDispatchTime(now: Date) {
   return dateToLocalInput(now);
+}
+
+/** The follow-up block opens by itself once arrival on scene (t2) has a recorded time. */
+// eslint-disable-next-line react-refresh/only-export-components -- Pure helper exported for deterministic tests.
+export function isFollowUpOpen(dispatch: { t2At: string | Date | null }) {
+  return Boolean(dispatch.t2At);
+}
+
+/** History line for one mobile follow-up entry (contact or news). */
+// eslint-disable-next-line react-refresh/only-export-components -- Pure helper exported for deterministic tests.
+export function followUpHistoryLine(item: { occurredAt: string | Date; note: string | null }) {
+  const note = item.note?.trim();
+  return ["Seguimiento", formatDispatchDate(item.occurredAt), note].filter(Boolean).join(" · ");
+}
+
+export function DispatchFollowUpBlock({
+  open,
+  busy,
+  note,
+  at,
+  onNoteChange,
+  onAtChange,
+  onRegisterNow,
+  onRegisterAt,
+  error,
+  message,
+}: {
+  open: boolean;
+  busy: boolean;
+  note: string;
+  at: string;
+  onNoteChange: (value: string) => void;
+  onAtChange: (value: string) => void;
+  onRegisterNow: () => void;
+  onRegisterAt: () => void;
+  error: string | null;
+  message: string | null;
+}) {
+  return (
+    <details className="min-w-0 border-t pt-3" open={open}>
+      <summary className="min-h-11 cursor-pointer py-3 font-medium">Seguimiento del móvil</summary>
+      <div className="min-w-0 space-y-3 pb-3">
+        <p className="text-sm text-muted-foreground">
+          Registrá contactos y novedades con hora y nota.
+        </p>
+        <FollowUpNoteField note={note} onNoteChange={onNoteChange} />
+        <FollowUpTimeField at={at} onAtChange={onAtChange} />
+        <button className="min-h-11 rounded border px-4" disabled={busy} onClick={onRegisterNow}>
+          Registrar novedad · Ahora
+        </button>
+        <button
+          className="min-h-11 rounded border px-4"
+          disabled={busy || !inputToIso(at)}
+          onClick={onRegisterAt}
+        >
+          Registrar novedad con hora ingresada
+        </button>
+        <FollowUpFeedback error={error} message={message} />
+      </div>
+    </details>
+  );
 }
 // eslint-disable-next-line react-refresh/only-export-components -- exported for deterministic tests; this helper is used by the quick-action handlers.
 export function captureActionTimestamp(now = new Date()) {
@@ -556,6 +653,8 @@ export function EfaDispatchStepper({
   >([]);
   const [contactNote, setContactNote] = useState("");
   const [contactAt, setContactAt] = useState("");
+  const [followUpModalOpen, setFollowUpModalOpen] = useState(false);
+  const confirmedOperations = useRef(new Set<string>());
   const [supportReason, setSupportReason] = useState("");
   const [supportAt, setSupportAt] = useState("");
   const [queueEntries, setQueueEntries] = useState<DispatchQueueEntry[]>([]);
@@ -829,6 +928,30 @@ export function EfaDispatchStepper({
     }
   };
 
+  const followUpButton = followUpButtonState({
+    hasDispatch: selected !== null,
+    canEdit: editable,
+    cancelled: selected?.state === "cancelled",
+    busy,
+  });
+
+  /** Registers one follow-up entry through the queue; resets the draft once the server confirmed it. */
+  const registerFollowUp = async (occurredAt: string, closeModal: boolean) => {
+    if (!selected) return;
+    const clientEventId = crypto.randomUUID();
+    await freeze("contact-attempt", {
+      dispatchId: selected.id,
+      clientEventId,
+      occurredAt,
+      note: contactNote || null,
+    });
+    if (!confirmedOperations.current.delete(clientEventId)) return;
+    if (!mounted.current) return;
+    setContactNote("");
+    setContactAt("");
+    if (closeModal) setFollowUpModalOpen(false);
+  };
+
   const executeEntry = async (entry: DispatchQueueEntry) => {
     const targetOwner = currentUserId;
     const ticketEpisode = episodeId;
@@ -1002,6 +1125,7 @@ export function EfaDispatchStepper({
     );
     if (!mounted.current || owner.current !== targetOwner || episodeId !== ticketEpisode) return;
     if (outcome.status === "confirmed" || outcome.status === "confirmed-cleanup-failed") {
+      confirmedOperations.current.add(entry.operationId);
       const rawResult: unknown = outcome.result;
       const rawDispatch =
         rawResult && typeof rawResult === "object" && "dispatch" in rawResult
@@ -1745,7 +1869,7 @@ export function EfaDispatchStepper({
           <details className="min-w-0 border-t pt-3">
             <summary className="min-h-11 cursor-pointer py-2 font-medium">
               Historial del despacho · {history.length} cambios, {selected.contactAttempts.length}{" "}
-              intentos
+              seguimientos
             </summary>
             <div className="space-y-2">
               {history.map((item, index) => (
@@ -1786,7 +1910,7 @@ export function EfaDispatchStepper({
               ))}
               {selected.contactAttempts.map((item) => (
                 <p key={item.id} className="text-sm">
-                  Intento de contacto · {formatDispatchDate(item.occurredAt)} {item.note}
+                  {followUpHistoryLine(item)}
                 </p>
               ))}
             </div>
@@ -1794,7 +1918,23 @@ export function EfaDispatchStepper({
         )}
         {editable && (
           <div className="min-w-0 border-t pb-3 pt-3">
-            <DispatchStepNavigation step={step} onStepChange={setStep} />
+            <DispatchStepNavigation
+              step={step}
+              onStepChange={setStep}
+              action={
+                followUpButton === "hidden" ? null : (
+                  <FollowUpOpenButton
+                    disabled={followUpButton === "disabled"}
+                    onClick={() => {
+                      // Do not show a previous follow-up result as if it belonged to this entry.
+                      if (errorSurface === "contact") setError("");
+                      if (messageSurface === "contact") setMessage("");
+                      setFollowUpModalOpen(true);
+                    }}
+                  />
+                )
+              }
+            />
           </div>
         )}
         {editable && (
@@ -1946,7 +2086,7 @@ export function EfaDispatchStepper({
                         >
                           {statuses.map((value) => (
                             <option key={value} value={value}>
-                              {statusLabel[value]}
+                              {timeStatusLabel(value)}
                             </option>
                           ))}
                         </select>
@@ -2169,68 +2309,40 @@ export function EfaDispatchStepper({
           </fieldset>
         )}
         {selected && editable && (
+          <DispatchFollowUpBlock
+            open={isFollowUpOpen(selected)}
+            busy={busy}
+            note={contactNote}
+            at={contactAt}
+            onNoteChange={setContactNote}
+            onAtChange={setContactAt}
+            onRegisterNow={() => void registerFollowUp(captureActionTimestamp(new Date()), false)}
+            onRegisterAt={() => void registerFollowUp(inputToIso(contactAt)!, false)}
+            error={errorSurface === "contact" && error ? error : null}
+            message={messageSurface === "contact" && message ? message : null}
+          />
+        )}
+        {selected && editable && followUpButton !== "hidden" && (
+          <DispatchFollowUpModal
+            open={followUpModalOpen}
+            onOpenChange={setFollowUpModalOpen}
+            busy={busy}
+            note={contactNote}
+            at={contactAt}
+            onNoteChange={setContactNote}
+            onAtChange={setContactAt}
+            onRegisterNow={() => void registerFollowUp(captureActionTimestamp(new Date()), true)}
+            onRegisterAt={() => void registerFollowUp(inputToIso(contactAt)!, true)}
+            error={errorSurface === "contact" && error ? error : null}
+            message={messageSurface === "contact" && message ? message : null}
+          />
+        )}
+        {selected && editable && (
           <details className="min-w-0 border-t pt-3">
             <summary className="min-h-11 cursor-pointer py-3 font-medium">
-              Eventos relacionados
+              Solicitudes de apoyo
             </summary>
             <div className="min-w-0 space-y-3 pb-3">
-              <label className="block">
-                Nota del intento de contacto
-                <input
-                  className="mt-1 h-11 w-full min-w-0 max-w-full rounded border px-3"
-                  value={contactNote}
-                  onChange={(event) => setContactNote(event.target.value)}
-                />
-              </label>
-              <label className="block">
-                Hora del intento
-                <input
-                  type="datetime-local"
-                  step="0.001"
-                  className="mt-1 h-11 w-full min-w-0 max-w-full rounded border px-3"
-                  value={contactAt}
-                  onChange={(event) => setContactAt(event.target.value)}
-                />
-              </label>
-              <button
-                className="min-h-11 rounded border px-4"
-                disabled={busy}
-                onClick={() => {
-                  const occurredAt = captureActionTimestamp(new Date());
-                  void freeze("contact-attempt", {
-                    dispatchId: selected.id,
-                    clientEventId: crypto.randomUUID(),
-                    occurredAt,
-                    note: contactNote || null,
-                  });
-                }}
-              >
-                Registrar intento de contacto · Ahora
-              </button>
-              <button
-                className="min-h-11 rounded border px-4"
-                disabled={busy || !inputToIso(contactAt)}
-                onClick={() =>
-                  void freeze("contact-attempt", {
-                    dispatchId: selected.id,
-                    clientEventId: crypto.randomUUID(),
-                    occurredAt: inputToIso(contactAt)!,
-                    note: contactNote || null,
-                  })
-                }
-              >
-                Registrar intento con hora ingresada
-              </button>
-              {error && errorSurface === "contact" && (
-                <p role="alert" className="text-sm text-destructive" aria-live="assertive">
-                  {error}
-                </p>
-              )}
-              {message && messageSurface === "contact" && (
-                <p role="status" className="text-sm" aria-live="polite">
-                  {message}
-                </p>
-              )}
               <label className="block">
                 Motivo de apoyo
                 <input

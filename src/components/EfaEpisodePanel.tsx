@@ -15,6 +15,7 @@ import { EfaCommunicationPanel } from "@/components/EfaCommunicationStepper";
 import { EfaDispatchStepper } from "@/components/EfaDispatchStepper";
 import { EfaPoliceCoordinationPanel } from "@/components/EfaPoliceCoordinationPanel";
 import { EfaObservationPanel } from "@/components/EfaObservationPanel";
+import { EfaEpisodeSummary } from "@/components/EfaEpisodeSummary";
 import { readSession } from "@/lib/auth.functions";
 import {
   createEfaEpisode,
@@ -22,7 +23,6 @@ import {
   cancelEfaEpisode,
   reactivateEfaEpisode,
   getEfaEpisode,
-  getEfaEpisodeHistory,
   listEfaEpisodes,
   listEfaEpisodeNotices,
   markEfaEpisodeNoticeRead,
@@ -91,17 +91,6 @@ type ActiveEpisodeConflict = {
   ownerUserId: string;
   operationId: string;
   episodeId: string;
-};
-export type EpisodeAuditView = {
-  id: string;
-  episodeId: string;
-  actorUserId: string;
-  action: "created" | "updated" | "closed" | "cancelled" | "reactivated";
-  versionBefore: number | null;
-  versionAfter: number;
-  beforeState: Record<string, unknown> | null;
-  afterState: Record<string, unknown>;
-  occurredAt: string;
 };
 export type EpisodeNoticeView = {
   id: string;
@@ -173,6 +162,34 @@ type InitialCallIntentSnapshot = {
 export function episodeSaveActionLabel(isEditing: boolean, registerFirstCall: boolean) {
   if (isEditing) return "Guardar cambios";
   return registerFirstCall ? "Abrir servicio y registrar llamada" : "Abrir servicio";
+}
+// eslint-disable-next-line react-refresh/only-export-components
+export function episodeFormTitle(selected: { version: number } | null) {
+  return selected ? `Editar servicio · versión ${selected.version}` : "Nuevo servicio";
+}
+// eslint-disable-next-line react-refresh/only-export-components
+export function canBeginNewService(state: {
+  queueReady: boolean;
+  queueAvailable: boolean;
+  pending: boolean;
+  hasSelection: boolean;
+}) {
+  return state.queueReady && state.queueAvailable && !state.pending && state.hasSelection;
+}
+// What the panel does with the editor once a write is confirmed. A confirmed create always
+// hands the editor back as a blank "new service" form, even when the first-call continuation
+// stays reachable; a write whose local cleanup failed keeps its frozen form untouched.
+// eslint-disable-next-line react-refresh/only-export-components
+export function resolvePostCreateState(state: {
+  operationKind: "create" | "update" | "close";
+  syncEditor: boolean;
+  cleanupFailed: boolean;
+  hasContinuation: boolean;
+}) {
+  return {
+    exposeContinuation: state.syncEditor && state.hasContinuation,
+    resetForm: state.operationKind === "create" && state.syncEditor && !state.cleanupFailed,
+  };
 }
 // eslint-disable-next-line react-refresh/only-export-components
 export function hasFirstCallCreateIntent(
@@ -255,7 +272,6 @@ export function EfaEpisodePanel({
   const listEpisodes = useServerFn(listEfaEpisodes);
   const listNotices = useServerFn(listEfaEpisodeNotices);
   const getEpisode = useServerFn(getEfaEpisode);
-  const getHistory = useServerFn(getEfaEpisodeHistory);
   const acknowledgeNotice = useServerFn(markEfaEpisodeNoticeRead);
   const [serviceIntroNotice, setServiceIntroNotice] = useState({
     ownerUserId: currentUserId,
@@ -267,7 +283,6 @@ export function EfaEpisodePanel({
   const [form, setForm] = useState<EpisodeFormValues>(emptyForm);
   const [registerFirstCall, setRegisterFirstCall] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [history, setHistory] = useState<EpisodeAuditView[]>([]);
   const [historyFor, setHistoryFor] = useState<string | null>(null);
   const [workspaceEpisodeId, setWorkspaceEpisodeId] = useState<string | null>(null);
   const [activeWorkspaceSection, setActiveWorkspaceSection] =
@@ -465,8 +480,19 @@ export function EfaEpisodePanel({
         : "Cierre de servicio";
 
   function beginCreate() {
-    if (!queueReady || !queueAvailable || pendingRef.current || !selectedId) return;
-    if (formDirty && !window.confirm("¿Cancelar la edición y descartar esos cambios sin guardar?"))
+    if (
+      !canBeginNewService({
+        queueReady,
+        queueAvailable,
+        pending: Boolean(pendingRef.current),
+        hasSelection: Boolean(selectedId),
+      })
+    )
+      return;
+    if (
+      formDirty &&
+      !window.confirm("¿Descartar los cambios sin guardar y empezar un servicio nuevo?")
+    )
       return;
     advanceEpisodeNavigationRevision();
     setSelectedId(null);
@@ -917,12 +943,21 @@ export function EfaEpisodePanel({
       } else if (syncEditor) {
         selectedQueueOperationId.current = null;
         if (operation.kind === "create") {
-          if (continuation) {
-            exposeInitialCallContinuation(mayAutoOpenInitialCall);
-          } else {
+          const postCreate = resolvePostCreateState({
+            operationKind: operation.kind,
+            syncEditor,
+            cleanupFailed: false,
+            hasContinuation: Boolean(continuation),
+          });
+          // The continuation and its auto-open decision were computed against the submitted
+          // form above; only afterwards does the editor go back to a blank new service.
+          if (postCreate.exposeContinuation) exposeInitialCallContinuation(mayAutoOpenInitialCall);
+          if (postCreate.resetForm) {
             initialCallIntentRef.current = null;
             setForm(emptyForm());
+            setRegisterFirstCall(true);
             setSelectedId(null);
+            setServerConfirmedOperationId(null);
           }
         }
       }
@@ -1102,7 +1137,6 @@ export function EfaEpisodePanel({
     setWorkspaceEpisodeId(null);
     setVisitedWorkspaceSections(new Set());
     setActiveConflict(null);
-    setHistory([]);
     setHistoryFor(null);
     setEpisodes(initialEpisodes);
     setNotices(initialNotices);
@@ -1585,22 +1619,11 @@ export function EfaEpisodePanel({
     }
   }
 
-  async function showHistory(episodeId: string) {
-    const ticket = ownerTicketRef.current;
-    if (!ticket) return;
-    setBusy(true);
+  // The summary reads each section on its own once it mounts, so opening it needs no request here.
+  function showHistory(episodeId: string) {
+    if (!ownerTicketRef.current) return;
     setError("");
-    try {
-      const rows = (await getHistory({ data: episodeId })) as EpisodeAuditView[];
-      if (!ownerFenceRef.current?.isCurrent(ticket)) return;
-      setHistory(rows);
-      setHistoryFor(episodeId);
-    } catch {
-      if (!ownerFenceRef.current?.isCurrent(ticket)) return;
-      setError("No se pudo cargar el historial autorizado.");
-    } finally {
-      if (ownerFenceRef.current?.isCurrent(ticket)) setBusy(false);
-    }
+    setHistoryFor(episodeId);
   }
 
   async function markRead(noticeId: string) {
@@ -1824,14 +1847,14 @@ export function EfaEpisodePanel({
               servicios de guardias anteriores.
             </p>
           )}
-          {selected && canWrite && selected.canEdit && (
+          {selected && canWrite && openOwnGuard && (
             <Button
               variant="outline"
               className="min-h-11"
               onClick={beginCreate}
               disabled={Boolean(pending) || Boolean(conflict)}
             >
-              Cancelar edición
+              Nuevo servicio
             </Button>
           )}
         </CardContent>
@@ -1840,9 +1863,7 @@ export function EfaEpisodePanel({
       {canWrite && (selected || openOwnGuard) && (
         <Card>
           <CardHeader className="px-3 py-3 sm:px-6 sm:py-6">
-            <CardTitle>
-              {selected ? `Editar servicio · versión ${selected.version}` : "Nuevo episodio"}
-            </CardTitle>
+            <CardTitle>{episodeFormTitle(selected)}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 px-3 pb-3 pt-0 sm:px-6 sm:pb-6">
             <div className="space-y-2">
@@ -2104,7 +2125,7 @@ export function EfaEpisodePanel({
                         variant="outline"
                         className="min-h-11 border-indigo-200 bg-indigo-50 px-3 text-indigo-950 hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-100 dark:hover:bg-indigo-950/60"
                         disabled={busy}
-                        onClick={() => void showHistory(episode.id)}
+                        onClick={() => showHistory(episode.id)}
                       >
                         <History aria-hidden="true" className="size-4" />
                         Ver historial
@@ -2162,6 +2183,7 @@ export function EfaEpisodePanel({
                         currentUserId={currentUserId}
                         canWrite={canWrite}
                         episodeCanEdit={episode.canEdit}
+                        episode={{ eventAt: episode.eventAt, address: episode.address }}
                         initialCallTarget={
                           initialCallContinuation?.episodeId === episode.id &&
                           activeWorkspaceSection === "communications"
@@ -2171,6 +2193,9 @@ export function EfaEpisodePanel({
                               }
                             : null
                         }
+                        onContinueToDispatches={() => {
+                          openWorkspace(episode.id, "dispatches");
+                        }}
                         onInitialCallSelected={(operationId, communicationId) => {
                           setInitialCallContinuation((current) => {
                             if (
@@ -2228,38 +2253,12 @@ export function EfaEpisodePanel({
                 </EfaEpisodeWorkspace>
               )}
               {historyFor === episode.id && (
-                <details className="border-t pt-3">
+                <details className="border-t pt-3" open>
                   <summary className="min-h-11 cursor-pointer py-2 font-medium">
-                    Historial y versiones
+                    Resumen del servicio
                   </summary>
-                  <div className="space-y-3 pt-2">
-                    {history.map((item) => (
-                      <div key={item.id} className="rounded-md bg-muted p-3 text-sm">
-                        <p>
-                          {item.action === "created"
-                            ? "Creación"
-                            : item.action === "closed"
-                              ? "Cierre"
-                              : "Corrección"}{" "}
-                          · versión {item.versionBefore ?? "—"} → {item.versionAfter} ·{" "}
-                          {formatEpisodeDate(item.occurredAt)}
-                        </p>
-                        <dl className="mt-2 grid gap-2 sm:grid-cols-2">
-                          <div>
-                            <dt className="font-medium">Antes</dt>
-                            <dd className="break-words">
-                              {item.beforeState
-                                ? JSON.stringify(item.beforeState)
-                                : "Sin estado previo"}
-                            </dd>
-                          </div>
-                          <div>
-                            <dt className="font-medium">Después</dt>
-                            <dd className="break-words">{JSON.stringify(item.afterState)}</dd>
-                          </div>
-                        </dl>
-                      </div>
-                    ))}
+                  <div className="pt-2">
+                    <EfaEpisodeSummary key={episode.id} episode={episode} />
                   </div>
                 </details>
               )}

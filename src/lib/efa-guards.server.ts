@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { getDatabase } from "../db/index.server";
 import {
   accountAccess,
@@ -7,8 +7,11 @@ import {
   efaGuard,
   efaGuardAudit,
   efaGuardBaseEvent,
+  efaMobileHygienePeriod,
+  efaMobileHygienePeriodAudit,
 } from "../db/schema";
 import { effectiveRoles, type AccountRole } from "./access";
+import { hygieneAuditState } from "./efa-mobile-hygiene.server";
 
 export type EfaGuardRecord = {
   id: string;
@@ -58,6 +61,15 @@ export interface EfaGuardTransaction {
   listBaseEvents(guardId: string): Promise<EfaGuardBaseEvent[]>;
   appendBaseEvent(input: Omit<EfaGuardBaseEvent, "baseName" | "occurredAt">): Promise<void>;
   appendGuardAudit(input: EfaGuardAuditInput): Promise<void>;
+  /**
+   * Flags every still-open hygiene period of the guard as "not informed" (available time stays
+   * empty) and audits each change. Runs inside the guard close transaction; never blocks it.
+   */
+  markOpenHygienePeriodsNotInformed(input: {
+    guardId: string;
+    actorUserId: string;
+    operationId: string;
+  }): Promise<number>;
   databaseNow(): Promise<unknown>;
 }
 export interface EfaGuardStore {
@@ -250,6 +262,11 @@ export function createEfaGuardsService(
           beforeState: toState(guard),
           afterState: { ...toState(guard), endedAt: endedAt.toISOString() },
         });
+        await tx.markOpenHygienePeriodsNotInformed({
+          guardId: guard.id,
+          actorUserId: userId,
+          operationId: newId(),
+        });
       });
     },
 
@@ -353,6 +370,47 @@ const drizzleStore: EfaGuardStore = {
         },
         async appendGuardAudit(input) {
           await db.insert(efaGuardAudit).values(input);
+        },
+        async markOpenHygienePeriodsNotInformed({ guardId, actorUserId, operationId }) {
+          const open = await db
+            .select()
+            .from(efaMobileHygienePeriod)
+            .where(
+              and(
+                eq(efaMobileHygienePeriod.guardId, guardId),
+                isNull(efaMobileHygienePeriod.availableAt),
+                isNull(efaMobileHygienePeriod.deletedAt),
+                eq(efaMobileHygienePeriod.notInformed, false),
+              ),
+            )
+            .for("update");
+          for (const period of open) {
+            const version = period.version + 1;
+            const changed = await db
+              .update(efaMobileHygienePeriod)
+              .set({ notInformed: true, version, updatedAt: sql`now()` })
+              .where(
+                and(
+                  eq(efaMobileHygienePeriod.id, period.id),
+                  eq(efaMobileHygienePeriod.version, period.version),
+                ),
+              )
+              .returning({ id: efaMobileHygienePeriod.id });
+            if (!changed.length)
+              throw new Error("La guardia cambió; actualiza la lista antes de continuar.");
+            await db.insert(efaMobileHygienePeriodAudit).values({
+              periodId: period.id,
+              guardId,
+              actorUserId,
+              operationId,
+              action: "not_informed",
+              versionBefore: period.version,
+              versionAfter: version,
+              beforeState: hygieneAuditState(period),
+              afterState: hygieneAuditState({ ...period, notInformed: true }),
+            });
+          }
+          return open.length;
         },
         async databaseNow() {
           const result = await db.execute(sql`select now() as now`);
