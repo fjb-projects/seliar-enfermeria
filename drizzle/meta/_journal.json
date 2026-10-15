@@ -162,6 +162,13 @@
       "when": 1791547200000,
       "tag": "0022_efa_participation_capture",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1792035673220,
+      "tag": "0023_efa_mobile_hygiene_periods",
+      "breakpoints": true
     }
   ]
 }

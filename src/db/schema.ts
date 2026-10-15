@@ -468,6 +468,149 @@ export const efaMobileArrivalOperation = pgTable(
   ],
 );
 
+export type EfaMobileHygieneState = {
+  requestedAt: string;
+  availableAt: string | null;
+  notInformed: boolean;
+  note: string | null;
+  deletedAt: string | null;
+};
+
+// One hygiene-and-restocking period of a mobile (base) during a guard: it opens when the mobile
+// asks by radio and closes when it is declared available again. A period that is still open when
+// the guard closes is kept open-ended (availableAt null) and flagged notInformed.
+export const efaMobileHygienePeriod = pgTable(
+  "efa_mobile_hygiene_period",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    guardId: uuid("guard_id")
+      .notNull()
+      .references(() => efaGuard.id, { onDelete: "restrict" }),
+    baseId: uuid("base_id")
+      .notNull()
+      .references(() => efaBase.id, { onDelete: "restrict" }),
+    baseNameSnapshot: text("base_name_snapshot").notNull(),
+    requestedAt: timestamp("requested_at").notNull(),
+    availableAt: timestamp("available_at"),
+    notInformed: boolean("not_informed").notNull().default(false),
+    note: text("note"),
+    deletedAt: timestamp("deleted_at"),
+    clientCreationKey: uuid("client_creation_key").notNull(),
+    version: integer("version").notNull().default(1),
+    createdByUserId: text("created_by_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => [
+    unique("efa_mobile_hygiene_period_id_guard_unique").on(table.id, table.guardId),
+    unique("efa_mobile_hygiene_period_guard_creation_key_unique").on(
+      table.guardId,
+      table.clientCreationKey,
+    ),
+    uniqueIndex("efa_mobile_hygiene_period_one_open_per_mobile_unique")
+      .on(table.guardId, table.baseId)
+      .where(
+        sql`${table.availableAt} is null and ${table.deletedAt} is null and ${table.notInformed} = false`,
+      ),
+    check("efa_mobile_hygiene_period_version_positive", sql`${table.version} > 0`),
+    check(
+      "efa_mobile_hygiene_period_base_name_snapshot_valid",
+      sql`char_length(btrim(${table.baseNameSnapshot})) between 1 and 120`,
+    ),
+    check(
+      "efa_mobile_hygiene_period_available_after_requested",
+      sql`${table.availableAt} is null or ${table.availableAt} >= ${table.requestedAt}`,
+    ),
+    check(
+      "efa_mobile_hygiene_period_not_informed_is_open",
+      sql`${table.notInformed} = false or ${table.availableAt} is null`,
+    ),
+    check(
+      "efa_mobile_hygiene_period_note_valid",
+      sql`${table.note} is null or char_length(btrim(${table.note})) between 1 and 300`,
+    ),
+  ],
+);
+
+export const efaMobileHygienePeriodAudit = pgTable(
+  "efa_mobile_hygiene_period_audit",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    periodId: uuid("period_id").notNull(),
+    guardId: uuid("guard_id").notNull(),
+    actorUserId: text("actor_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    operationId: uuid("operation_id").notNull(),
+    action: text("action").notNull(),
+    versionBefore: integer("version_before"),
+    versionAfter: integer("version_after").notNull(),
+    beforeState: jsonb("before_state").$type<EfaMobileHygieneState | null>(),
+    afterState: jsonb("after_state").$type<EfaMobileHygieneState>().notNull(),
+    occurredAt: timestamp("occurred_at").notNull().defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: "efa_mobile_hygiene_period_audit_period_guard_fk",
+      columns: [table.periodId, table.guardId],
+      foreignColumns: [efaMobileHygienePeriod.id, efaMobileHygienePeriod.guardId],
+    }).onDelete("restrict"),
+    unique("efa_mobile_hygiene_period_audit_version_unique").on(table.periodId, table.versionAfter),
+    check(
+      "efa_mobile_hygiene_period_audit_action_allowed",
+      sql`${table.action} in ('created', 'updated', 'available', 'deleted', 'not_informed')`,
+    ),
+    check(
+      "efa_mobile_hygiene_period_audit_action_version_valid",
+      sql`(${table.action} = 'created' and ${table.versionBefore} is null and ${table.versionAfter} = 1) or (${table.action} in ('updated', 'available', 'deleted', 'not_informed') and ${table.versionBefore} is not null and ${table.versionBefore} > 0 and ${table.versionAfter} = ${table.versionBefore} + 1)`,
+    ),
+    check(
+      "efa_mobile_hygiene_period_audit_state_valid",
+      sql`jsonb_typeof(${table.afterState}) = 'object' and (${table.beforeState} is null or jsonb_typeof(${table.beforeState}) = 'object') and (${table.afterState} - 'requestedAt' - 'availableAt' - 'notInformed' - 'note' - 'deletedAt') = '{}'::jsonb and (${table.beforeState} is null or (${table.beforeState} - 'requestedAt' - 'availableAt' - 'notInformed' - 'note' - 'deletedAt') = '{}'::jsonb)`,
+    ),
+  ],
+);
+
+export const efaMobileHygienePeriodOperation = pgTable(
+  "efa_mobile_hygiene_period_operation",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    periodId: uuid("period_id").notNull(),
+    guardId: uuid("guard_id").notNull(),
+    actorUserId: text("actor_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    clientOperationId: uuid("client_operation_id").notNull(),
+    action: text("action").notNull(),
+    requestHash: text("request_hash").notNull(),
+    appliedVersion: integer("applied_version").notNull(),
+    changed: boolean("changed").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      name: "efa_mobile_hygiene_period_operation_period_guard_fk",
+      columns: [table.periodId, table.guardId],
+      foreignColumns: [efaMobileHygienePeriod.id, efaMobileHygienePeriod.guardId],
+    }).onDelete("restrict"),
+    unique("efa_mobile_hygiene_period_guard_operation_unique").on(
+      table.guardId,
+      table.clientOperationId,
+    ),
+    check(
+      "efa_mobile_hygiene_period_operation_action_allowed",
+      sql`${table.action} in ('created', 'updated', 'available', 'deleted')`,
+    ),
+    check("efa_mobile_hygiene_period_operation_version_positive", sql`${table.appliedVersion} > 0`),
+    check(
+      "efa_mobile_hygiene_period_operation_request_hash_valid",
+      sql`${table.requestHash} ~ '^[0-9a-f]{64}$'`,
+    ),
+  ],
+);
+
 export const efaStaffingPeriod = pgTable(
   "efa_staffing_period",
   {
