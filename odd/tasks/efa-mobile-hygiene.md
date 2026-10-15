@@ -31,7 +31,7 @@ Let the guard record, per active mobile, the period that starts when the mobile 
 ## Tasks
 - [x] T1 — Data layer: schema tables, SQL migration 0023 (not applied), audit/operation tables, constraints, triggers; schema tests.
 - [x] T2 — Server layer: service + functions (request open, mark available, edit, delete, list per guard), idempotency/expectedVersion/audit, guard-close marks open periods "no informado"; tests alongside.
-- [ ] T3 — UI: two CTAs + period list/edit inside each mobile card, wiring in guard panel/route, "no informado" and duration display; tests alongside.
+- [x] T3 — UI: two CTAs + period list/edit inside each mobile card, wiring in guard panel/route, "no informado" and duration display; tests alongside.
 
 ## Acceptance criteria
 - Each active mobile card in an open guard shows the two CTAs and its periods (requested time, available time, duration, "No informado").
@@ -48,6 +48,8 @@ Let the guard record, per active mobile, the period that starts when the mobile 
 - T1: migration generated offline with `drizzle-kit generate --name efa_mobile_hygiene_periods` (no DB connection; `DATABASE_URL` empty), then the append-only/soft-delete triggers were appended by hand like 0021. `npx vitest run src/db/schema.test.ts`: 26 passed. No RED observed: schema, migration and tests were written before the first run. Not verifiable without a database: the partial unique index, CHECK constraints and triggers were only reviewed as SQL, never executed.
 
 - T2: `npx vitest run src/lib/efa-mobile-hygiene src/lib/efa-guards src/lib/efa-labels.test.ts` passed (hygiene service 14 tests + functions 3, guards incl. 2 new close tests, labels 9). `npx tsc --noEmit -p .`: only the 6 baseline errors. No RED observed (tests written after implementation). Service rules: one open period per (guard, base) checked under the guard row lock, explicit times must be >= guard start and <= database now + 5 min drift, available >= requested, edits cannot clear an available time, guard close flags open periods `notInformed` (audit action `not_informed`, no operation receipt) after the guard row update in the same transaction. Only unit-tested against a fake store; the Drizzle layer (`efa-mobile-hygiene.server.db.ts` and the close query in `efa-guards.server.ts`) is type-checked, never run.
+
+- T3: new `EfaMobileHygienePanel` rendered inside each selected mobile card (after the role rows) by `EfaMobileArrivalPanel` when `hygienePeriods`/`onHygieneChange` are passed; data loaded in `guardia-efa.tsx` and `EfaGuardPanel` (`initialHygiene`, refreshed with the guards). Writes reuse `onArrivalMutationStart` so base changes and guard close wait for pending hygiene writes. Tests are SSR (`renderToStaticMarkup`): they check markup, disabled states and pure helpers; no click, confirm dialog or server round trip was exercised. `EfaMobileHygienePanel.test.tsx` 9 passed, `EfaMobileArrivalPanel.test.tsx` 15 passed, `EfaGuardPanel.test.tsx` 4 passed / 11 failed with `No QueryClient set` (the same 11 fail on HEAD without these changes; the 2 new tests wrap the panel in a QueryClientProvider). `npx tsc --noEmit -p .`: 6 baseline errors only. `npm run build`: exit 0.
 
 ## How to apply the migration (not done)
 Nothing was applied. When the user explicitly authorizes a target database (see `docs/efa-access-setup.md`):

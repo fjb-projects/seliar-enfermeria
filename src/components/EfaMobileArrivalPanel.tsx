@@ -9,6 +9,7 @@ import {
 } from "@/lib/efa-mobile-arrivals.functions";
 import type { MobileArrivalRole } from "@/lib/efa-mobile-arrivals.server";
 import { sortGuardMobileBases } from "@/lib/efa-guard-mobile-workspace";
+import { EfaMobileHygienePanel, type MobileHygieneView } from "@/components/EfaMobileHygienePanel";
 
 export type MobileArrivalView = {
   id: string;
@@ -139,6 +140,8 @@ export function EfaMobileArrivalPanel({
   arrivals,
   canWrite,
   onArrivalsChange,
+  hygienePeriods,
+  onHygieneChange,
 }: {
   guardId: string;
   bases: GuardBase[];
@@ -154,6 +157,9 @@ export function EfaMobileArrivalPanel({
   arrivals: MobileArrivalView[];
   canWrite: boolean;
   onArrivalsChange: (arrival: MobileArrivalView) => void;
+  /** When both hygiene props are given, each selected mobile card shows its hygiene periods. */
+  hygienePeriods?: MobileHygieneView[];
+  onHygieneChange?: (period: MobileHygieneView) => void;
 }) {
   const createArrival = useServerFn(createEfaMobileArrival);
   const updateArrival = useServerFn(updateEfaMobileArrival);
@@ -456,6 +462,20 @@ export function EfaMobileArrivalPanel({
             )}
             {selected && (
               <div className="pb-2">{roles.map((role) => renderRoleRow(base, role))}</div>
+            )}
+            {selected && hygienePeriods && onHygieneChange && (
+              <div className="pb-2">
+                <EfaMobileHygienePanel
+                  guardId={guardId}
+                  baseId={base.id}
+                  baseName={base.name}
+                  periods={hygienePeriods}
+                  canWrite={canWrite}
+                  blocked={membershipBlocked || membershipPending}
+                  onMutationStart={onArrivalMutationStart}
+                  onPeriodChange={onHygieneChange}
+                />
+              </div>
             )}
           </article>
         );

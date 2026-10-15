@@ -8,6 +8,7 @@ import {
 } from "@/lib/efa-guards.functions";
 import { listEfaStaffing } from "@/lib/efa-staffing.functions";
 import { listEfaMobileArrivalsForGuard } from "@/lib/efa-mobile-arrivals.functions";
+import { listEfaMobileHygieneForGuard } from "@/lib/efa-mobile-hygiene.functions";
 import { SessionLoadError } from "@/components/SessionLoadError";
 import { navigationSessionQueryOptions } from "@/lib/navigation-query-options";
 
@@ -29,8 +30,9 @@ export const Route = createFileRoute("/guardia-efa")({
     const guardEntries = await Promise.all(
       guards.map(async (guard) => {
         const arrivals = await listEfaMobileArrivalsForGuard({ data: guard.id });
+        const hygiene = await listEfaMobileHygieneForGuard({ data: guard.id });
         const staffing = canWrite ? await listEfaStaffing({ data: { guardId: guard.id } }) : [];
-        return { id: guard.id, staffing, arrivals };
+        return { id: guard.id, staffing, arrivals, hygiene };
       }),
     );
     return {
@@ -38,6 +40,7 @@ export const Route = createFileRoute("/guardia-efa")({
       bases,
       staffingByGuard: Object.fromEntries(guardEntries.map(({ id, staffing }) => [id, staffing])),
       arrivalsByGuard: Object.fromEntries(guardEntries.map(({ id, arrivals }) => [id, arrivals])),
+      hygieneByGuard: Object.fromEntries(guardEntries.map(({ id, hygiene }) => [id, hygiene])),
       canWrite,
       isAdmin,
     };
@@ -47,7 +50,7 @@ export const Route = createFileRoute("/guardia-efa")({
 
 function EfaGuardPage() {
   const { session } = Route.useRouteContext();
-  const { guards, bases, staffingByGuard, arrivalsByGuard, canWrite, isAdmin } =
+  const { guards, bases, staffingByGuard, arrivalsByGuard, hygieneByGuard, canWrite, isAdmin } =
     Route.useLoaderData();
   return (
     <PrivateAccountShell session={session}>
@@ -56,6 +59,7 @@ function EfaGuardPage() {
         activeBases={bases as GuardBase[]}
         initialStaffing={staffingByGuard}
         initialArrivals={arrivalsByGuard}
+        initialHygiene={hygieneByGuard}
         currentUserId={session.user.id}
         isAdmin={isAdmin}
         canWrite={canWrite}

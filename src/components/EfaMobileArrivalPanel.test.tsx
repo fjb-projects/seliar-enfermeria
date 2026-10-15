@@ -9,6 +9,7 @@ import {
   setBusyArrivalOperation,
   type MobileArrivalView,
 } from "./EfaMobileArrivalPanel";
+import type { MobileHygieneView } from "./EfaMobileHygienePanel";
 
 vi.mock("@tanstack/react-start", () => ({
   useServerFn: () => vi.fn(async () => []),
@@ -17,6 +18,14 @@ vi.mock("@/lib/efa-mobile-arrivals.functions", () => ({
   createEfaMobileArrival: vi.fn(),
   deleteEfaMobileArrival: vi.fn(),
   updateEfaMobileArrival: vi.fn(),
+}));
+
+vi.mock("@/lib/efa-mobile-hygiene.functions", () => ({
+  deleteEfaMobileHygiene: vi.fn(),
+  listEfaMobileHygieneForGuard: vi.fn(),
+  markEfaMobileHygieneAvailable: vi.fn(),
+  requestEfaMobileHygiene: vi.fn(),
+  updateEfaMobileHygiene: vi.fn(),
 }));
 
 const base = { id: "base-a", name: "Central", isActive: true };
@@ -225,5 +234,82 @@ describe("EfaMobileArrivalPanel", () => {
     busy = setBusyArrivalOperation(busy, "row-a", false);
 
     expect([...busy]).toEqual(["row-b"]);
+  });
+
+  describe("hygiene and restocking block", () => {
+    const hygiene: MobileHygieneView = {
+      id: "period-a",
+      guardId: "guard-a",
+      baseId: "base-a",
+      baseNameSnapshot: "Central",
+      requestedAt: "2026-10-14T14:00:00.000Z",
+      availableAt: null,
+      notInformed: false,
+      note: null,
+      deletedAt: null,
+      version: 1,
+      canEdit: true,
+    };
+    const article = (html: string, name: string) =>
+      new RegExp(`<article[^>]*aria-label="Móvil ${name}"[\\s\\S]*?</article>`).exec(html)?.[0] ??
+      "";
+
+    it("shows the block inside each selected mobile card after the role rows", () => {
+      const html = renderToStaticMarkup(
+        <EfaMobileArrivalPanel
+          guardId="guard-a"
+          bases={[base, { id: "base-b", name: "Norte", isActive: true }]}
+          arrivals={[]}
+          hygienePeriods={[hygiene]}
+          onHygieneChange={vi.fn()}
+          canWrite
+          onArrivalsChange={vi.fn()}
+        />,
+      );
+
+      const central = article(html, "Central");
+      expect(central).toContain("Solicitó higiene y reposición");
+      expect(central).toContain("Disponible (handy)");
+      expect(central).toContain("En higiene y reposición");
+      expect(central.indexOf("Medicina")).toBeLessThan(central.indexOf("Higiene y reposición"));
+      const north = article(html, "Norte");
+      expect(north).toContain("Solicitó higiene y reposición");
+      expect(north).not.toContain("En higiene y reposición");
+      expect(html.match(/Solicitó higiene y reposición/g)).toHaveLength(2);
+    });
+
+    it("keeps the block out of unselected mobiles and read-only for non-writers", () => {
+      const html = renderToStaticMarkup(
+        <EfaMobileArrivalPanel
+          guardId="guard-a"
+          bases={[base]}
+          availableBases={[base, { id: "base-b", name: "Norte", isActive: true }]}
+          requestedBaseIds={[base.id]}
+          arrivals={[]}
+          hygienePeriods={[{ ...hygiene, availableAt: "2026-10-14T14:30:00.000Z", canEdit: false }]}
+          onHygieneChange={vi.fn()}
+          canWrite={false}
+          onArrivalsChange={vi.fn()}
+        />,
+      );
+
+      expect(article(html, "Norte")).not.toContain("Higiene y reposición");
+      const central = article(html, "Central");
+      expect(central).toContain("Duración: 30 min");
+      expect(central).not.toContain("Solicitó higiene y reposición");
+    });
+
+    it("does not render the block when the caller does not provide hygiene data", () => {
+      const html = renderToStaticMarkup(
+        <EfaMobileArrivalPanel
+          guardId="guard-a"
+          bases={[base]}
+          arrivals={[]}
+          canWrite
+          onArrivalsChange={vi.fn()}
+        />,
+      );
+      expect(html).not.toContain("Higiene y reposición");
+    });
   });
 });
