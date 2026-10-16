@@ -12,6 +12,7 @@ import {
 } from "react";
 import type { ReactNode } from "react";
 import type { EfaPanelSummary } from "@/components/EfaPanelHome";
+import { useQuickGuardEnd, type QuickGuardEndController } from "@/components/EfaQuickGuardEnd";
 import { signOut } from "@/lib/auth.functions";
 import {
   clearPrivateNavigationCache,
@@ -28,6 +29,9 @@ type SeliarNavigationContextValue = {
   sessionStatus: SessionStatus;
   session: PrivateSession | null;
   summary: EfaPanelSummary | undefined;
+  /** Last known open guard, kept while the summary is stale so the shell strip does not flicker. */
+  openGuard: EfaPanelSummary["openGuard"];
+  quickGuardEnd: QuickGuardEndController;
   summaryLoading: boolean;
   summaryError: boolean;
   retrySession: () => void;
@@ -49,6 +53,12 @@ export function SeliarNavigationProvider({ children }: { children: ReactNode }) 
   const summaryQuery = useQuery({
     ...efaPanelSummaryQueryOptions(session?.user.id ?? "anonymous"),
     enabled: Boolean(session),
+  });
+  const openGuard = session ? (summaryQuery.data?.openGuard ?? null) : null;
+  const quickGuardEnd = useQuickGuardEnd({
+    userId: session?.user.id ?? null,
+    openGuard,
+    pathname,
   });
   const [logoutPending, setLogoutPending] = useState(false);
   const [logoutError, setLogoutError] = useState("");
@@ -162,6 +172,8 @@ export function SeliarNavigationProvider({ children }: { children: ReactNode }) 
       sessionStatus,
       session,
       summary: summaryQuery.isError || summaryQuery.isStale ? undefined : summaryQuery.data,
+      openGuard,
+      quickGuardEnd,
       summaryLoading: Boolean(session) && summaryQuery.isPending,
       summaryError: Boolean(session) && summaryQuery.isError,
       retrySession,
@@ -174,6 +186,8 @@ export function SeliarNavigationProvider({ children }: { children: ReactNode }) 
       logout,
       logoutError,
       logoutPending,
+      openGuard,
+      quickGuardEnd,
       retrySession,
       retrySummary,
       session,
