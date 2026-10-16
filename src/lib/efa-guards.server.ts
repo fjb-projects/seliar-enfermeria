@@ -85,6 +85,31 @@ function asDatabaseTimestamp(value: unknown): Date {
   return timestamp;
 }
 
+/**
+ * Replays a guard's base events (ordered by sequence) into its current base membership.
+ * `bases` is the full catalog, used to fill missing names and the current active flag.
+ */
+export function currentGuardBases(
+  events: readonly EfaGuardBaseEvent[],
+  bases: readonly EfaGuardBase[],
+): EfaGuardBase[] {
+  const catalog = new Map(bases.map((base) => [base.id, base]));
+  const selected = new Map<string, EfaGuardBase>();
+  for (const event of events) {
+    if (event.action === "added") {
+      const base = catalog.get(event.baseId);
+      selected.set(event.baseId, {
+        id: event.baseId,
+        name: event.baseName || base?.name || "Base histórica",
+        isActive: base?.isActive ?? false,
+      });
+    } else {
+      selected.delete(event.baseId);
+    }
+  }
+  return [...selected.values()];
+}
+
 export type EfaGuardServiceDependencies = { newId?: () => string };
 const randomId = () => crypto.randomUUID();
 const toState = (guard: EfaGuardRecord) => ({
@@ -136,22 +161,7 @@ export function createEfaGuardsService(
 
   async function withEvents(tx: EfaGuardTransaction, guard: EfaGuardRecord) {
     const [events, bases] = await Promise.all([tx.listBaseEvents(guard.id), tx.listBases(false)]);
-    const names = new Map(bases.map((base) => [base.id, base.name]));
-    const selected = new Map<string, EfaGuardBase>();
-    for (const event of events) {
-      if (event.action === "added") {
-        selected.set(event.baseId, {
-          id: event.baseId,
-          name: event.baseName || names.get(event.baseId) || "Base histórica",
-          isActive: names.has(event.baseId)
-            ? bases.find((base) => base.id === event.baseId)!.isActive
-            : false,
-        });
-      } else {
-        selected.delete(event.baseId);
-      }
-    }
-    return { ...guard, bases: [...selected.values()], baseEvents: events };
+    return { ...guard, bases: currentGuardBases(events, bases), baseEvents: events };
   }
 
   return {
