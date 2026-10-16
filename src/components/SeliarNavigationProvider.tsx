@@ -1,7 +1,15 @@
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "@tanstack/react-router";
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { ReactNode } from "react";
 import type { EfaPanelSummary } from "@/components/EfaPanelHome";
 import { signOut } from "@/lib/auth.functions";
@@ -105,14 +113,17 @@ export function SeliarNavigationProvider({ children }: { children: ReactNode }) 
     const expiresAt = Date.parse(session.expiresAt);
     if (!Number.isFinite(expiresAt)) return;
     const delay = Math.max(0, expiresAt - Date.now());
-    const timer = window.setTimeout(() => {
-      if (Date.now() < expiresAt) {
-        void queryClient.invalidateQueries({ queryKey: navigationSessionQueryKey });
-        return;
-      }
-      queryClient.setQueryData(navigationSessionQueryKey, { status: "anonymous" });
-      clearPrivateNavigationCache(queryClient);
-    }, Math.min(delay, 2_147_000_000));
+    const timer = window.setTimeout(
+      () => {
+        if (Date.now() < expiresAt) {
+          void queryClient.invalidateQueries({ queryKey: navigationSessionQueryKey });
+          return;
+        }
+        queryClient.setQueryData(navigationSessionQueryKey, { status: "anonymous" });
+        clearPrivateNavigationCache(queryClient);
+      },
+      Math.min(delay, 2_147_000_000),
+    );
     return () => window.clearTimeout(timer);
   }, [queryClient, session, sessionStatus]);
 
@@ -168,7 +179,9 @@ export function SeliarNavigationProvider({ children }: { children: ReactNode }) 
     ],
   );
 
-  return <SeliarNavigationContext.Provider value={value}>{children}</SeliarNavigationContext.Provider>;
+  return (
+    <SeliarNavigationContext.Provider value={value}>{children}</SeliarNavigationContext.Provider>
+  );
 }
 
 export function useSeliarNavigation() {

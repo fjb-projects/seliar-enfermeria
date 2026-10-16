@@ -151,7 +151,11 @@ export function PrivateAccountShell({
                       </Button>
                     )}
                     <div className="flex flex-wrap items-center gap-2">
-                      {logoutError && <p role="alert" className="max-w-56 text-xs text-destructive">{logoutError}</p>}
+                      {logoutError && (
+                        <p role="alert" className="max-w-56 text-xs text-destructive">
+                          {logoutError}
+                        </p>
+                      )}
                       <Button
                         onClick={() => void logout()}
                         disabled={logoutPending}
@@ -169,9 +173,7 @@ export function PrivateAccountShell({
         />
       }
     >
-      <div className="space-y-5">
-        {children}
-      </div>
+      <div className="space-y-5">{children}</div>
     </WorkflowShell>
   );
 }
