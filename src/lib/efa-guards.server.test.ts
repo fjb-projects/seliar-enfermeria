@@ -42,9 +42,9 @@ function createStore() {
     async listBases() {
       return bases.filter((base) => base.isActive);
     },
-    async listGuards(ownerUserId: string | null) {
+    async listGuards(ownerUserId: string) {
       return guards
-        .filter((guard) => !ownerUserId || guard.ownerUserId === ownerUserId)
+        .filter((guard) => guard.ownerUserId === ownerUserId)
         .map((guard) => ({ ...guard }));
     },
     async findGuard(id: string) {
@@ -315,7 +315,7 @@ describe("EFA guard lifecycle service", () => {
     expect(db.guards[0]!.version).toBe(2);
   });
 
-  it("prevents access to another EFA owner's guards while permitting admin reads", async () => {
+  it("prevents access to another EFA owner's guards", async () => {
     const db = createStore();
     const service = createEfaGuardsService(db.store, { newId: () => "guard-1" });
     await service.start("owner-1", { declaredAtCentral: true });
@@ -323,8 +323,19 @@ describe("EFA guard lifecycle service", () => {
     await expect(
       service.end("other-efa", { guardId: "guard-1", expectedVersion: 1 }),
     ).rejects.toThrow(/propias guardias/i);
-    db.setActor({ isActive: true, roles: ["admin"] });
-    await expect(service.list("admin-1")).resolves.toHaveLength(1);
+  });
+
+  it("lists only the actor's own guards for administrators too", async () => {
+    const db = createStore();
+    const ids = ["guard-owner", "guard-admin"];
+    const service = createEfaGuardsService(db.store, { newId: () => ids.shift()! });
+    await service.start("owner-1", { declaredAtCentral: true });
+    db.setActor({ isActive: true, roles: ["efa", "admin"] });
+    await service.start("admin-1", { declaredAtCentral: true });
+
+    const listed = await service.list("admin-1");
+    expect(listed.map((guard) => guard.id)).toEqual(["guard-admin"]);
+    expect(listed.every((guard) => guard.ownerUserId === "admin-1")).toBe(true);
   });
 
   it("allows active revoked-EFA accounts to read only their guards without granting mutations", async () => {

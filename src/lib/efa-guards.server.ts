@@ -45,7 +45,7 @@ type EfaActorRecord = { isActive: boolean; roles: AccountRole[] };
 export interface EfaGuardTransaction {
   findActor(userId: string): Promise<EfaActorRecord | null>;
   listBases(activeOnly: boolean): Promise<EfaGuardBase[]>;
-  listGuards(ownerUserId: string | null): Promise<EfaGuardRecord[]>;
+  listGuards(ownerUserId: string): Promise<EfaGuardRecord[]>;
   findGuard(guardId: string): Promise<EfaGuardRecord | null>;
   insertGuard(input: {
     id: string;
@@ -164,8 +164,8 @@ export function createEfaGuardsService(
 
     async list(userId: string) {
       return store.transaction(async (tx) => {
-        const roles = await readActor(tx, userId);
-        const guards = await tx.listGuards(roles.includes("admin") ? null : userId);
+        await readActor(tx, userId);
+        const guards = await tx.listGuards(userId);
         return Promise.all(guards.map((guard) => withEvents(tx, guard)));
       });
     },
@@ -328,10 +328,11 @@ const drizzleStore: EfaGuardStore = {
             : query.orderBy(asc(efaBase.name));
         },
         async listGuards(ownerUserId) {
-          const query = db.select().from(efaGuard);
-          return ownerUserId
-            ? query.where(eq(efaGuard.ownerUserId, ownerUserId)).orderBy(desc(efaGuard.startedAt))
-            : query.orderBy(desc(efaGuard.startedAt));
+          return db
+            .select()
+            .from(efaGuard)
+            .where(eq(efaGuard.ownerUserId, ownerUserId))
+            .orderBy(desc(efaGuard.startedAt));
         },
         async findGuard(guardId) {
           const rows = await db.select().from(efaGuard).where(eq(efaGuard.id, guardId)).limit(1);
