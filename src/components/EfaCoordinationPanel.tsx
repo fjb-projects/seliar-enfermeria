@@ -97,10 +97,13 @@ export function EfaCoordinationPanel({
   guards,
   search,
   onSearchChange,
+  onGuardsChanged,
 }: {
   guards: EfaOversightGuardView[];
   search: CoordinationSearch;
   onSearchChange: (next: CoordinationSearch) => void;
+  /** Reloads the loaded guard list, e.g. after an end-time correction. */
+  onGuardsChanged: () => Promise<unknown>;
 }) {
   const [groupByOwner, setGroupByOwner] = useState(true);
   const owners = useMemo(() => listGuardOwners(guards), [guards]);
@@ -158,12 +161,23 @@ export function EfaCoordinationPanel({
                     </p>
                   </div>
                   {group.guards.map((guard) => (
-                    <EfaCoordinationGuardCard key={guard.id} guard={guard} showOwner={false} />
+                    <EfaCoordinationGuardCard
+                      key={guard.id}
+                      guard={guard}
+                      showOwner={false}
+                      onGuardChanged={onGuardsChanged}
+                    />
                   ))}
                 </section>
               ))
             ) : (
-              visible.map((guard) => <EfaCoordinationGuardCard key={guard.id} guard={guard} />)
+              visible.map((guard) => (
+                <EfaCoordinationGuardCard
+                  key={guard.id}
+                  guard={guard}
+                  onGuardChanged={onGuardsChanged}
+                />
+              ))
             )}
           </section>
         </CardContent>

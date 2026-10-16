@@ -2,12 +2,15 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 import {
   listEfaGuardServices,
   type EfaGuardServiceTotals,
   type EfaOversightEpisodeView,
   type EfaOversightGuardView,
 } from "@/lib/efa-guard-oversight.functions";
+import { correctEfaGuardEnd } from "@/lib/efa-guards.functions";
 import {
   dispatchResultLabel,
   dispatchTimeSteps,
@@ -151,12 +154,92 @@ function GuardServices({ guardId }: { guardId: string }) {
   return <EfaCoordinationServiceList episodes={query.data} />;
 }
 
+/** datetime-local value in the browser's time zone. */
+function toLocalDateTimeValue(value: Date | string) {
+  const date = new Date(value);
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+}
+
+/** Admin-only end-time correction for a closed guard; the server keeps the audit trail. */
+export function EfaCoordinationEndCorrection({
+  guard,
+  onCorrected,
+}: {
+  guard: EfaOversightGuardView & { endedAt: Date | string };
+  onCorrected: () => Promise<unknown>;
+}) {
+  const correctGuardEnd = useServerFn(correctEfaGuardEnd);
+  const [value, setValue] = useState(() => toLocalDateTimeValue(guard.endedAt));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const unchanged = !value || new Date(value).getTime() === new Date(guard.endedAt).getTime();
+
+  async function save() {
+    if (busy || unchanged) return;
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      await correctGuardEnd({
+        data: {
+          guardId: guard.id,
+          expectedVersion: guard.version,
+          endedAt: new Date(value).toISOString(),
+        },
+      });
+      await onCorrected();
+      setMessage("La hora de cierre se corrigió y quedó en el historial.");
+    } catch {
+      setError("No se pudo guardar el cambio. Actualiza la guardia e inténtalo nuevamente.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-2 border-t pt-3">
+      <Label htmlFor={`guard-end-${guard.id}`}>Corregir hora de cierre</Label>
+      <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+        <input
+          id={`guard-end-${guard.id}`}
+          className="min-h-11 rounded-md border bg-background px-3 text-sm"
+          type="datetime-local"
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+        />
+        <Button
+          variant="outline"
+          className="min-h-11"
+          disabled={busy || unchanged}
+          onClick={() => void save()}
+        >
+          {busy ? "Guardando…" : "Guardar corrección"}
+        </Button>
+      </div>
+      {error && (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      )}
+      {message && (
+        <p role="status" className="text-sm text-green-700">
+          {message}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function EfaCoordinationGuardCard({
   guard,
   showOwner = true,
+  onGuardChanged,
 }: {
   guard: EfaOversightGuardView;
   showOwner?: boolean;
+  /** Reloads the guard list after an admin change such as an end-time correction. */
+  onGuardChanged: () => Promise<unknown>;
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const open = !guard.endedAt;
@@ -200,9 +283,16 @@ export function EfaCoordinationGuardCard({
         onToggle={(event) => setDetailsOpen(event.currentTarget.open)}
       >
         <summary className="min-h-11 cursor-pointer py-2 text-sm font-medium">
-          {detailsOpen ? "Ocultar servicios" : "Ver servicios"}
+          {detailsOpen ? "Ocultar detalles" : "Ver servicios y detalles"}
         </summary>
         {detailsOpen && <GuardServices guardId={guard.id} />}
+        {guard.endedAt && (
+          <EfaCoordinationEndCorrection
+            key={`${guard.id}:${guard.version}`}
+            guard={{ ...guard, endedAt: guard.endedAt }}
+            onCorrected={onGuardChanged}
+          />
+        )}
       </details>
     </article>
   );

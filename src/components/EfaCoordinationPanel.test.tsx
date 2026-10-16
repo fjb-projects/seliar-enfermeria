@@ -7,9 +7,14 @@ import type {
   EfaOversightGuardView,
 } from "@/lib/efa-guard-oversight.functions";
 import { EfaCoordinationPanel } from "./EfaCoordinationPanel";
-import { EfaCoordinationServiceList, guardTotalBadges } from "./EfaCoordinationGuardCard";
+import {
+  EfaCoordinationGuardCard,
+  EfaCoordinationServiceList,
+  guardTotalBadges,
+} from "./EfaCoordinationGuardCard";
 
 vi.mock("@tanstack/react-start", () => ({ useServerFn: () => vi.fn(async () => []) }));
+vi.mock("@/lib/efa-guards.functions", () => ({ correctEfaGuardEnd: vi.fn() }));
 vi.mock("@/lib/efa-guard-oversight.functions", () => ({
   listEfaGuardOversight: vi.fn(),
   listEfaGuardServices: vi.fn(),
@@ -69,7 +74,12 @@ function render(children: ReactNode) {
 describe("EfaCoordinationPanel", () => {
   it("groups every guard by owner with name, email and guard count", () => {
     const html = render(
-      <EfaCoordinationPanel guards={guards} search={{}} onSearchChange={() => {}} />,
+      <EfaCoordinationPanel
+        guards={guards}
+        search={{}}
+        onSearchChange={() => {}}
+        onGuardsChanged={async () => {}}
+      />,
     );
 
     expect(html).toContain("Coordinación EFA");
@@ -85,7 +95,12 @@ describe("EfaCoordinationPanel", () => {
 
   it("shows status, times, duration, bases and totals on each guard", () => {
     const html = render(
-      <EfaCoordinationPanel guards={guards} search={{}} onSearchChange={() => {}} />,
+      <EfaCoordinationPanel
+        guards={guards}
+        search={{}}
+        onSearchChange={() => {}}
+        onGuardsChanged={async () => {}}
+      />,
     );
 
     expect(html).toContain("En curso");
@@ -102,7 +117,7 @@ describe("EfaCoordinationPanel", () => {
     expect(html).toContain("Higiene: 1");
     expect(html).toContain("Sin servicios");
     expect(html).toContain("Sin despachos");
-    expect(html).toContain("Ver servicios");
+    expect(html).toContain("Ver servicios y detalles");
     expect(html).not.toMatch(/<details[^>]*\bopen/);
   });
 
@@ -112,6 +127,7 @@ describe("EfaCoordinationPanel", () => {
         guards={guards}
         search={{ user: "bruno", status: "closed" }}
         onSearchChange={() => {}}
+        onGuardsChanged={async () => {}}
       />,
     );
 
@@ -128,10 +144,28 @@ describe("EfaCoordinationPanel", () => {
         guards={guards}
         search={{ from: "2026-11-01" }}
         onSearchChange={() => {}}
+        onGuardsChanged={async () => {}}
       />,
     );
 
     expect(html).toContain("No hay guardias con estos filtros.");
+  });
+});
+
+describe("coordination end-time correction", () => {
+  it("offers the correction only on closed guards", () => {
+    const openHtml = render(
+      <EfaCoordinationGuardCard guard={guards[0]!} onGuardChanged={async () => {}} />,
+    );
+    const closedHtml = render(
+      <EfaCoordinationGuardCard guard={guards[1]!} onGuardChanged={async () => {}} />,
+    );
+
+    expect(openHtml).not.toContain("Corregir hora de cierre");
+    expect(closedHtml).toContain("Corregir hora de cierre");
+    expect(closedHtml).toContain('id="guard-end-g-bruno"');
+    expect(closedHtml).toContain('type="datetime-local"');
+    expect(closedHtml).toMatch(/<button[^>]*disabled=""[^>]*>Guardar corrección<\/button>/);
   });
 });
 

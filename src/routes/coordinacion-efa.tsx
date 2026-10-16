@@ -1,4 +1,4 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { EfaCoordinationPanel } from "@/components/EfaCoordinationPanel";
 import { PrivateAccountShell, type PrivateSession } from "@/components/PrivateAccountShell";
 import { SessionLoadError } from "@/components/SessionLoadError";
@@ -39,12 +39,14 @@ function EfaCoordinationPage() {
   const { guards } = Route.useLoaderData();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
+  const router = useRouter();
   return (
     <PrivateAccountShell session={session}>
       <EfaCoordinationPanel
         guards={guards as EfaOversightGuardView[]}
         search={search}
         onSearchChange={(next) => void navigate({ search: next, replace: true })}
+        onGuardsChanged={() => router.invalidate()}
       />
     </PrivateAccountShell>
   );
