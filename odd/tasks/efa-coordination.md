@@ -33,9 +33,9 @@ The admin history in `/guardia-efa` shows only a status pill plus dates (`EfaGua
 ## Tasks
 - [x] T1 — `efaGuards.list` returns only the actor's own guards (also for admins); update the callers' tests. Route: delegated. Commit `8bbf597` refactor(efa): list only the actor's own guards. `listGuards` now takes a required owner id; callers (`episodios-efa.tsx`, `EfaObservationPanel.tsx`) already filtered by owner, so their behavior is unchanged.
 - [x] T2 — Admin oversight service `src/lib/efa-guard-oversight.server.ts` plus `.functions.ts`: all guards with owner name and email, bases, and per-guard totals (episodes draft/closed/cancelled, dispatches, arrivals, hygiene periods) using grouped queries, not N+1. Admin only. Route: delegated. Commit `a456bd3` feat(efa): add admin guard oversight service. `currentGuardBases` was extracted from `withEvents` and is shared. `listGuards` uses a fixed 8 queries; `listGuardServices` returns episodes with their dispatches. Exported view types for T4: `EfaOversightGuardView`, `EfaOversightEpisodeView`, `EfaOversightDispatchRecord`, `EfaGuardServiceTotals`, `EfaGuardOwner`. About 710 changed lines (306 of them tests), above the 400-line heuristic because of the drizzle store and fixtures.
-- [ ] T3 — Route `/coordinacion-efa` with admin guard, path registrations and an admin-only nav entry. Route: delegated.
-- [ ] T4 — Oversight list UI: group and filter by user, state and date range (URL search params); per-guard summary (owner, times, duration, totals); detail with services and dispatches, arrivals and hygiene. Route: delegated.
-- [ ] T5 — Move the end-time correction to `/coordinacion-efa`; clean admin branches from the `/guardia-efa` history; show names instead of IDs where they remain. Route: delegated.
+- [x] T3 — Route `/coordinacion-efa` with admin guard, path registrations and an admin-only nav entry. Route: delegated. Commits `1d88b03` style(efa): format navigation shell files with prettier (format-only, so T3 shows only behavior; those files failed prettier lint on base) and `277699e` feat(efa): add admin coordination route. `resolveCoordinationSession` (anonymous → `/login?returnTo=%2Fcoordinacion-efa`, non-admin → `/panel`, unavailable → `SessionLoadError`). Nav entry: `coordinate-guards` quick action (admin only, shows in the mobile nav) plus a "Coordinación EFA" button next to "Administrar cuentas" in the account header. `routeTree.gen.ts` edited by hand in generator order (the generator only runs inside the Vite plugin). Fixed the stale `PrivateAccountShell.test.tsx` (it failed on base: missing navigation provider mock).
+- [x] T4 — Oversight list UI. Route: delegated. Commit `42a82bd` feat(efa): show all guards in the coordination view. `src/lib/efa-coordination-filters.ts` (pure `validateCoordinationSearch`, `filterOversightGuards`, `groupGuardsByOwner`, `listGuardOwners`; dates use the Buenos Aires calendar day); `EfaCoordinationPanel.tsx` (filters, "Agrupar por usuario" toggle, list section ready for a future statistics section) and `EfaCoordinationGuardCard.tsx` (status pill, open-guard accent, times, duration, bases, totals badges, lazy services via `useQuery`). `status` is optional in search so links need no search params. About 830 changed lines (about 360 tests), above the 400-line heuristic because the view, its filters and fixtures form one unit.
+- [x] T5 — Move the end-time correction to `/coordinacion-efa`; clean admin branches from the `/guardia-efa` history; show names instead of IDs where they remain. Route: delegated. Commit `7527d32` refactor(efa): keep guard history owner-only and move end correction. Correction lives on closed guards in the coordination card and reloads with `router.invalidate()`. `/guardia-efa`: always "Mis guardias", no "Responsable" or correction form, summary shows date and time, base-change actor reads "por vos" / "por otra cuenta". `isAdmin` stays on `EfaGuardPanel` because `EfaObservationPanel` still takes it; the dead `isAdmin ||` edit branches were removed (same result for own guards). Arrivals and hygiene detail stay as totals only in the coordination view.
 
 ## Acceptance criteria
 - A non-admin gets redirected from `/coordinacion-efa`, and its server functions refuse non-admins.
@@ -47,7 +47,7 @@ The admin history in `/guardia-efa` shows only a status pill plus dates (`EfaGua
 `rtk npm run typecheck` (or the repo equivalent), `rtk npm run lint`, `rtk npx vitest run <touched tests>`, then the full suite at closure.
 
 ## Progress
-T1 and T2 done (server slice for the first chained PR: T1–T2).
+T1–T5 done. Slices: PR 1 = T1–T2 (`8bbf597`, `a456bd3`, `595e585`); PR 2 = T3–T5 (`1d88b03`, `277699e`, `42a82bd`, `7527d32`, plus this docs commit).
 
 ### Verification evidence (T1–T2)
 - T1 RED: `expected [ 'guard-owner', 'guard-admin' ] to deeply equal [ 'guard-admin' ]`; GREEN: efa-guards.server.test.ts 17/17.
@@ -59,4 +59,13 @@ T1 and T2 done (server slice for the first chained PR: T1–T2).
 
 Decisions: dispatch totals are `{ total, cancelled }` with total including cancelled; soft-deleted arrivals and hygiene periods are excluded.
 
-Next: T3.
+### Verification evidence (T3–T5)
+- T3 RED: quick actions `expected undefined` for `coordinate-guards`, `safePrivateReturnPath("/coordinacion-efa")` returned `/panel`, route test failed to import the missing module; GREEN after implementation.
+- T4 RED: `Cannot find module './efa-coordination-filters'`; GREEN 8/8. Component tests were written right after the components (no separate RED).
+- T5: `EfaGuardPanel.test.tsx` now renders inside a `QueryClientProvider`, so the 11 base "No QueryClient set" failures pass (15/15); correction tests added in `EfaCoordinationPanel.test.tsx`.
+- `npx tsc --noEmit`: only the 6 known base errors (SeliarMobileNav lines moved to 307/452 after formatting).
+- `npx eslint <touched files>`: 0 errors (fast-refresh warnings only).
+- Focused vitest (12 files incl. efa-guard-oversight.server, efa-guards.server/functions, EfaGuardPanel, EfaPanelHome, episodios-efa): 78/78 passed.
+- Full `npm test`: not run (memory pressure); pending.
+
+Next: open PRs — T1–T2 and T3–T5 chained (user decision).
