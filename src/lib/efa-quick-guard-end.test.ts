@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  canEndGuardOnLogout,
+  decideLogout,
   findOwnOpenGuard,
+  logoutGuardDialogDescription,
+  shouldLogoutAfterQuickGuardEnd,
   mapQuickGuardEndError,
   quickGuardEndDescription,
   quickGuardEndLabel,
@@ -122,5 +126,45 @@ describe("runQuickGuardEnd", () => {
       endGuard: vi.fn(),
     });
     expect(result.status).toBe("error");
+  });
+});
+
+describe("logout guard decision", () => {
+  it("asks before logging out only when a guard is open", () => {
+    expect(decideLogout({ openGuard })).toBe("confirm-open-guard");
+    expect(decideLogout({ openGuard: null })).toBe("logout");
+    expect(decideLogout({ openGuard: undefined })).toBe("logout");
+  });
+
+  it("offers ending from the dialog except on the guard page", () => {
+    expect(canEndGuardOnLogout("/panel")).toBe(true);
+    expect(canEndGuardOnLogout("/guardia-efa")).toBe(false);
+  });
+
+  it("logs out after ending only when the guard is no longer open", () => {
+    expect(shouldLogoutAfterQuickGuardEnd({ status: "ended" })).toBe(true);
+    expect(shouldLogoutAfterQuickGuardEnd({ status: "no-open-guard" })).toBe(true);
+    expect(
+      shouldLogoutAfterQuickGuardEnd({
+        status: "error",
+        error: { kind: "already-ended", message: "La guardia ya estaba terminada." },
+      }),
+    ).toBe(true);
+    expect(
+      shouldLogoutAfterQuickGuardEnd({
+        status: "error",
+        error: { kind: "stale", message: "La guardia cambió, intentá de nuevo." },
+      }),
+    ).toBe(false);
+    expect(shouldLogoutAfterQuickGuardEnd(null)).toBe(false);
+  });
+
+  it("explains that the guard stays open and where to end it", () => {
+    expect(logoutGuardDialogDescription(openGuard.startedAt, true)).toBe(
+      "La guardia iniciada a las 08:09 sigue abierta si salís ahora.",
+    );
+    expect(logoutGuardDialogDescription(openGuard.startedAt, false)).toBe(
+      "La guardia iniciada a las 08:09 sigue abierta si salís ahora. Para terminarla, usá el botón Terminar guardia de esta pantalla.",
+    );
   });
 });

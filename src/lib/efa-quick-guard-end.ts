@@ -89,3 +89,32 @@ export async function runQuickGuardEnd({
     return { status: "error", error: mapQuickGuardEndError(error) };
   }
 }
+
+export type LogoutDecision = "confirm-open-guard" | "logout";
+
+/** With an open guard, logout first asks whether to end it; otherwise it logs out right away. */
+export function decideLogout({
+  openGuard,
+}: {
+  openGuard: QuickGuardEndOpenGuard | null | undefined;
+}): LogoutDecision {
+  return openGuard ? "confirm-open-guard" : "logout";
+}
+
+/** The logout dialog does not end the guard on pages that gate closing themselves. */
+export function canEndGuardOnLogout(pathname: string): boolean {
+  return !QUICK_GUARD_END_HIDDEN_PATHS.includes(pathname);
+}
+
+export function shouldLogoutAfterQuickGuardEnd(result: QuickGuardEndResult | null): boolean {
+  if (!result) return false;
+  if (result.status === "error") return result.error.kind === "already-ended";
+  return true;
+}
+
+export function logoutGuardDialogDescription(startedAt: string, canEndGuard: boolean): string {
+  const base = `La guardia iniciada a las ${formatTimeMinutes(startedAt)} sigue abierta si salís ahora.`;
+  return canEndGuard
+    ? base
+    : `${base} Para terminarla, usá el botón Terminar guardia de esta pantalla.`;
+}

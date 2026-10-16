@@ -13,6 +13,7 @@ import {
 import type { ReactNode } from "react";
 import type { EfaPanelSummary } from "@/components/EfaPanelHome";
 import { useQuickGuardEnd, type QuickGuardEndController } from "@/components/EfaQuickGuardEnd";
+import { EfaLogoutGuardDialog } from "@/components/EfaLogoutGuardDialog";
 import { signOut } from "@/lib/auth.functions";
 import {
   clearPrivateNavigationCache,
@@ -20,6 +21,11 @@ import {
   navigationSessionQueryKey,
   navigationSessionQueryOptions,
 } from "@/lib/navigation-query-options";
+import {
+  canEndGuardOnLogout,
+  decideLogout,
+  shouldLogoutAfterQuickGuardEnd,
+} from "@/lib/efa-quick-guard-end";
 import { safePrivateReturnPath } from "@/lib/private-ui";
 import type { PrivateSession } from "@/lib/private-ui";
 
@@ -37,6 +43,8 @@ type SeliarNavigationContextValue = {
   retrySession: () => void;
   retrySummary: () => void;
   logout: () => Promise<void>;
+  /** Logout entry point for UI: asks first when the user still has an open guard. */
+  requestLogout: () => Promise<void>;
   logoutPending: boolean;
   logoutError: string;
 };
@@ -62,6 +70,9 @@ export function SeliarNavigationProvider({ children }: { children: ReactNode }) 
   });
   const [logoutPending, setLogoutPending] = useState(false);
   const [logoutError, setLogoutError] = useState("");
+  const [logoutPrompt, setLogoutPrompt] = useState<{ startedAt: string; error: string } | null>(
+    null,
+  );
   const previousActorId = useRef<string | null>(null);
   const previousPathname = useRef(pathname);
   const logoutCompleted = useRef(false);
@@ -167,6 +178,45 @@ export function SeliarNavigationProvider({ children }: { children: ReactNode }) 
     }
   }, [logoutPending, queryClient, signOutFn]);
 
+  const requestLogout = useCallback(async () => {
+    if (logoutPending || quickGuardEnd.pending) return;
+    let currentOpenGuard = openGuard;
+    if (session) {
+      try {
+        // A stale summary must not hide an open guard, so read it fresh when needed.
+        const fresh = await queryClient.fetchQuery(efaPanelSummaryQueryOptions(session.user.id));
+        currentOpenGuard = fresh.openGuard;
+      } catch {
+        // Fall back to the last known summary.
+      }
+    }
+    if (
+      decideLogout({ openGuard: currentOpenGuard }) === "confirm-open-guard" &&
+      currentOpenGuard
+    ) {
+      setLogoutPrompt({ startedAt: currentOpenGuard.startedAt, error: "" });
+      return;
+    }
+    await logout();
+  }, [logout, logoutPending, openGuard, queryClient, quickGuardEnd.pending, session]);
+
+  const { end: endOpenGuard } = quickGuardEnd;
+  const endGuardAndLogout = useCallback(async () => {
+    const result = await endOpenGuard({ notify: false });
+    if (!shouldLogoutAfterQuickGuardEnd(result)) {
+      if (result?.status === "error")
+        setLogoutPrompt((current) => current && { ...current, error: result.error.message });
+      return;
+    }
+    setLogoutPrompt(null);
+    await logout();
+  }, [endOpenGuard, logout]);
+
+  const logoutWithoutEnding = useCallback(() => {
+    setLogoutPrompt(null);
+    void logout();
+  }, [logout]);
+
   const value = useMemo<SeliarNavigationContextValue>(
     () => ({
       sessionStatus,
@@ -179,11 +229,13 @@ export function SeliarNavigationProvider({ children }: { children: ReactNode }) 
       retrySession,
       retrySummary,
       logout,
+      requestLogout,
       logoutPending,
       logoutError,
     }),
     [
       logout,
+      requestLogout,
       logoutError,
       logoutPending,
       openGuard,
@@ -200,7 +252,19 @@ export function SeliarNavigationProvider({ children }: { children: ReactNode }) 
   );
 
   return (
-    <SeliarNavigationContext.Provider value={value}>{children}</SeliarNavigationContext.Provider>
+    <SeliarNavigationContext.Provider value={value}>
+      {children}
+      <EfaLogoutGuardDialog
+        open={logoutPrompt !== null}
+        startedAt={logoutPrompt?.startedAt ?? null}
+        canEndGuard={canEndGuardOnLogout(pathname)}
+        pending={quickGuardEnd.pending || logoutPending}
+        error={logoutPrompt?.error ?? ""}
+        onCancel={() => setLogoutPrompt(null)}
+        onEndAndLogout={() => void endGuardAndLogout()}
+        onLogout={logoutWithoutEnding}
+      />
+    </SeliarNavigationContext.Provider>
   );
 }
 

@@ -14,7 +14,7 @@ vi.mock("@tanstack/react-router", () => ({
   ),
 }));
 vi.mock("@/components/SeliarNavigationProvider", () => ({
-  useSeliarNavigation: () => ({ logout: vi.fn(), logoutPending: false, logoutError: "" }),
+  useSeliarNavigation: () => ({ requestLogout: vi.fn(), logoutPending: false, logoutError: "" }),
 }));
 
 describe("private account header", () => {

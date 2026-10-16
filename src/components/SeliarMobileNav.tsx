@@ -350,7 +350,7 @@ export function SeliarMobileNav() {
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
                     disabled={navigation.logoutPending}
-                    onSelect={() => void navigation.logout()}
+                    onSelect={() => void navigation.requestLogout()}
                     className="min-h-11 text-destructive focus:text-destructive"
                   >
                     <LogOut aria-hidden="true" />
@@ -469,7 +469,7 @@ export function SeliarMobileNav() {
               {isAuthenticated && (
                 <button
                   type="button"
-                  onClick={() => void navigation.logout()}
+                  onClick={() => void navigation.requestLogout()}
                   disabled={navigation.logoutPending}
                   className="flex min-h-14 flex-col items-center justify-center gap-0.5 rounded-lg px-2 text-xs font-bold text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-60"
                 >

@@ -70,7 +70,7 @@ export function PrivateAccountShell({
   session: PrivateSession;
   children: ReactNode;
 }) {
-  const { logout, logoutPending, logoutError } = useSeliarNavigation();
+  const { requestLogout, logoutPending, logoutError } = useSeliarNavigation();
   const [headerInteraction, dispatchHeaderInteraction] = useReducer(
     reduceAccountHeaderInteraction,
     initialAccountHeaderInteraction,
@@ -162,7 +162,7 @@ export function PrivateAccountShell({
                         </p>
                       )}
                       <Button
-                        onClick={() => void logout()}
+                        onClick={() => void requestLogout()}
                         disabled={logoutPending}
                         variant="secondary"
                         className="min-h-11"

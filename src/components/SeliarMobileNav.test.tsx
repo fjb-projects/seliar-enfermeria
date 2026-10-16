@@ -53,6 +53,7 @@ function renderNav(open: boolean) {
     retrySession: vi.fn(),
     retrySummary: vi.fn(),
     logout: vi.fn(),
+    requestLogout: vi.fn(),
     logoutPending: false,
     logoutError: "",
   };
