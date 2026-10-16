@@ -1,7 +1,12 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
+import { EfaCoordinationPanel } from "@/components/EfaCoordinationPanel";
 import { PrivateAccountShell, type PrivateSession } from "@/components/PrivateAccountShell";
 import { SessionLoadError } from "@/components/SessionLoadError";
-import { listEfaGuardOversight } from "@/lib/efa-guard-oversight.functions";
+import { validateCoordinationSearch } from "@/lib/efa-coordination-filters";
+import {
+  listEfaGuardOversight,
+  type EfaOversightGuardView,
+} from "@/lib/efa-guard-oversight.functions";
 import {
   navigationSessionQueryOptions,
   type NavigationSessionSnapshot,
@@ -20,6 +25,7 @@ export function resolveCoordinationSession(snapshot: NavigationSessionSnapshot) 
 
 export const Route = createFileRoute("/coordinacion-efa")({
   errorComponent: SessionLoadError,
+  validateSearch: validateCoordinationSearch,
   beforeLoad: async ({ context }) =>
     resolveCoordinationSession(
       await context.queryClient.fetchQuery(navigationSessionQueryOptions()),
@@ -31,14 +37,15 @@ export const Route = createFileRoute("/coordinacion-efa")({
 function EfaCoordinationPage() {
   const { session } = Route.useRouteContext();
   const { guards } = Route.useLoaderData();
+  const search = Route.useSearch();
+  const navigate = Route.useNavigate();
   return (
     <PrivateAccountShell session={session}>
-      <header>
-        <h2 className="text-2xl font-semibold">Coordinación EFA</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Todas las guardias de todos los usuarios · {guards.length} en total
-        </p>
-      </header>
+      <EfaCoordinationPanel
+        guards={guards as EfaOversightGuardView[]}
+        search={search}
+        onSearchChange={(next) => void navigate({ search: next, replace: true })}
+      />
     </PrivateAccountShell>
   );
 }
