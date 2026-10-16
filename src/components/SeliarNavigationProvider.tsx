@@ -100,7 +100,13 @@ export function SeliarNavigationProvider({ children }: { children: ReactNode }) 
       if (
         hadAuthenticatedSession &&
         !logoutCompleted.current &&
-        ["/panel", "/admin-usuarios", "/guardia-efa", "/episodios-efa"].includes(pathname)
+        [
+          "/panel",
+          "/admin-usuarios",
+          "/guardia-efa",
+          "/episodios-efa",
+          "/coordinacion-efa",
+        ].includes(pathname)
       ) {
         const returnTo = safePrivateReturnPath(pathname);
         window.location.assign(`/login?returnTo=${encodeURIComponent(returnTo)}`);

@@ -13,8 +13,9 @@ vi.mock("@tanstack/react-router", () => ({
     </a>
   ),
 }));
-vi.mock("@tanstack/react-start", () => ({ useServerFn: () => vi.fn(async () => undefined) }));
-vi.mock("@/lib/auth.functions", () => ({ signOut: vi.fn() }));
+vi.mock("@/components/SeliarNavigationProvider", () => ({
+  useSeliarNavigation: () => ({ logout: vi.fn(), logoutPending: false, logoutError: "" }),
+}));
 
 describe("private account header", () => {
   it("keeps the name visible while initially collapsing account details", () => {
@@ -39,6 +40,24 @@ describe("private account header", () => {
     expect(html).toContain("Contenido");
     expect(html.indexOf('id="private-account-details"')).toBeGreaterThan(html.indexOf("<header"));
     expect(html.indexOf('id="private-account-details"')).toBeLessThan(html.indexOf("</header>"));
+  });
+
+  it("links the coordination view only for administrators", () => {
+    const render = (roles: string[]) =>
+      renderToStaticMarkup(
+        <PrivateAccountShell
+          session={{
+            user: { id: "user-1", name: "Ana Example", email: "ana@example.test" },
+            roles,
+            expiresAt: "2026-10-07T12:00:00.000Z",
+          }}
+        >
+          <main>Contenido</main>
+        </PrivateAccountShell>,
+      );
+
+    expect(render(["admin"])).toContain('href="/coordinacion-efa"');
+    expect(render(["efa"])).not.toContain('href="/coordinacion-efa"');
   });
 
   it("expands for mouse hover but preserves focus and permits an explicit close", () => {

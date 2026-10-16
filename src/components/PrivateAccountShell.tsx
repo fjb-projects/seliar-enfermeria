@@ -146,9 +146,14 @@ export function PrivateAccountShell({
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {isAdministrator(session.roles) && (
-                      <Button asChild variant="outline" className="min-h-11">
-                        <Link to="/admin-usuarios">Administrar cuentas</Link>
-                      </Button>
+                      <>
+                        <Button asChild variant="outline" className="min-h-11">
+                          <Link to="/admin-usuarios">Administrar cuentas</Link>
+                        </Button>
+                        <Button asChild variant="outline" className="min-h-11">
+                          <Link to="/coordinacion-efa">Coordinación EFA</Link>
+                        </Button>
+                      </>
                     )}
                     <div className="flex flex-wrap items-center gap-2">
                       {logoutError && (

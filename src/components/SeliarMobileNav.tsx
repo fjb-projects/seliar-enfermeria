@@ -44,6 +44,7 @@ type NavigationPath =
   | "/lao"
   | "/guardia-efa"
   | "/episodios-efa"
+  | "/coordinacion-efa"
   | "/admin-usuarios";
 
 type NavigationItem = { to: NavigationPath; label: string; icon: LucideIcon };
