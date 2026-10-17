@@ -45,6 +45,8 @@ export type EfaOversightEpisodeRecord = {
   state: "draft" | "closed";
   closedAt: Date | null;
   cancelledAt: Date | null;
+  cancelledFromState: "draft" | "closed" | null;
+  updatedAt: Date;
 };
 export type EfaOversightDispatchRecord = {
   id: string;
@@ -297,11 +299,17 @@ const drizzleStore: EfaGuardOversightStore = {
               state: efaEpisode.state,
               closedAt: efaEpisode.closedAt,
               cancelledAt: efaEpisode.cancelledAt,
+              cancelledFromState: efaEpisode.cancelledFromState,
+              updatedAt: efaEpisode.updatedAt,
             })
             .from(efaEpisode)
             .where(eq(efaEpisode.originGuardId, guardId))
             .orderBy(asc(efaEpisode.eventAt), asc(efaEpisode.id));
-          return rows.map((row) => ({ ...row, state: row.state as "draft" | "closed" }));
+          return rows.map((row) => ({
+            ...row,
+            state: row.state as "draft" | "closed",
+            cancelledFromState: row.cancelledFromState as "draft" | "closed" | null,
+          }));
         },
         async listGuardDispatches(guardId) {
           return db

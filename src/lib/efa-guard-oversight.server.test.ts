@@ -189,6 +189,8 @@ function episode(
     state,
     closedAt: state === "closed" ? new Date("2026-10-01T12:00:00.000Z") : null,
     cancelledAt: cancelled ? new Date("2026-10-01T13:00:00.000Z") : null,
+    cancelledFromState: cancelled ? state : null,
+    updatedAt: new Date("2026-10-01T13:30:00.000Z"),
   };
 }
 
@@ -293,6 +295,12 @@ describe("EFA guard oversight service", () => {
     expect(services[0]!.dispatches[1]).toMatchObject({ baseName: "Central", state: "cancelled" });
     expect(services[1]!.dispatches).toEqual([]);
     expect(services[2]).toMatchObject({ state: "closed", cancelledAt: expect.any(Date) });
+    // The full-service summary needs these two fields to describe a cancelled service.
+    expect(services[2]).toMatchObject({
+      cancelledFromState: "closed",
+      updatedAt: new Date("2026-10-01T13:30:00.000Z"),
+    });
+    expect(services[0]).toMatchObject({ cancelledFromState: null });
   });
 
   it("rejects listing services of an unknown guard", async () => {
