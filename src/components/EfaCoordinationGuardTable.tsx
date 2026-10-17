@@ -29,7 +29,7 @@ const metricLabels = ["Servicios", "Despachos", "Arribos", "Higiene"];
 // Rows sit directly on the workflow gradient, where no single text color reaches 4.5:1;
 // a dense dark shadow keeps white text legible across orange, pink and violet.
 const onGradientText =
-  "font-semibold text-white [text-shadow:0_2px_2px_rgb(0_0_0/0.90)] [&_*]:text-white!";
+  "font-semibold text-white [text-shadow:0_2px_2px_rgb(0_0_0/0.75)] [&_*]:text-white!";
 const headerCell =
   "sticky top-0 z-[1] h-9 bg-background px-2 text-left text-xs font-medium text-muted-foreground shadow-[inset_0_-1px_0_var(--border)]";
 // Container queries keep the table readable next to the sidebar: the table appears at a

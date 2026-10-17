@@ -299,8 +299,9 @@ export function EfaCoordinationLayout({
         search={search}
         onSearchChange={onSearchChange}
       />
-      {/* Named container: the guard list picks table or cards from the room left by the sidebar. */}
-      <div className="@container/main min-w-0 flex-1 space-y-4">
+      {/* Named container: the guard list picks table or cards from the room left by the sidebar.
+          The backdrop filter tones down the workflow gradient behind the list without tinting it. */}
+      <div className="@container/main min-w-0 flex-1 space-y-4 rounded-lg backdrop-blur-xl backdrop-saturate-55">
         <header className="flex min-h-11 items-center gap-2">
           <MobileSections active={active} />
           <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3">
