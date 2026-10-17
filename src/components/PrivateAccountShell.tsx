@@ -5,7 +5,11 @@ import { ChevronDown } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { WorkflowHeader } from "@/components/WorkflowHeader";
-import { WorkflowShell, type WorkflowContentWidth } from "@/components/WorkflowShell";
+import {
+  WorkflowShell,
+  type WorkflowContentWidth,
+  type WorkflowSurface,
+} from "@/components/WorkflowShell";
 import { useSeliarNavigation } from "@/components/SeliarNavigationProvider";
 import { isAdministrator } from "@/lib/private-ui";
 import type { PrivateSession } from "@/lib/private-ui";
@@ -69,6 +73,7 @@ export function PrivateAccountShell({
   title = "Acceso seguro",
   description = "Gestión de cuentas y permisos",
   contentWidth = "wide",
+  surface,
 }: {
   session: PrivateSession;
   children: ReactNode;
@@ -77,6 +82,8 @@ export function PrivateAccountShell({
   description?: string;
   /** Page width; defaults to the shell's wide column. */
   contentWidth?: WorkflowContentWidth;
+  /** Page background; "calm" keeps the gradient on phones only. Defaults to the full gradient. */
+  surface?: WorkflowSurface;
 }) {
   const { requestLogout, logoutPending, logoutError } = useSeliarNavigation();
   const [headerInteraction, dispatchHeaderInteraction] = useReducer(
@@ -107,6 +114,7 @@ export function PrivateAccountShell({
   return (
     <WorkflowShell
       contentWidth={contentWidth}
+      {...(surface ? { surface } : {})}
       header={
         <WorkflowHeader
           contentWidth={contentWidth}

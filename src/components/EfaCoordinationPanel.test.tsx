@@ -211,6 +211,29 @@ describe("EfaCoordinationPanel", () => {
     expect(html).toContain("sticky top-0 h-svh");
   });
 
+  it("puts the workflow gradient on the sidebar and keeps the list on theme colors", () => {
+    const html = render(
+      <EfaCoordinationPanel
+        guards={guards}
+        search={{}}
+        onSearchChange={() => {}}
+        onGuardsChanged={async () => {}}
+        now={now}
+      />,
+    );
+
+    expect(html).toContain(
+      "[&amp;&gt;[data-sidebar=sidebar]]:bg-[image:var(--workflow-background)]",
+    );
+    expect(html).not.toContain("[&amp;&gt;[data-sidebar=sidebar]]:bg-transparent");
+    // Sidebar labels and nav items sit on the gradient; the filter fields sit on an opaque card.
+    expect(html).toContain("[text-shadow:0_2px_2px_rgb(0_0_0/0.75)]");
+    expect(html).toContain("bg-card p-2");
+    // The list no longer needs the on-gradient text or the blur that tamed the gradient.
+    expect(html).not.toContain("[&_*]:text-white!");
+    expect(html).not.toContain("backdrop-blur");
+  });
+
   it("summarizes today's guards above the list", () => {
     const html = render(
       <EfaCoordinationPanel

@@ -192,4 +192,17 @@
     background-color: white;
     background-image: var(--workflow-background);
   }
+
+  /* The same gradient on phones only; from md the page falls back to the plain theme background. */
+  .workflow-background-mobile-only {
+    background-color: white;
+    background-image: var(--workflow-background);
+  }
+
+  @media (min-width: 48rem) {
+    .workflow-background-mobile-only {
+      background-color: transparent;
+      background-image: none;
+    }
+  }
 }
