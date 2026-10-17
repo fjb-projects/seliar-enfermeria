@@ -91,7 +91,8 @@ export function EfaCoordinationPanel({
           </p>
         ) : (
           <>
-            <div className="hidden lg:block">
+            {/* From md the table takes over once the main column (next to the sidebar) has room. */}
+            <div className="hidden md:@[44rem]/main:block">
               <EfaCoordinationGuardTable
                 guards={sorted}
                 grouped={grouped}
@@ -99,7 +100,7 @@ export function EfaCoordinationPanel({
                 onGuardChanged={onGuardsChanged}
               />
             </div>
-            <div className="lg:hidden">
+            <div className="md:@[44rem]/main:hidden">
               <EfaCoordinationGuardCards
                 guards={sorted}
                 grouped={grouped}

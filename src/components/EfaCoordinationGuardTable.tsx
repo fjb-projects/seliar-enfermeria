@@ -28,7 +28,8 @@ type ListProps = {
 const metricLabels = ["Servicios", "Despachos", "Arribos", "Higiene"];
 const headerCell =
   "sticky top-0 z-[1] h-9 bg-background px-2 text-left text-xs font-medium text-muted-foreground shadow-[inset_0_-1px_0_var(--border)]";
-// Container queries keep the table readable next to the expanded sidebar.
+// Container queries keep the table readable next to the sidebar: the table appears at a
+// 44rem main column, Duración joins at 46rem and Bases at 56rem.
 const durationCell = "hidden @[46rem]:table-cell";
 const basesCell = "hidden @[56rem]:table-cell";
 

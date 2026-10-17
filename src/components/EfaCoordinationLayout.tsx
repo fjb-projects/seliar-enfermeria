@@ -101,8 +101,9 @@ function DesktopSidebar({
     <Sidebar
       collapsible="icon"
       aria-label="Coordinación EFA"
-      // The page keeps its centered layout, so the sidebar is a sticky column, not a fixed rail.
-      className="sticky top-4 h-[calc(100svh-2rem)] [&>[data-sidebar=sidebar]]:bg-transparent"
+      // A full-height left column in the page flow: it sits under the top nav and stays pinned
+      // once that nav scrolls away, instead of the fixed viewport rail shadcn renders by default.
+      className="sticky top-0 h-svh [&>[data-sidebar=sidebar]]:bg-transparent"
     >
       <SidebarHeader className="flex-row items-center justify-between">
         <span className="px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground group-data-[collapsible=icon]:hidden">
@@ -298,7 +299,8 @@ export function EfaCoordinationLayout({
         search={search}
         onSearchChange={onSearchChange}
       />
-      <div className="min-w-0 flex-1 space-y-4">
+      {/* Named container: the guard list picks table or cards from the room left by the sidebar. */}
+      <div className="@container/main min-w-0 flex-1 space-y-4">
         <header className="flex min-h-11 items-center gap-2">
           <MobileSections active={active} />
           <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3">

@@ -88,6 +88,34 @@ describe("private account header", () => {
     expect(areaHtml).not.toContain("Acceso seguro");
   });
 
+  it("keeps the wide page by default and opts into the full width", () => {
+    const session = {
+      user: { id: "user-1", name: "Ana Example", email: "ana@example.test" },
+      roles: ["admin"],
+      expiresAt: "2026-10-07T12:00:00.000Z",
+    };
+    const defaultHtml = renderToStaticMarkup(
+      <PrivateAccountShell session={session}>
+        <p>Contenido</p>
+      </PrivateAccountShell>,
+    );
+    const fullHtml = renderToStaticMarkup(
+      <PrivateAccountShell session={session} contentWidth="full">
+        <p>Contenido</p>
+      </PrivateAccountShell>,
+    );
+
+    expect(defaultHtml).toContain('class="mx-auto w-full max-w-5xl px-4 pt-4 sm:px-6 sm:pt-6"');
+    expect(defaultHtml).toContain(
+      'class="mx-auto hidden w-full max-w-5xl px-4 pt-4 sm:px-6 md:block"',
+    );
+    expect(defaultHtml).not.toContain("max-w-[1600px]");
+    expect(fullHtml).toContain('class="mx-auto w-full max-w-[1600px] px-4 pt-4 sm:px-6 sm:pt-6"');
+    expect(fullHtml).toContain(
+      'class="mx-auto hidden w-full max-w-[1600px] px-4 pt-4 sm:px-6 md:block"',
+    );
+  });
+
   it("expands for mouse hover but preserves focus and permits an explicit close", () => {
     const initial = { expanded: false, mouseInside: false, focusInside: false };
     const hovered = reduceAccountHeaderInteraction(initial, {

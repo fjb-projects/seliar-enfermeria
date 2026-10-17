@@ -24,4 +24,22 @@ describe("workflow header", () => {
     expect(publicHtml).not.toContain("Cuenta de Ana Example");
     expect(publicHtml).toContain("h-10 w-16");
   });
+
+  it("keeps the wide desktop title block by default and widens it on request", () => {
+    const defaultHtml = renderToStaticMarkup(
+      <WorkflowHeader eyebrow="Área" title="Título" description="Detalle" />,
+    );
+    expect(defaultHtml).toContain(
+      'class="mx-auto hidden w-full max-w-5xl px-4 pt-4 sm:px-6 md:block"',
+    );
+    expect(defaultHtml).toContain('class="mx-auto w-full max-w-5xl px-4 py-1.5 sm:px-6 sm:py-3"');
+
+    const fullHtml = renderToStaticMarkup(
+      <WorkflowHeader eyebrow="Área" title="Título" description="Detalle" contentWidth="full" />,
+    );
+    expect(fullHtml).toContain(
+      'class="mx-auto hidden w-full max-w-[1600px] px-4 pt-4 sm:px-6 md:block"',
+    );
+    expect(fullHtml).not.toContain("max-w-5xl");
+  });
 });

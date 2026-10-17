@@ -1,10 +1,12 @@
 import type { ReactNode } from "react";
 
-export type WorkflowContentWidth = "narrow" | "wide";
+/** "full" spans the page (with a generous cap) for dense, desktop-heavy areas. */
+export type WorkflowContentWidth = "narrow" | "wide" | "full";
 
 const contentWidths: Record<WorkflowContentWidth, string> = {
   narrow: "max-w-2xl",
   wide: "max-w-5xl",
+  full: "max-w-[1600px]",
 };
 
 type WorkflowShellProps = {

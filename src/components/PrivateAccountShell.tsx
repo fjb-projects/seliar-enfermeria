@@ -5,7 +5,7 @@ import { ChevronDown } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { WorkflowHeader } from "@/components/WorkflowHeader";
-import { WorkflowShell } from "@/components/WorkflowShell";
+import { WorkflowShell, type WorkflowContentWidth } from "@/components/WorkflowShell";
 import { useSeliarNavigation } from "@/components/SeliarNavigationProvider";
 import { isAdministrator } from "@/lib/private-ui";
 import type { PrivateSession } from "@/lib/private-ui";
@@ -68,12 +68,15 @@ export function PrivateAccountShell({
   children,
   title = "Acceso seguro",
   description = "Gestión de cuentas y permisos",
+  contentWidth = "wide",
 }: {
   session: PrivateSession;
   children: ReactNode;
   /** Page area title; defaults to the account management heading. */
   title?: string;
   description?: string;
+  /** Page width; defaults to the shell's wide column. */
+  contentWidth?: WorkflowContentWidth;
 }) {
   const { requestLogout, logoutPending, logoutError } = useSeliarNavigation();
   const [headerInteraction, dispatchHeaderInteraction] = useReducer(
@@ -103,8 +106,10 @@ export function PrivateAccountShell({
 
   return (
     <WorkflowShell
+      contentWidth={contentWidth}
       header={
         <WorkflowHeader
+          contentWidth={contentWidth}
           eyebrow="SeLIAR · Área privada"
           title={title}
           description={description}

@@ -190,6 +190,25 @@ describe("EfaCoordinationPanel", () => {
     expect(html).toContain("1 guardia de 3");
   });
 
+  it("shows the table from md once the main column has room and keeps phone cards below", () => {
+    const html = render(
+      <EfaCoordinationPanel
+        guards={guards}
+        search={{}}
+        onSearchChange={() => {}}
+        onGuardsChanged={async () => {}}
+        now={now}
+      />,
+    );
+
+    expect(html).toContain("@container/main");
+    expect(html).toContain('class="hidden md:@[44rem]/main:block"');
+    expect(html).toContain('class="md:@[44rem]/main:hidden"');
+    expect(html).not.toContain("lg:block");
+    // The sidebar is a full-height sticky column, pinned once the top nav scrolls away.
+    expect(html).toContain("sticky top-0 h-svh");
+  });
+
   it("summarizes today's guards above the list", () => {
     const html = render(
       <EfaCoordinationPanel
