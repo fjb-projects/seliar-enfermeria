@@ -39,6 +39,7 @@ Redesign `/coordinacion-efa` as a "Coordinación EFA" area. The UI must be dense
 - [x] T1: Area layout: `PrivateAccountShell` title/description props, sidebar (sections + filters, collapsible), mobile sections Sheet plus filters Drawer, URL filter wiring, summary strip helpers. Route: delegated (writer trigger: 2+ non-trivial files). Commit `502f57f`.
 - [x] T2: Dense guards table on desktop and compact cards on mobile, with avatar identity, open-first sort, collapsible groups, inline expandable detail, "—" zeros. Route: delegated (writer trigger: 2+ non-trivial files). Commit `0e40aca`.
 - [x] T3: Full-width option for the coordination area. Route: delegated. Commit `45fa491`.
+- [x] T4: Legible text on the gradient for table rows and owner group headers (white semibold, `text-shadow 0 2px 2px rgb(0 0 0 / 0.9)`, tuned by the user on one test row). Route: inline (one mechanical file). The sticky table header (`bg-background`) and the phone cards (`bg-card`) are opaque, so they keep the theme colors. WCAG does not count text-shadow, so white on orange still measures about 2.6:1; this was the user's choice.
 
 ## Checks
 `rtk npx tsc --noEmit` (only the 6 known base errors; line numbers may shift), `rtk npx eslint <touched files>`, `rtk npx vitest run <touched tests>`. Full suite pending (memory). Browser check pending.
