@@ -1,14 +1,15 @@
-import { useMemo, useState } from "react";
-import { EfaCoordinationGuardCard } from "@/components/EfaCoordinationGuardCard";
+import { useEffect, useMemo, useState } from "react";
+import { EfaCoordinationGuardCards } from "@/components/EfaCoordinationGuardCard";
+import { EfaCoordinationGuardTable } from "@/components/EfaCoordinationGuardTable";
 import { EfaCoordinationLayout } from "@/components/EfaCoordinationLayout";
 import type { EfaOversightGuardView } from "@/lib/efa-guard-oversight.functions";
 import {
   filterOversightGuards,
-  groupGuardsByOwner,
   isGroupedByOwner,
   listGuardOwners,
   type CoordinationSearch,
 } from "@/lib/efa-coordination-filters";
+import { sortGuardsOpenFirst } from "@/lib/efa-coordination-display";
 import { summarizeGuards, type CoordinationSummary } from "@/lib/efa-coordination-summary";
 
 function plural(count: number) {
@@ -50,14 +51,19 @@ export function EfaCoordinationPanel({
   onSearchChange: (next: CoordinationSearch) => void;
   /** Reloads the loaded guard list, e.g. after an end-time correction. */
   onGuardsChanged: () => Promise<unknown>;
-  /** Fixed clock for tests; the page reads the current time once. */
+  /** Fixed clock for tests; otherwise the page clock ticks every minute. */
   now?: Date;
 }) {
-  const [mountedAt] = useState(() => new Date());
-  const now = fixedNow ?? mountedAt;
+  const [clock, setClock] = useState(() => new Date());
+  useEffect(() => {
+    if (fixedNow) return;
+    const timer = window.setInterval(() => setClock(new Date()), 60_000);
+    return () => window.clearInterval(timer);
+  }, [fixedNow]);
+  const now = fixedNow ?? clock;
   const owners = useMemo(() => listGuardOwners(guards), [guards]);
   const visible = useMemo(() => filterOversightGuards(guards, search), [guards, search]);
-  const groups = useMemo(() => groupGuardsByOwner(visible), [visible]);
+  const sorted = useMemo(() => sortGuardsOpenFirst(visible), [visible]);
   const summary = useMemo(() => summarizeGuards(guards, now), [guards, now]);
   const grouped = isGroupedByOwner(search);
 
@@ -83,37 +89,25 @@ export function EfaCoordinationPanel({
           <p className="py-8 text-center text-sm text-muted-foreground">
             No hay guardias con estos filtros.
           </p>
-        ) : grouped ? (
-          groups.map((group) => (
-            <section
-              key={group.ownerUserId}
-              aria-label={`Guardias de ${group.owner.name}`}
-              className="min-w-0 space-y-3"
-            >
-              <div className="border-b pb-1">
-                <h3 className="font-semibold">{group.owner.name}</h3>
-                <p className="break-all text-xs text-muted-foreground">
-                  {group.owner.email} · {plural(group.guards.length)}
-                </p>
-              </div>
-              {group.guards.map((guard) => (
-                <EfaCoordinationGuardCard
-                  key={guard.id}
-                  guard={guard}
-                  showOwner={false}
-                  onGuardChanged={onGuardsChanged}
-                />
-              ))}
-            </section>
-          ))
         ) : (
-          visible.map((guard) => (
-            <EfaCoordinationGuardCard
-              key={guard.id}
-              guard={guard}
-              onGuardChanged={onGuardsChanged}
-            />
-          ))
+          <>
+            <div className="hidden lg:block">
+              <EfaCoordinationGuardTable
+                guards={sorted}
+                grouped={grouped}
+                now={now}
+                onGuardChanged={onGuardsChanged}
+              />
+            </div>
+            <div className="lg:hidden">
+              <EfaCoordinationGuardCards
+                guards={sorted}
+                grouped={grouped}
+                now={now}
+                onGuardChanged={onGuardsChanged}
+              />
+            </div>
+          </>
         )}
       </section>
     </EfaCoordinationLayout>

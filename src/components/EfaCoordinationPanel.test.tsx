@@ -8,10 +8,12 @@ import type {
 } from "@/lib/efa-guard-oversight.functions";
 import { EfaCoordinationPanel } from "./EfaCoordinationPanel";
 import {
-  EfaCoordinationGuardCard,
+  EfaCoordinationGuardDetail,
   EfaCoordinationServiceList,
-  guardTotalBadges,
-} from "./EfaCoordinationGuardCard";
+} from "./EfaCoordinationGuardDetail";
+import { EfaCoordinationGuardCard } from "./EfaCoordinationGuardCard";
+
+const now = new Date("2026-10-09T15:00:00.000Z");
 
 vi.mock("@tanstack/react-start", () => ({ useServerFn: () => vi.fn(async () => []) }));
 vi.mock("@/lib/efa-guards.functions", () => ({ correctEfaGuardEnd: vi.fn() }));
@@ -72,51 +74,77 @@ function render(children: ReactNode) {
 }
 
 describe("EfaCoordinationPanel", () => {
-  it("groups every guard by owner with name, email and guard count", () => {
+  it("groups guards under collapsible owner headers with a summary", () => {
     const html = render(
       <EfaCoordinationPanel
         guards={guards}
         search={{}}
         onSearchChange={() => {}}
         onGuardsChanged={async () => {}}
+        now={now}
       />,
     );
 
     expect(html).toContain('aria-label="Guardias de Ana Pérez"');
-    expect(html).toContain("ana@example.test · 2 guardias");
-    expect(html).toContain("bruno@example.test · 1 guardia");
+    expect(html).toMatch(
+      /<th colSpan="9" scope="rowgroup"[^>]*><button type="button" aria-expanded="true"/,
+    );
+    expect(html).toContain("ana@example.test");
+    expect(html).toContain("2 guardias · 1 en curso · 3 servicios");
+    expect(html).toContain("1 guardia · 0 servicios");
     expect(html.indexOf("Guardias de Ana Pérez")).toBeLessThan(
       html.indexOf("Guardias de Bruno Díaz"),
     );
+    expect(html).not.toContain(">Usuario</th>");
     expect(html).toContain("3 guardias");
   });
 
-  it("shows status, times, duration, bases and totals on each guard", () => {
+  it("shows one dense row per guard with status, span and numeric totals", () => {
     const html = render(
       <EfaCoordinationPanel
         guards={guards}
-        search={{}}
+        search={{ group: 0 }}
         onSearchChange={() => {}}
         onGuardsChanged={async () => {}}
+        now={now}
       />,
     );
 
-    expect(html).toContain("En curso");
+    expect(html).toContain(">Usuario</th>");
+    expect(html).toContain("Ana P.");
+    expect(html).toContain(">AP</span>");
+    expect(html).toContain("En curso · hace 4 h");
     expect(html).toContain("Finalizada");
-    expect(html).toContain("border-l-primary");
-    expect(html).toContain("Inicio: 08/10/2026 08:00");
-    expect(html).toContain("Fin: 08/10/2026 16:30");
-    expect(html).toContain("Duración: 8 h 30 min");
-    expect(html).toContain("Bases: Móvil 3");
-    expect(html).toContain("Servicios: 3");
-    expect(html).toContain("1 en borrador · 2 cerrados · 0 cancelados");
-    expect(html).toContain("Despachos: 3");
-    expect(html).toContain("Arribos: 2");
-    expect(html).toContain("Higiene: 1");
-    expect(html).toContain("Sin servicios");
-    expect(html).toContain("Sin despachos");
-    expect(html).toContain("Ver servicios y detalles");
-    expect(html).not.toMatch(/<details[^>]*\bopen/);
+    expect(html).toContain("09/10 08:00 → …");
+    expect(html).toContain("08/10 08:00 → 16:30");
+    expect(html).toContain("8 h 30 min");
+    expect(html).toContain('title="Móvil 3"');
+    expect(html).toContain('title="1 en borrador · 2 cerrados · 0 cancelados"');
+    expect(html).toContain('title="1 cancelado"');
+    expect(html).toContain('<span aria-hidden="true">—</span><span class="sr-only">0</span>');
+    expect(html).not.toContain("Sin servicios");
+    expect(html).not.toContain("border-l-");
+    // Open guards come first, then the newest start.
+    const rowOrder = ["09/10 08:00 → …", "08/10 08:00 → 16:30", "07/10 08:00 → 16:00"].map((span) =>
+      html.indexOf(span),
+    );
+    expect(rowOrder).toEqual([...rowOrder].sort((left, right) => left - right));
+    // Rows start collapsed; the detail and its services load only once expanded.
+    expect(html).toMatch(/aria-expanded="false" aria-controls="guard-detail-g-open"/);
+    expect(html).not.toContain('id="guard-detail-g-open"');
+    expect(html).not.toContain("Cargando servicios");
+  });
+
+  it("renders compact phone cards with a 4-up metric row", () => {
+    const html = render(
+      <EfaCoordinationGuardCard guard={guards[0]!} now={now} onGuardChanged={async () => {}} />,
+    );
+
+    expect(html).toContain('aria-label="Guardia de Ana Pérez"');
+    expect(html).toContain("grid-cols-4");
+    expect(html).toMatch(/Servicios<\/dt><dd[^>]*><span[^>]*>3/);
+    expect(html).toContain("09/10 08:00 → … · Móvil 3");
+    expect(html).toMatch(/aria-expanded="false"[^>]*>Ver servicios y detalle/);
   });
 
   it("applies the URL filters and offers to clear them", () => {
@@ -208,31 +236,23 @@ describe("EfaCoordinationPanel", () => {
   });
 });
 
-describe("coordination end-time correction", () => {
-  it("offers the correction only on closed guards", () => {
+describe("coordination guard detail", () => {
+  it("offers the end-time correction only on closed guards", () => {
     const openHtml = render(
-      <EfaCoordinationGuardCard guard={guards[0]!} onGuardChanged={async () => {}} />,
+      <EfaCoordinationGuardDetail guard={guards[0]!} onGuardChanged={async () => {}} />,
     );
     const closedHtml = render(
-      <EfaCoordinationGuardCard guard={guards[1]!} onGuardChanged={async () => {}} />,
+      <EfaCoordinationGuardDetail guard={guards[1]!} onGuardChanged={async () => {}} />,
     );
 
     expect(openHtml).not.toContain("Corregir hora de cierre");
+    expect(openHtml).toContain("Cargando servicios…");
+    expect(closedHtml).toContain("Bruno Díaz · bruno@example.test");
+    expect(closedHtml).toContain("08/10/2026 16:30");
     expect(closedHtml).toContain("Corregir hora de cierre");
     expect(closedHtml).toContain('id="guard-end-g-bruno"');
     expect(closedHtml).toContain('type="datetime-local"');
     expect(closedHtml).toMatch(/<button[^>]*disabled=""[^>]*>Guardar corrección<\/button>/);
-  });
-});
-
-describe("coordination guard details", () => {
-  it("reads zero totals as plain sentences", () => {
-    expect(guardTotalBadges(totals()).map((badge) => badge.label)).toEqual([
-      "Sin servicios",
-      "Sin despachos",
-      "Sin arribos",
-      "Sin higiene",
-    ]);
   });
 
   it("lists services with their state and dispatches", () => {
