@@ -41,7 +41,11 @@ function EfaCoordinationPage() {
   const navigate = Route.useNavigate();
   const router = useRouter();
   return (
-    <PrivateAccountShell session={session}>
+    <PrivateAccountShell
+      session={session}
+      title="Coordinación EFA"
+      description="Guardias de todos los usuarios"
+    >
       <EfaCoordinationPanel
         guards={guards as EfaOversightGuardView[]}
         search={search}

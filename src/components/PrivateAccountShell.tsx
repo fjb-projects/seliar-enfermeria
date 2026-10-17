@@ -66,9 +66,14 @@ export function reduceAccountHeaderInteraction(
 export function PrivateAccountShell({
   session,
   children,
+  title = "Acceso seguro",
+  description = "Gestión de cuentas y permisos",
 }: {
   session: PrivateSession;
   children: ReactNode;
+  /** Page area title; defaults to the account management heading. */
+  title?: string;
+  description?: string;
 }) {
   const { requestLogout, logoutPending, logoutError } = useSeliarNavigation();
   const [headerInteraction, dispatchHeaderInteraction] = useReducer(
@@ -101,8 +106,8 @@ export function PrivateAccountShell({
       header={
         <WorkflowHeader
           eyebrow="SeLIAR · Área privada"
-          title="Acceso seguro"
-          description="Gestión de cuentas y permisos"
+          title={title}
+          description={description}
           compactLogo
           accountInteractionHandlers={headerHandlers}
           accountSlot={

@@ -82,8 +82,6 @@ describe("EfaCoordinationPanel", () => {
       />,
     );
 
-    expect(html).toContain("Coordinación EFA");
-    expect(html).toContain("Todas las guardias de todos los usuarios");
     expect(html).toContain('aria-label="Guardias de Ana Pérez"');
     expect(html).toContain("ana@example.test · 2 guardias");
     expect(html).toContain("bruno@example.test · 1 guardia");
@@ -134,8 +132,66 @@ describe("EfaCoordinationPanel", () => {
     expect(html).toContain("Bruno Díaz");
     expect(html).not.toContain('aria-label="Guardias de Ana Pérez"');
     expect(html).toContain("1 guardia de 3");
-    expect(html).toContain("Limpiar filtros");
+    expect(html).toContain("Limpiar filtros (2)");
     expect(html).toContain('<option value="ana">Ana Pérez</option>');
+  });
+
+  it("renders the area with its sections, sidebar filters and mobile entry points", () => {
+    const html = render(
+      <EfaCoordinationPanel
+        guards={guards}
+        search={{ status: "open", from: "2026-10-01" }}
+        onSearchChange={() => {}}
+        onGuardsChanged={async () => {}}
+        now={new Date("2026-10-09T15:00:00.000Z")}
+      />,
+    );
+
+    expect(html).toContain('aria-label="Coordinación EFA"');
+    expect(html).toContain('aria-current="page"');
+    expect(html).toContain("<span>Guardias</span>");
+    expect(html).not.toContain("Estadísticas");
+    expect(html).toMatch(/role="radio" aria-checked="true"[^>]*>En curso</);
+    expect(html).toContain('id="sidebar-filter-from"');
+    expect(html).toContain('value="2026-10-01"');
+    expect(html).toMatch(/role="switch" aria-checked="true"/);
+    expect(html).toContain("2 activos");
+    expect(html).toContain('aria-label="Mostrar filtros (2)"');
+    expect(html).toContain('aria-label="Secciones de Coordinación EFA"');
+    expect(html).toContain("Filtros (2)");
+    expect(html).toContain("1 guardia de 3");
+  });
+
+  it("summarizes today's guards above the list", () => {
+    const html = render(
+      <EfaCoordinationPanel
+        guards={guards}
+        search={{}}
+        onSearchChange={() => {}}
+        onGuardsChanged={async () => {}}
+        now={new Date("2026-10-09T15:00:00.000Z")}
+      />,
+    );
+
+    expect(html).toContain('aria-label="Resumen de hoy"');
+    expect(html).toMatch(/En curso ahora<\/dt><dd[^>]*><span[^>]*><\/span>1<\/dd>/);
+    expect(html).toMatch(/Guardias hoy<\/dt><dd[^>]*>1<\/dd>/);
+    expect(html).toMatch(/Servicios hoy<\/dt><dd[^>]*>3<\/dd>/);
+  });
+
+  it("lists guards without owner groups when grouping is off", () => {
+    const html = render(
+      <EfaCoordinationPanel
+        guards={guards}
+        search={{ group: 0 }}
+        onSearchChange={() => {}}
+        onGuardsChanged={async () => {}}
+      />,
+    );
+
+    expect(html).not.toContain('aria-label="Guardias de Ana Pérez"');
+    expect(html).toMatch(/role="switch" aria-checked="false"/);
+    expect(html).toContain("Limpiar filtros</button>");
   });
 
   it("explains an empty filtered list", () => {

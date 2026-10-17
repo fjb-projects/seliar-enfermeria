@@ -60,6 +60,34 @@ describe("private account header", () => {
     expect(render(["efa"])).not.toContain('href="/coordinacion-efa"');
   });
 
+  it("keeps the account heading by default and accepts an area title", () => {
+    const session = {
+      user: { id: "user-1", name: "Ana Example", email: "ana@example.test" },
+      roles: ["admin"],
+      expiresAt: "2026-10-07T12:00:00.000Z",
+    };
+    const defaultHtml = renderToStaticMarkup(
+      <PrivateAccountShell session={session}>
+        <p>Contenido</p>
+      </PrivateAccountShell>,
+    );
+    const areaHtml = renderToStaticMarkup(
+      <PrivateAccountShell
+        session={session}
+        title="Coordinación EFA"
+        description="Guardias de todos los usuarios"
+      >
+        <p>Contenido</p>
+      </PrivateAccountShell>,
+    );
+
+    expect(defaultHtml).toContain("Acceso seguro");
+    expect(defaultHtml).toContain("Gestión de cuentas y permisos");
+    expect(areaHtml).toContain("Coordinación EFA</h1>");
+    expect(areaHtml).toContain("Guardias de todos los usuarios");
+    expect(areaHtml).not.toContain("Acceso seguro");
+  });
+
   it("expands for mouse hover but preserves focus and permits an explicit close", () => {
     const initial = { expanded: false, mouseInside: false, focusInside: false };
     const hovered = reduceAccountHeaderInteraction(initial, {

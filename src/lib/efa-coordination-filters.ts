@@ -11,6 +11,8 @@ export type CoordinationSearch = {
   /** Inclusive YYYY-MM-DD bounds on the guard start, in Buenos Aires time. */
   from?: string;
   to?: string;
+  /** Grouping by owner is on by default; `0` (`?group=0`) turns it off. */
+  group?: 0;
 };
 
 type OwnedGuard = {
@@ -42,7 +44,41 @@ export function validateCoordinationSearch(search: Record<string, unknown>): Coo
     ...(status && status !== "all" ? { status } : {}),
     ...(isDateKey(search["from"]) ? { from: search["from"] } : {}),
     ...(isDateKey(search["to"]) ? { to: search["to"] } : {}),
+    ...(search["group"] === 0 || search["group"] === "0" ? { group: 0 as const } : {}),
   };
+}
+
+export const isGroupedByOwner = (search: CoordinationSearch) => search.group !== 0;
+
+const filterKeys = ["user", "status", "from", "to"] as const;
+
+/** Active narrowing filters; the grouping preference is a view choice, not a filter. */
+export function countActiveFilters(search: CoordinationSearch) {
+  return filterKeys.filter((key) => Boolean(search[key])).length;
+}
+
+export type CoordinationSearchPatch = {
+  [Key in keyof CoordinationSearch]?: CoordinationSearch[Key] | undefined;
+};
+
+/** Applies a change and drops empty or default values so the URL stays minimal. */
+export function patchCoordinationSearch(
+  search: CoordinationSearch,
+  patch: CoordinationSearchPatch,
+): CoordinationSearch {
+  const merged: CoordinationSearchPatch = { ...search, ...patch };
+  const next: CoordinationSearch = {};
+  if (merged.user) next.user = merged.user;
+  if (merged.status && merged.status !== "all") next.status = merged.status;
+  if (merged.from) next.from = merged.from;
+  if (merged.to) next.to = merged.to;
+  if (merged.group === 0) next.group = 0;
+  return next;
+}
+
+/** Removes every filter but keeps the grouping preference. */
+export function clearCoordinationFilters(search: CoordinationSearch): CoordinationSearch {
+  return search.group === 0 ? { group: 0 } : {};
 }
 
 /** Buenos Aires calendar day of a moment as YYYY-MM-DD. */

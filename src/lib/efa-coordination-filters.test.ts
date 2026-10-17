@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  clearCoordinationFilters,
+  countActiveFilters,
   filterOversightGuards,
   groupGuardsByOwner,
+  isGroupedByOwner,
   listGuardOwners,
+  patchCoordinationSearch,
   validateCoordinationSearch,
 } from "./efa-coordination-filters";
 
@@ -112,5 +116,39 @@ describe("coordination guard grouping", () => {
       { id: "ana", name: "Ana Pérez", email: "ana@example.test" },
       { id: "bruno", name: "Bruno Díaz", email: "bruno@example.test" },
     ]);
+  });
+});
+
+describe("coordination view preferences and filter edits", () => {
+  it("keeps grouping on by default and reads group=0 as off", () => {
+    expect(validateCoordinationSearch({})).toEqual({});
+    expect(validateCoordinationSearch({ group: 0 })).toEqual({ group: 0 });
+    expect(validateCoordinationSearch({ group: "0" })).toEqual({ group: 0 });
+    expect(validateCoordinationSearch({ group: 1 })).toEqual({});
+    expect(isGroupedByOwner({})).toBe(true);
+    expect(isGroupedByOwner({ group: 0 })).toBe(false);
+  });
+
+  it("counts only the active filters, not the grouping preference", () => {
+    expect(countActiveFilters({})).toBe(0);
+    expect(countActiveFilters({ group: 0 })).toBe(0);
+    expect(countActiveFilters({ user: "ana", status: "open", from: "2026-10-01" })).toBe(3);
+    expect(countActiveFilters({ to: "2026-10-31", group: 0 })).toBe(1);
+  });
+
+  it("patches the search and drops empty or default values", () => {
+    expect(patchCoordinationSearch({ user: "ana", status: "open" }, { user: "" })).toEqual({
+      status: "open",
+    });
+    expect(patchCoordinationSearch({ status: "open" }, { status: "all" })).toEqual({});
+    expect(patchCoordinationSearch({}, { from: "2026-10-01" })).toEqual({ from: "2026-10-01" });
+    expect(patchCoordinationSearch({ group: 0 }, { group: undefined })).toEqual({});
+  });
+
+  it("clears the filters but keeps the grouping preference", () => {
+    expect(clearCoordinationFilters({ user: "ana", status: "closed", group: 0 })).toEqual({
+      group: 0,
+    });
+    expect(clearCoordinationFilters({ from: "2026-10-01" })).toEqual({});
   });
 });
