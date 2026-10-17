@@ -38,6 +38,7 @@ Redesign `/coordinacion-efa` as a "Coordinación EFA" area. The UI must be dense
 ## Tasks
 - [x] T1: Area layout: `PrivateAccountShell` title/description props, sidebar (sections + filters, collapsible), mobile sections Sheet plus filters Drawer, URL filter wiring, summary strip helpers. Route: delegated (writer trigger: 2+ non-trivial files). Commit `502f57f`.
 - [x] T2: Dense guards table on desktop and compact cards on mobile, with avatar identity, open-first sort, collapsible groups, inline expandable detail, "—" zeros. Route: delegated (writer trigger: 2+ non-trivial files). Commit `0e40aca`.
+- [x] T3: Full-width option for the coordination area. Route: delegated. Commit `45fa491`.
 
 ## Checks
 `rtk npx tsc --noEmit` (only the 6 known base errors; line numbers may shift), `rtk npx eslint <touched files>`, `rtk npx vitest run <touched tests>`. Full suite pending (memory). Browser check pending.
@@ -46,9 +47,11 @@ Redesign `/coordinacion-efa` as a "Coordinación EFA" area. The UI must be dense
 - The shell header carries the area title once: `PrivateAccountShell` gets `title="Coordinación EFA"` and `description="Guardias de todos los usuarios"`. The sidebar does not repeat it; the mobile sections Sheet uses it as its title.
 - Grouping lives in the URL: `?group=0` turns it off and the default is on. `countActiveFilters` ignores it, and `clearCoordinationFilters` keeps it.
 - The summary strip (`summarizeGuards`) covers all loaded guards, not only the filtered ones. "Hoy" is the Buenos Aires calendar day, and a guard counts when it started on or before today and is open or ended today or later.
-- `WorkflowShell` caps content at `max-w-5xl` (outside the allowed surface). So the sidebar is a sticky column inside that container, not a fixed full-height rail.
-  - Below `lg`, phone cards are shown; the table starts at `lg`.
-  - Container queries hide Duración (<46rem) and Bases (<56rem) when the sidebar is expanded. Both stay in the expanded detail.
+- T1/T2 lived inside the `max-w-5xl` shell column. T3 added `contentWidth="full"` to `WorkflowShell` and `WorkflowHeader` (`max-w-[1600px]`, same `px-4 sm:px-6` gutters), threaded through `PrivateAccountShell`. Only `/coordinacion-efa` uses it; every other page keeps byte-identical classes (tests pin the default strings).
+  - The sidebar is a full-height sticky column in the page flow (`sticky top-0 h-svh`). It sits under the desktop top nav, which is not sticky, and stays pinned once that nav scrolls away.
+  - The main column is a named container (`@container/main`). From `md`, the table replaces the phone cards once that column reaches 44rem (`md:@[44rem]/main:block`). With the sidebar expanded this needs a viewport of about 1016px; collapsed to icons, about 824px. Below `md`, cards always show.
+  - The table container queries are unchanged: Duración shows at 46rem and Bases at 56rem. Both stay in the expanded detail.
+  - The 1600px cap avoids very long rows at 1920px. The top nav keeps its own `max-w-7xl`, so at 1920px the nav and the area are not left-aligned.
 - Sections are a config array in `EfaCoordinationLayout` (`coordinationSections`). Adding "Estadísticas" is one entry plus its `CoordinationSectionId`.
 - Open-guard relative times tick every minute. Those spans use `suppressHydrationWarning` for the server/client clock difference.
 - The detail copy now uses voseo ("Intentá", "Actualizá"). Episode states are plain muted text instead of pills, and services are a divided list instead of nested boxes.
@@ -68,4 +71,8 @@ Redesign `/coordinacion-efa` as a "Coordinación EFA" area. The UI must be dense
   - `rtk npx vitest run` on the 6 coordination/shell/route test files: 46/46 passed.
   - The full suite was not run (memory).
 - Size: about 1.8k authored lines added over both tasks, above the 400-line heuristic. Delivery strategy and chain choice are still open.
+- T3 `45fa491` `feat(efa): give the coordination area the full page width`.
+  - RED: the three full-width shell/header/private-shell tests failed (class `undefined`), and the panel breakpoint test failed on `lg:block`.
+  - GREEN: 27/27 on the shell, header, private shell, panel and route test files. 60/60 on the 8 other test files that render the shell.
+  - `rtk npx tsc --noEmit`: only the 6 known base errors. `rtk npx eslint` on the touched files: 0 errors, the same 3 fast-refresh warnings.
 - Next: browser check at about 1334x800 and at phone width. Check the sticky sidebar under the desktop top nav, the collapsed icons and badge, the Drawer above the bottom nav, row expansion, and dark mode.
