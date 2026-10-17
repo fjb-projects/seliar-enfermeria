@@ -1,5 +1,5 @@
-import { renderToStaticMarkup } from "react-dom/server";
-import type { ComponentProps } from "react";
+import { renderToStaticMarkup as renderMarkup } from "react-dom/server";
+import type { ComponentProps, ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 import { getOperationalDateRange } from "@/lib/efa-staffing-plan.date";
@@ -10,6 +10,11 @@ import {
   type GuardView,
   type PendingStaffingOperation,
 } from "./EfaGuardPanel";
+
+// The panel reads the query client for summary invalidation, so every render needs a provider.
+function renderToStaticMarkup(node: ReactNode) {
+  return renderMarkup(<QueryClientProvider client={new QueryClient()}>{node}</QueryClientProvider>);
+}
 
 vi.mock("@tanstack/react-start", () => ({
   createClientOnlyFn: (fn: () => unknown) => fn,
@@ -23,7 +28,6 @@ vi.mock("@tanstack/react-router", () => ({
   ),
 }));
 vi.mock("@/lib/efa-guards.functions", () => ({
-  correctEfaGuardEnd: vi.fn(),
   endEfaGuard: vi.fn(),
   listActiveEfaGuardBases: vi.fn(),
   listEfaGuards: vi.fn(),
@@ -100,6 +104,13 @@ describe("EfaGuardPanel", () => {
                 action: "added",
                 occurredAt: "2026-10-07T08:05:00.000Z",
               },
+              {
+                baseId: "base-a",
+                baseName: "Central",
+                actorUserId: "current-user",
+                action: "removed",
+                occurredAt: "2026-10-07T09:05:00.000Z",
+              },
             ],
           },
         ]}
@@ -112,14 +123,20 @@ describe("EfaGuardPanel", () => {
     );
 
     expect(html).toContain("Finalizada");
-    expect(html).toContain("2026-10-07");
+    expect(html).toContain("Mis guardias");
+    expect(html).toContain("Solo se muestran guardias propias.");
+    expect(html).not.toContain("Historial de guardias");
+    expect(html).toContain("Inicio: 07/10/2026 05:00 · Fin: 07/10/2026 09:00");
     expect(html).toContain('<details class="min-w-0 space-y-3">');
     expect(html).not.toMatch(/<details[^>]*\bopen(?:="")?[^>]*>/);
     expect(html).toContain("Ver detalles");
     expect(html).toContain("Presencia declarada en Central · versión 3");
     expect(html).toContain("Historial de cambios de base");
-    expect(html).toContain("Responsable: current-user");
-    expect(html).toContain("Corregir hora de cierre");
+    expect(html).toContain("por otra cuenta");
+    expect(html).toContain("por vos");
+    expect(html).not.toContain("admin-user");
+    expect(html).not.toContain("Responsable");
+    expect(html).not.toContain("Corregir hora de cierre");
     expect(html).toContain("Dotación observada");
     expect(html).toContain('aria-label="Móviles"');
     expect(html).not.toContain("Registrar ingreso");

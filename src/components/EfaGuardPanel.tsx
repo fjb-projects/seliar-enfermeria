@@ -8,7 +8,6 @@ import {
   isActionConfirmationCurrent,
 } from "@/components/EfaActionConfirmation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
 import { EfaObservationPanel } from "@/components/EfaObservationPanel";
 import type { StaffingCause, StaffingRole, StaffingView } from "@/lib/efa-staffing.server";
 import {
@@ -19,7 +18,6 @@ import {
   listEfaStaffing,
 } from "@/lib/efa-staffing.functions";
 import {
-  correctEfaGuardEnd,
   endEfaGuard,
   listActiveEfaGuardBases,
   listEfaGuards,
@@ -28,6 +26,7 @@ import {
 } from "@/lib/efa-guards.functions";
 import { previewEfaStaffingPlan } from "@/lib/efa-staffing-plan.functions";
 import { getOperationalDateRange } from "@/lib/efa-staffing-plan.date";
+import { formatDateTimeMinutes } from "@/lib/efa-labels";
 import type { DatedSlot } from "@/lib/efa-staffing-plan.server";
 import { listEfaMobileArrivalsForGuard } from "@/lib/efa-mobile-arrivals.functions";
 import { listEfaMobileHygieneForGuard } from "@/lib/efa-mobile-hygiene.functions";
@@ -600,14 +599,12 @@ export function EfaGuardPanel({
   const startGuard = useServerFn(startEfaGuard);
   const updateBases = useServerFn(setEfaGuardBases);
   const endGuard = useServerFn(endEfaGuard);
-  const correctGuardEnd = useServerFn(correctEfaGuardEnd);
   const [guards, setGuards] = useState(initialGuards);
   const [bases, setBases] = useState(activeBases);
   const [staffingByGuard, setStaffingByGuard] = useState(initialStaffing);
   const [arrivalsByGuard, setArrivalsByGuard] = useState(initialArrivals ?? {});
   const [hygieneByGuard, setHygieneByGuard] = useState(initialHygiene ?? {});
   const [centralConfirmed, setCentralConfirmed] = useState(false);
-  const [corrections, setCorrections] = useState<Record<string, string>>({});
   const [guardDetailsOpen, setGuardDetailsOpen] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(initialGuards.map((guard) => [guard.id, false])),
   );
@@ -1017,12 +1014,8 @@ export function EfaGuardPanel({
 
       <Card>
         <CardHeader>
-          <CardTitle>{isAdmin ? "Historial de guardias" : "Mis guardias"}</CardTitle>
-          <p className="text-sm text-muted-foreground">
-            {isAdmin
-              ? "Administración puede consultar todas las guardias y corregir su hora de cierre."
-              : "Solo se muestran guardias propias."}
-          </p>
+          <CardTitle>Mis guardias</CardTitle>
+          <p className="text-sm text-muted-foreground">Solo se muestran guardias propias.</p>
         </CardHeader>
         <CardContent className="space-y-4">
           {guards.map((guard) => {
@@ -1040,8 +1033,8 @@ export function EfaGuardPanel({
                     {guard.endedAt ? "Finalizada" : "En curso"}
                   </span>
                   <p className="text-sm">
-                    Inicio: {new Date(guard.startedAt).toLocaleDateString()}
-                    {guard.endedAt && ` · Fin: ${new Date(guard.endedAt).toLocaleDateString()}`}
+                    Inicio: {formatDateTimeMinutes(guard.startedAt)}
+                    {guard.endedAt && ` · Fin: ${formatDateTimeMinutes(guard.endedAt)}`}
                   </p>
                 </div>
                 <details
@@ -1061,7 +1054,6 @@ export function EfaGuardPanel({
                   </summary>
                   <div className="min-w-0 space-y-3">
                     <div className="text-sm">
-                      {isAdmin && <p className="font-medium">Responsable: {guard.ownerUserId}</p>}
                       <p>Inicio: {new Date(guard.startedAt).toLocaleString()}</p>
                       {guard.endedAt && <p>Fin: {new Date(guard.endedAt).toLocaleString()}</p>}
                       <p className="text-xs text-muted-foreground">
@@ -1102,7 +1094,7 @@ export function EfaGuardPanel({
                           }}
                           title="Conductas observadas de la guardia"
                           currentUserId={currentUserId}
-                          canWrite={canWrite && (isAdmin || guard.ownerUserId === currentUserId)}
+                          canWrite={canWrite && guard.ownerUserId === currentUserId}
                           isAdmin={isAdmin}
                         />
                       </section>
@@ -1116,57 +1108,12 @@ export function EfaGuardPanel({
                           {guard.baseEvents.map((event, index) => (
                             <li key={`${event.baseId}-${event.action}-${index}`}>
                               {event.action === "added" ? "Agregó" : "Quitó"} {event.baseName} ·{" "}
-                              {new Date(event.occurredAt).toLocaleString()} · actor{" "}
-                              {event.actorUserId}
+                              {new Date(event.occurredAt).toLocaleString()} ·{" "}
+                              {event.actorUserId === currentUserId ? "por vos" : "por otra cuenta"}
                             </li>
                           ))}
                         </ul>
                       </details>
-                    )}
-                    {isAdmin && canWrite && guard.endedAt && (
-                      <div className="space-y-2 border-t pt-3">
-                        <Label htmlFor={`guard-end-${guard.id}`}>Corregir hora de cierre</Label>
-                        <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-                          <input
-                            id={`guard-end-${guard.id}`}
-                            className="min-h-11 rounded-md border bg-background px-3 text-sm"
-                            type="datetime-local"
-                            value={corrections[guard.id] ?? toLocalDateTimeValue(guard.endedAt)}
-                            onChange={(event) =>
-                              setCorrections((current) => ({
-                                ...current,
-                                [guard.id]: event.target.value,
-                              }))
-                            }
-                          />
-                          <Button
-                            variant="outline"
-                            className="min-h-11"
-                            disabled={
-                              busy ||
-                              !canWrite ||
-                              !corrections[guard.id] ||
-                              new Date(corrections[guard.id]!).getTime() ===
-                                new Date(guard.endedAt).getTime()
-                            }
-                            onClick={() =>
-                              void runAction(
-                                () =>
-                                  correctGuardEnd({
-                                    data: {
-                                      guardId: guard.id,
-                                      expectedVersion: guard.version,
-                                      endedAt: new Date(corrections[guard.id]!).toISOString(),
-                                    },
-                                  }),
-                                "La hora de cierre se corrigió y quedó en el historial.",
-                              )
-                            }
-                          >
-                            Guardar corrección
-                          </Button>
-                        </div>
-                      </div>
                     )}
                     {canWrite && <PlannedCoverageReadOnly bases={guard.bases} />}
                     {guard.id !== openOwnGuard?.id && (
@@ -1192,12 +1139,8 @@ export function EfaGuardPanel({
                     <ObservedStaffingPanel
                       guardId={guard.id}
                       periods={staffingByGuard[guard.id] ?? []}
-                      canEdit={canWrite && (isAdmin || guard.ownerUserId === currentUserId)}
-                      canCreate={
-                        canWrite &&
-                        (isAdmin || guard.ownerUserId === currentUserId) &&
-                        !guard.endedAt
-                      }
+                      canEdit={canWrite && guard.ownerUserId === currentUserId}
+                      canCreate={canWrite && guard.ownerUserId === currentUserId && !guard.endedAt}
                       busy={busy}
                       runAction={runAction}
                     />

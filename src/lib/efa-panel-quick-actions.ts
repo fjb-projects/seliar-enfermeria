@@ -1,10 +1,16 @@
 import type { LucideIcon } from "lucide-react";
-import { CalendarCheck, ClipboardClock, ShieldCheck, Users } from "lucide-react";
+import { CalendarCheck, ClipboardClock, ClipboardList, ShieldCheck, Users } from "lucide-react";
 import type { EfaPanelSummary } from "@/components/EfaPanelHome";
 
 export type EfaPanelQuickAction = {
-  id: "start-guard" | "continue-episodes" | "manage-guard" | "consult-guards" | "manage-accounts";
-  to: "/guardia-efa" | "/episodios-efa" | "/admin-usuarios";
+  id:
+    | "start-guard"
+    | "continue-episodes"
+    | "manage-guard"
+    | "consult-guards"
+    | "manage-accounts"
+    | "coordinate-guards";
+  to: "/guardia-efa" | "/episodios-efa" | "/admin-usuarios" | "/coordinacion-efa";
   label: string;
   navLabel: string;
   icon: LucideIcon;
@@ -46,6 +52,13 @@ const actions: Record<EfaPanelQuickAction["id"], EfaPanelQuickAction> = {
     navLabel: "Cuentas",
     icon: Users,
   },
+  "coordinate-guards": {
+    id: "coordinate-guards",
+    to: "/coordinacion-efa",
+    label: "Coordinación EFA",
+    navLabel: "Coordinación EFA",
+    icon: ClipboardList,
+  },
 };
 
 export function getEfaPanelQuickActions(summary: EfaPanelSummary): EfaPanelQuickAction[] {
@@ -60,6 +73,7 @@ export function getEfaPanelQuickActions(summary: EfaPanelSummary): EfaPanelQuick
 
   if (summary.isAdmin) {
     selected.push(actions["manage-accounts"]);
+    selected.push(actions["coordinate-guards"]);
     if (!summary.openGuard) selected.push(actions["manage-guard"]);
   }
 

@@ -15,6 +15,11 @@ import type { LucideIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getEfaPanelQuickActions, type EfaPanelQuickAction } from "@/lib/efa-panel-quick-actions";
 import { useSeliarNavigation } from "@/components/SeliarNavigationProvider";
+import {
+  EfaQuickGuardEndConfirmation,
+  EfaQuickGuardEndDesktop,
+  EfaQuickGuardEndStrip,
+} from "@/components/EfaQuickGuardEnd";
 import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
@@ -44,6 +49,7 @@ type NavigationPath =
   | "/lao"
   | "/guardia-efa"
   | "/episodios-efa"
+  | "/coordinacion-efa"
   | "/admin-usuarios";
 
 type NavigationItem = { to: NavigationPath; label: string; icon: LucideIcon };
@@ -220,14 +226,21 @@ export function SeliarMobileNav() {
 
   return (
     <>
-      <nav aria-label="Navegación principal" className="relative z-40 hidden border-b bg-card/95 shadow-sm backdrop-blur md:block">
+      <nav
+        aria-label="Navegación principal"
+        className="relative z-40 hidden border-b bg-card/95 shadow-sm backdrop-blur md:block"
+      >
         <div className="mx-auto grid max-w-7xl grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-4 py-1.5 xl:grid-cols-[auto_minmax(0,1fr)_auto]">
           <Link
             to={homeTo}
             aria-current={activeHome ? "page" : undefined}
             className="flex min-h-11 min-w-0 items-center gap-2 rounded-lg px-2 font-display text-sm font-bold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <img src="/logoSIES.jpg" alt="Logo SIES" className="h-8 w-12 shrink-0 rounded bg-white p-1 object-contain" />
+            <img
+              src="/logoSIES.jpg"
+              alt="Logo SIES"
+              className="h-8 w-12 shrink-0 rounded bg-white p-1 object-contain"
+            />
             <span className="whitespace-nowrap">Enfermería SeLIAR</span>
           </Link>
           <div className="col-span-2 row-start-2 flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5 xl:col-span-1 xl:col-start-2 xl:row-start-auto">
@@ -239,32 +252,41 @@ export function SeliarMobileNav() {
               Inicio
             </Link>
             {navigation.sessionStatus === "anonymous" &&
-              navigationGroups.flatMap(({ items }) => items).map((item) => (
-              <Link
-                key={item.to}
-                to={item.to}
-                aria-current={pathname === item.to ? "page" : undefined}
-                className={`flex min-h-11 items-center gap-1.5 rounded-lg px-2 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${pathname === item.to ? "bg-secondary text-secondary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
-              >
-                <item.icon className="size-4" aria-hidden="true" />
-                {item.label}
-              </Link>
+              navigationGroups
+                .flatMap(({ items }) => items)
+                .map((item) => (
+                  <Link
+                    key={item.to}
+                    to={item.to}
+                    aria-current={pathname === item.to ? "page" : undefined}
+                    className={`flex min-h-11 items-center gap-1.5 rounded-lg px-2 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${pathname === item.to ? "bg-secondary text-secondary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+                  >
+                    <item.icon className="size-4" aria-hidden="true" />
+                    {item.label}
+                  </Link>
+                ))}
+            {isAuthenticated &&
+              privateItems.map((item) => (
+                <Link
+                  key={item.to + item.label}
+                  to={item.to}
+                  aria-current={pathname === item.to ? "page" : undefined}
+                  className={`flex min-h-11 items-center gap-1.5 rounded-lg px-2 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${pathname === item.to ? "bg-secondary text-secondary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+                >
+                  <item.icon className="size-4" aria-hidden="true" />
+                  {item.label}
+                </Link>
               ))}
-            {isAuthenticated && privateItems.map((item) => (
-            <Link
-              key={item.to + item.label}
-              to={item.to}
-              aria-current={pathname === item.to ? "page" : undefined}
-              className={`flex min-h-11 items-center gap-1.5 rounded-lg px-2 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${pathname === item.to ? "bg-secondary text-secondary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
-            >
-              <item.icon className="size-4" aria-hidden="true" />
-              {item.label}
-            </Link>
-            ))}
             {isAuthenticated && navigation.summaryError && (
-              <div className="flex min-h-11 items-center gap-2 text-xs text-muted-foreground" role="status">
+              <div
+                className="flex min-h-11 items-center gap-2 text-xs text-muted-foreground"
+                role="status"
+              >
                 <span>No se cargaron las acciones EFA.</span>
-                <button className="min-h-11 px-1 font-semibold text-foreground underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={navigation.retrySummary}>
+                <button
+                  className="min-h-11 px-1 font-semibold text-foreground underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={navigation.retrySummary}
+                >
                   Reintentar
                 </button>
               </div>
@@ -272,25 +294,44 @@ export function SeliarMobileNav() {
             {navigation.sessionStatus === "unavailable" && (
               <div className="flex items-center gap-2 text-xs text-muted-foreground" role="status">
                 {statusText}
-                <button className="min-h-11 px-2 font-semibold text-foreground underline" onClick={navigation.retrySession}>
+                <button
+                  className="min-h-11 px-2 font-semibold text-foreground underline"
+                  onClick={navigation.retrySession}
+                >
                   Reintentar
                 </button>
               </div>
             )}
-            {navigation.sessionStatus === "loading" && <span role="status" className="text-xs text-muted-foreground">{statusText}</span>}
+            {navigation.sessionStatus === "loading" && (
+              <span role="status" className="text-xs text-muted-foreground">
+                {statusText}
+              </span>
+            )}
           </div>
           {navigation.sessionStatus === "anonymous" && (
-            <Link to="/login" aria-current={pathname === "/login" ? "page" : undefined} className="col-start-2 row-start-1 flex min-h-11 items-center gap-1.5 rounded-lg px-3 text-sm font-semibold text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring xl:col-start-3 xl:row-start-auto">
+            <Link
+              to="/login"
+              aria-current={pathname === "/login" ? "page" : undefined}
+              className="col-start-2 row-start-1 flex min-h-11 items-center gap-1.5 rounded-lg px-3 text-sm font-semibold text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring xl:col-start-3 xl:row-start-auto"
+            >
               <LogIn className="size-4" aria-hidden="true" />
               Login
             </Link>
           )}
           {authenticatedSession && (
             <div className="col-start-2 row-start-1 flex min-w-0 items-center justify-end gap-2 xl:col-start-3 xl:row-start-auto">
-              {navigation.logoutError && <p role="alert" className="max-w-48 text-xs text-destructive">{navigation.logoutError}</p>}
+              {navigation.logoutError && (
+                <p role="alert" className="max-w-48 text-xs text-destructive">
+                  {navigation.logoutError}
+                </p>
+              )}
+              <EfaQuickGuardEndDesktop controller={navigation.quickGuardEnd} />
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <button type="button" className="flex min-h-11 max-w-52 min-w-0 items-center gap-1.5 rounded-lg px-3 text-sm font-semibold text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  <button
+                    type="button"
+                    className="flex min-h-11 max-w-52 min-w-0 items-center gap-1.5 rounded-lg px-3 text-sm font-semibold text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
                     <span className="truncate">{authenticatedSession.user.name}</span>
                     <ChevronDown className="size-4 shrink-0" aria-hidden="true" />
                   </button>
@@ -302,10 +343,16 @@ export function SeliarMobileNav() {
                   <div className="flex flex-wrap gap-1 px-2 pb-2">
                     <Badge variant="secondary">Enfermería</Badge>
                     {authenticatedSession.roles.includes("efa") && <Badge>Acceso EFA</Badge>}
-                    {isAdministrator(authenticatedSession.roles) && <Badge variant="outline">Administración</Badge>}
+                    {isAdministrator(authenticatedSession.roles) && (
+                      <Badge variant="outline">Administración</Badge>
+                    )}
                   </div>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem disabled={navigation.logoutPending} onSelect={() => void navigation.logout()} className="min-h-11 text-destructive focus:text-destructive">
+                  <DropdownMenuItem
+                    disabled={navigation.logoutPending}
+                    onSelect={() => void navigation.requestLogout()}
+                    className="min-h-11 text-destructive focus:text-destructive"
+                  >
                     <LogOut aria-hidden="true" />
                     {navigation.logoutPending ? "Logging out…" : "Logout"}
                   </DropdownMenuItem>
@@ -329,14 +376,16 @@ export function SeliarMobileNav() {
             aria-label={`${groups.find(({ id }) => id === openGroup)?.label ?? "Área privada"} destinos`}
           >
             <div className="grid gap-1 sm:grid-cols-2">
-              {groups.find(({ id }) => id === openGroup)?.items.map((item) => (
-                <NavigationLink
-                  key={item.to + item.label}
-                  item={item}
-                  active={pathname === item.to}
-                  onNavigate={() => setOpenGroup(null)}
-                />
-              ))}
+              {groups
+                .find(({ id }) => id === openGroup)
+                ?.items.map((item) => (
+                  <NavigationLink
+                    key={item.to + item.label}
+                    item={item}
+                    active={pathname === item.to}
+                    onNavigate={() => setOpenGroup(null)}
+                  />
+                ))}
             </div>
           </div>
         ) : null}
@@ -344,77 +393,114 @@ export function SeliarMobileNav() {
           <div className="flex min-h-14 items-center justify-center gap-2 px-3 pb-[max(env(safe-area-inset-bottom),0.25rem)] pt-1 text-xs text-muted-foreground">
             <span role="status">{statusText}</span>
             {navigation.sessionStatus === "unavailable" && (
-              <button className="min-h-11 px-2 font-semibold text-foreground underline" onClick={navigation.retrySession}>Reintentar</button>
-            )}
-          </div>
-        ) : (
-          <div className={`mx-auto grid max-w-lg ${isAuthenticated ? "grid-cols-3" : "grid-cols-4"} gap-1 px-2 pb-[max(env(safe-area-inset-bottom),0.25rem)] pt-1`}>
-            <Link
-              to={homeTo}
-              aria-current={activeHome ? "page" : undefined}
-              className={`flex min-h-14 flex-col items-center justify-center gap-0.5 rounded-lg px-2 text-xs font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${activeHome ? "bg-secondary text-secondary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
-            >
-              <Home className="size-5" aria-hidden="true" />
-              <span>Inicio</span>
-            </Link>
-            {groups.map(({ id, label, icon: Icon, items }) => {
-              const activeRoute = items.find(({ to }) => pathname === to);
-              const isOpen = openGroup === id;
-              return (
-                <button
-                  key={id}
-                  ref={(element) => { groupButtonRefs.current[id] = element; }}
-                  type="button"
-                  aria-expanded={isOpen}
-                  aria-controls={isOpen ? `${id}-menu` : undefined}
-                  aria-label={`${label}${activeRoute ? `, página actual: ${activeRoute.label}` : ""}`}
-                  onClick={(event) => {
-                    if (isOpen) {
-                      setOpenGroup(null);
-                      return;
-                    }
-                    setOpenGroup(id);
-                    if (event.detail === 0) {
-                      window.requestAnimationFrame(() => {
-                        document.querySelector<HTMLAnchorElement>(`#${id}-menu a`)?.focus();
-                      });
-                    }
-                  }}
-                  className={`flex min-h-14 flex-col items-center justify-center gap-0.5 rounded-lg px-2 text-xs font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${activeRoute || isOpen ? "bg-secondary text-secondary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
-                >
-                  <span className="flex items-center gap-1">
-                    <Icon className="size-5" aria-hidden="true" />
-                    <ChevronUp className={`size-3 transition-transform motion-reduce:transition-none ${isOpen ? "rotate-180" : ""}`} aria-hidden="true" />
-                  </span>
-                  <span>{isAuthenticated ? "Accesos" : label}</span>
-                  {activeRoute ? <span className="sr-only">Página actual en este grupo</span> : null}
-                </button>
-              );
-            })}
-            {navigation.sessionStatus === "anonymous" && (
-              <Link to="/login" aria-current={pathname === "/login" ? "page" : undefined} className={`flex min-h-14 flex-col items-center justify-center gap-0.5 rounded-lg px-2 text-xs font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${pathname === "/login" ? "bg-secondary text-secondary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}>
-                <LogIn className="size-5" aria-hidden="true" />
-                <span>Login</span>
-              </Link>
-            )}
-            {isAuthenticated && (
-              <button type="button" onClick={() => void navigation.logout()} disabled={navigation.logoutPending} className="flex min-h-14 flex-col items-center justify-center gap-0.5 rounded-lg px-2 text-xs font-bold text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-60">
-                <LogOut className="size-5" aria-hidden="true" />
-                <span>{navigation.logoutPending ? "Saliendo…" : "Logout"}</span>
+              <button
+                className="min-h-11 px-2 font-semibold text-foreground underline"
+                onClick={navigation.retrySession}
+              >
+                Reintentar
               </button>
             )}
           </div>
+        ) : (
+          <>
+            {isAuthenticated && <EfaQuickGuardEndStrip controller={navigation.quickGuardEnd} />}
+            <div
+              className={`mx-auto grid max-w-lg ${isAuthenticated ? "grid-cols-3" : "grid-cols-4"} gap-1 px-2 pb-[max(env(safe-area-inset-bottom),0.25rem)] pt-1`}
+            >
+              <Link
+                to={homeTo}
+                aria-current={activeHome ? "page" : undefined}
+                className={`flex min-h-14 flex-col items-center justify-center gap-0.5 rounded-lg px-2 text-xs font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${activeHome ? "bg-secondary text-secondary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+              >
+                <Home className="size-5" aria-hidden="true" />
+                <span>Inicio</span>
+              </Link>
+              {groups.map(({ id, label, icon: Icon, items }) => {
+                const activeRoute = items.find(({ to }) => pathname === to);
+                const isOpen = openGroup === id;
+                return (
+                  <button
+                    key={id}
+                    ref={(element) => {
+                      groupButtonRefs.current[id] = element;
+                    }}
+                    type="button"
+                    aria-expanded={isOpen}
+                    aria-controls={isOpen ? `${id}-menu` : undefined}
+                    aria-label={`${label}${activeRoute ? `, página actual: ${activeRoute.label}` : ""}`}
+                    onClick={(event) => {
+                      if (isOpen) {
+                        setOpenGroup(null);
+                        return;
+                      }
+                      setOpenGroup(id);
+                      if (event.detail === 0) {
+                        window.requestAnimationFrame(() => {
+                          document.querySelector<HTMLAnchorElement>(`#${id}-menu a`)?.focus();
+                        });
+                      }
+                    }}
+                    className={`flex min-h-14 flex-col items-center justify-center gap-0.5 rounded-lg px-2 text-xs font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${activeRoute || isOpen ? "bg-secondary text-secondary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+                  >
+                    <span className="flex items-center gap-1">
+                      <Icon className="size-5" aria-hidden="true" />
+                      <ChevronUp
+                        className={`size-3 transition-transform motion-reduce:transition-none ${isOpen ? "rotate-180" : ""}`}
+                        aria-hidden="true"
+                      />
+                    </span>
+                    <span>{isAuthenticated ? "Accesos" : label}</span>
+                    {activeRoute ? (
+                      <span className="sr-only">Página actual en este grupo</span>
+                    ) : null}
+                  </button>
+                );
+              })}
+              {navigation.sessionStatus === "anonymous" && (
+                <Link
+                  to="/login"
+                  aria-current={pathname === "/login" ? "page" : undefined}
+                  className={`flex min-h-14 flex-col items-center justify-center gap-0.5 rounded-lg px-2 text-xs font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${pathname === "/login" ? "bg-secondary text-secondary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+                >
+                  <LogIn className="size-5" aria-hidden="true" />
+                  <span>Login</span>
+                </Link>
+              )}
+              {isAuthenticated && (
+                <button
+                  type="button"
+                  onClick={() => void navigation.requestLogout()}
+                  disabled={navigation.logoutPending}
+                  className="flex min-h-14 flex-col items-center justify-center gap-0.5 rounded-lg px-2 text-xs font-bold text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-60"
+                >
+                  <LogOut className="size-5" aria-hidden="true" />
+                  <span>{navigation.logoutPending ? "Saliendo…" : "Logout"}</span>
+                </button>
+              )}
+            </div>
+          </>
         )}
         {isAuthenticated && navigation.logoutError && (
-          <p role="alert" className="px-3 pb-1 text-center text-xs text-destructive">{navigation.logoutError}</p>
+          <p role="alert" className="px-3 pb-1 text-center text-xs text-destructive">
+            {navigation.logoutError}
+          </p>
         )}
         {isAuthenticated && navigation.summaryError && (
-          <div className="flex items-center justify-center gap-2 px-2 pb-1 text-xs text-muted-foreground" role="status">
+          <div
+            className="flex items-center justify-center gap-2 px-2 pb-1 text-xs text-muted-foreground"
+            role="status"
+          >
             <span>No se cargaron las acciones EFA.</span>
-            <button className="min-h-11 px-1 font-semibold text-foreground underline" onClick={navigation.retrySummary}>Reintentar</button>
+            <button
+              className="min-h-11 px-1 font-semibold text-foreground underline"
+              onClick={navigation.retrySummary}
+            >
+              Reintentar
+            </button>
           </div>
         )}
       </nav>
+      {isAuthenticated && <EfaQuickGuardEndConfirmation controller={navigation.quickGuardEnd} />}
     </>
   );
 }

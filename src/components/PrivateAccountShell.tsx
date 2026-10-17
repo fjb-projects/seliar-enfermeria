@@ -5,7 +5,7 @@ import { ChevronDown } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { WorkflowHeader } from "@/components/WorkflowHeader";
-import { WorkflowShell } from "@/components/WorkflowShell";
+import { WorkflowShell, type WorkflowContentWidth } from "@/components/WorkflowShell";
 import { useSeliarNavigation } from "@/components/SeliarNavigationProvider";
 import { isAdministrator } from "@/lib/private-ui";
 import type { PrivateSession } from "@/lib/private-ui";
@@ -66,11 +66,19 @@ export function reduceAccountHeaderInteraction(
 export function PrivateAccountShell({
   session,
   children,
+  title = "Acceso seguro",
+  description = "Gestión de cuentas y permisos",
+  contentWidth = "wide",
 }: {
   session: PrivateSession;
   children: ReactNode;
+  /** Page area title; defaults to the account management heading. */
+  title?: string;
+  description?: string;
+  /** Page width; defaults to the shell's wide column. */
+  contentWidth?: WorkflowContentWidth;
 }) {
-  const { logout, logoutPending, logoutError } = useSeliarNavigation();
+  const { requestLogout, logoutPending, logoutError } = useSeliarNavigation();
   const [headerInteraction, dispatchHeaderInteraction] = useReducer(
     reduceAccountHeaderInteraction,
     initialAccountHeaderInteraction,
@@ -98,11 +106,13 @@ export function PrivateAccountShell({
 
   return (
     <WorkflowShell
+      contentWidth={contentWidth}
       header={
         <WorkflowHeader
+          contentWidth={contentWidth}
           eyebrow="SeLIAR · Área privada"
-          title="Acceso seguro"
-          description="Gestión de cuentas y permisos"
+          title={title}
+          description={description}
           compactLogo
           accountInteractionHandlers={headerHandlers}
           accountSlot={
@@ -146,14 +156,23 @@ export function PrivateAccountShell({
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {isAdministrator(session.roles) && (
-                      <Button asChild variant="outline" className="min-h-11">
-                        <Link to="/admin-usuarios">Administrar cuentas</Link>
-                      </Button>
+                      <>
+                        <Button asChild variant="outline" className="min-h-11">
+                          <Link to="/admin-usuarios">Administrar cuentas</Link>
+                        </Button>
+                        <Button asChild variant="outline" className="min-h-11">
+                          <Link to="/coordinacion-efa">Coordinación EFA</Link>
+                        </Button>
+                      </>
                     )}
                     <div className="flex flex-wrap items-center gap-2">
-                      {logoutError && <p role="alert" className="max-w-56 text-xs text-destructive">{logoutError}</p>}
+                      {logoutError && (
+                        <p role="alert" className="max-w-56 text-xs text-destructive">
+                          {logoutError}
+                        </p>
+                      )}
                       <Button
-                        onClick={() => void logout()}
+                        onClick={() => void requestLogout()}
                         disabled={logoutPending}
                         variant="secondary"
                         className="min-h-11"
@@ -169,9 +188,7 @@ export function PrivateAccountShell({
         />
       }
     >
-      <div className="space-y-5">
-        {children}
-      </div>
+      <div className="space-y-5">{children}</div>
     </WorkflowShell>
   );
 }

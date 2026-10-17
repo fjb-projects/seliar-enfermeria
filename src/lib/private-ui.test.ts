@@ -10,6 +10,7 @@ describe("private navigation and role presentation", () => {
   it("accepts only known same-origin private destinations", () => {
     expect(safePrivateReturnPath("/admin-usuarios")).toBe("/admin-usuarios");
     expect(safePrivateReturnPath("/panel")).toBe("/panel");
+    expect(safePrivateReturnPath("/coordinacion-efa")).toBe("/coordinacion-efa");
     for (const path of [
       "https://evil.test",
       "//evil.test",

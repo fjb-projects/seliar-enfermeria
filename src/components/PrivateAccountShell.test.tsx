@@ -13,8 +13,9 @@ vi.mock("@tanstack/react-router", () => ({
     </a>
   ),
 }));
-vi.mock("@tanstack/react-start", () => ({ useServerFn: () => vi.fn(async () => undefined) }));
-vi.mock("@/lib/auth.functions", () => ({ signOut: vi.fn() }));
+vi.mock("@/components/SeliarNavigationProvider", () => ({
+  useSeliarNavigation: () => ({ requestLogout: vi.fn(), logoutPending: false, logoutError: "" }),
+}));
 
 describe("private account header", () => {
   it("keeps the name visible while initially collapsing account details", () => {
@@ -39,6 +40,80 @@ describe("private account header", () => {
     expect(html).toContain("Contenido");
     expect(html.indexOf('id="private-account-details"')).toBeGreaterThan(html.indexOf("<header"));
     expect(html.indexOf('id="private-account-details"')).toBeLessThan(html.indexOf("</header>"));
+  });
+
+  it("links the coordination view only for administrators", () => {
+    const render = (roles: string[]) =>
+      renderToStaticMarkup(
+        <PrivateAccountShell
+          session={{
+            user: { id: "user-1", name: "Ana Example", email: "ana@example.test" },
+            roles,
+            expiresAt: "2026-10-07T12:00:00.000Z",
+          }}
+        >
+          <main>Contenido</main>
+        </PrivateAccountShell>,
+      );
+
+    expect(render(["admin"])).toContain('href="/coordinacion-efa"');
+    expect(render(["efa"])).not.toContain('href="/coordinacion-efa"');
+  });
+
+  it("keeps the account heading by default and accepts an area title", () => {
+    const session = {
+      user: { id: "user-1", name: "Ana Example", email: "ana@example.test" },
+      roles: ["admin"],
+      expiresAt: "2026-10-07T12:00:00.000Z",
+    };
+    const defaultHtml = renderToStaticMarkup(
+      <PrivateAccountShell session={session}>
+        <p>Contenido</p>
+      </PrivateAccountShell>,
+    );
+    const areaHtml = renderToStaticMarkup(
+      <PrivateAccountShell
+        session={session}
+        title="Coordinación EFA"
+        description="Guardias de todos los usuarios"
+      >
+        <p>Contenido</p>
+      </PrivateAccountShell>,
+    );
+
+    expect(defaultHtml).toContain("Acceso seguro");
+    expect(defaultHtml).toContain("Gestión de cuentas y permisos");
+    expect(areaHtml).toContain("Coordinación EFA</h1>");
+    expect(areaHtml).toContain("Guardias de todos los usuarios");
+    expect(areaHtml).not.toContain("Acceso seguro");
+  });
+
+  it("keeps the wide page by default and opts into the full width", () => {
+    const session = {
+      user: { id: "user-1", name: "Ana Example", email: "ana@example.test" },
+      roles: ["admin"],
+      expiresAt: "2026-10-07T12:00:00.000Z",
+    };
+    const defaultHtml = renderToStaticMarkup(
+      <PrivateAccountShell session={session}>
+        <p>Contenido</p>
+      </PrivateAccountShell>,
+    );
+    const fullHtml = renderToStaticMarkup(
+      <PrivateAccountShell session={session} contentWidth="full">
+        <p>Contenido</p>
+      </PrivateAccountShell>,
+    );
+
+    expect(defaultHtml).toContain('class="mx-auto w-full max-w-5xl px-4 pt-4 sm:px-6 sm:pt-6"');
+    expect(defaultHtml).toContain(
+      'class="mx-auto hidden w-full max-w-5xl px-4 pt-4 sm:px-6 md:block"',
+    );
+    expect(defaultHtml).not.toContain("max-w-[1600px]");
+    expect(fullHtml).toContain('class="mx-auto w-full max-w-[1600px] px-4 pt-4 sm:px-6 sm:pt-6"');
+    expect(fullHtml).toContain(
+      'class="mx-auto hidden w-full max-w-[1600px] px-4 pt-4 sm:px-6 md:block"',
+    );
   });
 
   it("expands for mouse hover but preserves focus and permits an explicit close", () => {

@@ -45,7 +45,7 @@ type EfaActorRecord = { isActive: boolean; roles: AccountRole[] };
 export interface EfaGuardTransaction {
   findActor(userId: string): Promise<EfaActorRecord | null>;
   listBases(activeOnly: boolean): Promise<EfaGuardBase[]>;
-  listGuards(ownerUserId: string | null): Promise<EfaGuardRecord[]>;
+  listGuards(ownerUserId: string): Promise<EfaGuardRecord[]>;
   findGuard(guardId: string): Promise<EfaGuardRecord | null>;
   insertGuard(input: {
     id: string;
@@ -83,6 +83,31 @@ function asDatabaseTimestamp(value: unknown): Date {
     throw new Error("No se pudo obtener una hora válida de la base de datos.");
   }
   return timestamp;
+}
+
+/**
+ * Replays a guard's base events (ordered by sequence) into its current base membership.
+ * `bases` is the full catalog, used to fill missing names and the current active flag.
+ */
+export function currentGuardBases(
+  events: readonly EfaGuardBaseEvent[],
+  bases: readonly EfaGuardBase[],
+): EfaGuardBase[] {
+  const catalog = new Map(bases.map((base) => [base.id, base]));
+  const selected = new Map<string, EfaGuardBase>();
+  for (const event of events) {
+    if (event.action === "added") {
+      const base = catalog.get(event.baseId);
+      selected.set(event.baseId, {
+        id: event.baseId,
+        name: event.baseName || base?.name || "Base histórica",
+        isActive: base?.isActive ?? false,
+      });
+    } else {
+      selected.delete(event.baseId);
+    }
+  }
+  return [...selected.values()];
 }
 
 export type EfaGuardServiceDependencies = { newId?: () => string };
@@ -136,22 +161,7 @@ export function createEfaGuardsService(
 
   async function withEvents(tx: EfaGuardTransaction, guard: EfaGuardRecord) {
     const [events, bases] = await Promise.all([tx.listBaseEvents(guard.id), tx.listBases(false)]);
-    const names = new Map(bases.map((base) => [base.id, base.name]));
-    const selected = new Map<string, EfaGuardBase>();
-    for (const event of events) {
-      if (event.action === "added") {
-        selected.set(event.baseId, {
-          id: event.baseId,
-          name: event.baseName || names.get(event.baseId) || "Base histórica",
-          isActive: names.has(event.baseId)
-            ? bases.find((base) => base.id === event.baseId)!.isActive
-            : false,
-        });
-      } else {
-        selected.delete(event.baseId);
-      }
-    }
-    return { ...guard, bases: [...selected.values()], baseEvents: events };
+    return { ...guard, bases: currentGuardBases(events, bases), baseEvents: events };
   }
 
   return {
@@ -164,8 +174,8 @@ export function createEfaGuardsService(
 
     async list(userId: string) {
       return store.transaction(async (tx) => {
-        const roles = await readActor(tx, userId);
-        const guards = await tx.listGuards(roles.includes("admin") ? null : userId);
+        await readActor(tx, userId);
+        const guards = await tx.listGuards(userId);
         return Promise.all(guards.map((guard) => withEvents(tx, guard)));
       });
     },
@@ -328,10 +338,11 @@ const drizzleStore: EfaGuardStore = {
             : query.orderBy(asc(efaBase.name));
         },
         async listGuards(ownerUserId) {
-          const query = db.select().from(efaGuard);
-          return ownerUserId
-            ? query.where(eq(efaGuard.ownerUserId, ownerUserId)).orderBy(desc(efaGuard.startedAt))
-            : query.orderBy(desc(efaGuard.startedAt));
+          return db
+            .select()
+            .from(efaGuard)
+            .where(eq(efaGuard.ownerUserId, ownerUserId))
+            .orderBy(desc(efaGuard.startedAt));
         },
         async findGuard(guardId) {
           const rows = await db.select().from(efaGuard).where(eq(efaGuard.id, guardId)).limit(1);

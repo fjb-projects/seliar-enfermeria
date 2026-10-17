@@ -5,6 +5,7 @@ import type { HTMLAttributes, ReactNode } from "react";
 const contentWidths: Record<WorkflowContentWidth, string> = {
   narrow: "max-w-2xl",
   wide: "max-w-5xl",
+  full: "max-w-[1600px]",
 };
 
 type WorkflowHeaderProps = {

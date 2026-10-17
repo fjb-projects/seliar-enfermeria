@@ -14,6 +14,7 @@ import { Route as AdminUsuariosRouteImport } from './routes/admin-usuarios'
 import { Route as CambioGuardiaRouteImport } from './routes/cambio-guardia'
 import { Route as CompensatorioRouteImport } from './routes/compensatorio'
 import { Route as ControlGuardiaRouteImport } from './routes/control-guardia'
+import { Route as CoordinacionEfaRouteImport } from './routes/coordinacion-efa'
 import { Route as EpisodiosEfaRouteImport } from './routes/episodios-efa'
 import { Route as GuardiaEfaRouteImport } from './routes/guardia-efa'
 import { Route as HorariosRouteImport } from './routes/horarios'
@@ -45,6 +46,11 @@ const CompensatorioRoute = CompensatorioRouteImport.update({
 const ControlGuardiaRoute = ControlGuardiaRouteImport.update({
   id: '/control-guardia',
   path: '/control-guardia',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CoordinacionEfaRoute = CoordinacionEfaRouteImport.update({
+  id: '/coordinacion-efa',
+  path: '/coordinacion-efa',
   getParentRoute: () => rootRouteImport,
 } as any)
 const EpisodiosEfaRoute = EpisodiosEfaRouteImport.update({
@@ -89,6 +95,7 @@ export interface FileRoutesByFullPath {
   '/cambio-guardia': typeof CambioGuardiaRoute
   '/compensatorio': typeof CompensatorioRoute
   '/control-guardia': typeof ControlGuardiaRoute
+  '/coordinacion-efa': typeof CoordinacionEfaRoute
   '/episodios-efa': typeof EpisodiosEfaRoute
   '/guardia-efa': typeof GuardiaEfaRoute
   '/horarios': typeof HorariosRoute
@@ -103,6 +110,7 @@ export interface FileRoutesByTo {
   '/cambio-guardia': typeof CambioGuardiaRoute
   '/compensatorio': typeof CompensatorioRoute
   '/control-guardia': typeof ControlGuardiaRoute
+  '/coordinacion-efa': typeof CoordinacionEfaRoute
   '/episodios-efa': typeof EpisodiosEfaRoute
   '/guardia-efa': typeof GuardiaEfaRoute
   '/horarios': typeof HorariosRoute
@@ -118,6 +126,7 @@ export interface FileRoutesById {
   '/cambio-guardia': typeof CambioGuardiaRoute
   '/compensatorio': typeof CompensatorioRoute
   '/control-guardia': typeof ControlGuardiaRoute
+  '/coordinacion-efa': typeof CoordinacionEfaRoute
   '/episodios-efa': typeof EpisodiosEfaRoute
   '/guardia-efa': typeof GuardiaEfaRoute
   '/horarios': typeof HorariosRoute
@@ -134,6 +143,7 @@ export interface FileRouteTypes {
     | '/cambio-guardia'
     | '/compensatorio'
     | '/control-guardia'
+    | '/coordinacion-efa'
     | '/episodios-efa'
     | '/guardia-efa'
     | '/horarios'
@@ -148,6 +158,7 @@ export interface FileRouteTypes {
     | '/cambio-guardia'
     | '/compensatorio'
     | '/control-guardia'
+    | '/coordinacion-efa'
     | '/episodios-efa'
     | '/guardia-efa'
     | '/horarios'
@@ -162,6 +173,7 @@ export interface FileRouteTypes {
     | '/cambio-guardia'
     | '/compensatorio'
     | '/control-guardia'
+    | '/coordinacion-efa'
     | '/episodios-efa'
     | '/guardia-efa'
     | '/horarios'
@@ -177,6 +189,7 @@ export interface RootRouteChildren {
   CambioGuardiaRoute: typeof CambioGuardiaRoute
   CompensatorioRoute: typeof CompensatorioRoute
   ControlGuardiaRoute: typeof ControlGuardiaRoute
+  CoordinacionEfaRoute: typeof CoordinacionEfaRoute
   EpisodiosEfaRoute: typeof EpisodiosEfaRoute
   GuardiaEfaRoute: typeof GuardiaEfaRoute
   HorariosRoute: typeof HorariosRoute
@@ -221,6 +234,13 @@ declare module '@tanstack/react-router' {
       path: '/control-guardia'
       fullPath: '/control-guardia'
       preLoaderRoute: typeof ControlGuardiaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/coordinacion-efa': {
+      id: '/coordinacion-efa'
+      path: '/coordinacion-efa'
+      fullPath: '/coordinacion-efa'
+      preLoaderRoute: typeof CoordinacionEfaRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/episodios-efa': {
@@ -281,6 +301,7 @@ const rootRouteChildren: RootRouteChildren = {
   CambioGuardiaRoute: CambioGuardiaRoute,
   CompensatorioRoute: CompensatorioRoute,
   ControlGuardiaRoute: ControlGuardiaRoute,
+  CoordinacionEfaRoute: CoordinacionEfaRoute,
   EpisodiosEfaRoute: EpisodiosEfaRoute,
   GuardiaEfaRoute: GuardiaEfaRoute,
   HorariosRoute: HorariosRoute,

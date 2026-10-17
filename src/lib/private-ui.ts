@@ -6,13 +6,15 @@ export type PrivateSession = {
   expiresAt: string;
 };
 
-export type PrivateReturnPath = "/panel" | "/admin-usuarios" | "/guardia-efa" | "/episodios-efa";
+export type PrivateReturnPath =
+  "/panel" | "/admin-usuarios" | "/guardia-efa" | "/episodios-efa" | "/coordinacion-efa";
 
 const privateDestinations = new Set<PrivateReturnPath>([
   "/panel",
   "/admin-usuarios",
   "/guardia-efa",
   "/episodios-efa",
+  "/coordinacion-efa",
 ]);
 
 export function safePrivateReturnPath(value: unknown): PrivateReturnPath {
