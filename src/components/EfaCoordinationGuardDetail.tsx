@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { EfaCoordinationServiceModal } from "@/components/EfaCoordinationServiceModal";
 import {
   listEfaGuardServices,
   type EfaOversightEpisodeView,
@@ -38,7 +39,14 @@ const shownDispatchSteps = dispatchTimeSteps.slice(0, 5) as ReadonlyArray<
 >;
 
 /** Services of one guard with their dispatches. Presentational, so it renders in tests. */
-export function EfaCoordinationServiceList({ episodes }: { episodes: EfaOversightEpisodeView[] }) {
+export function EfaCoordinationServiceList({
+  episodes,
+  ownerName,
+}: {
+  episodes: EfaOversightEpisodeView[];
+  /** Names whose service it is in the full-service dialog. */
+  ownerName?: string;
+}) {
   if (episodes.length === 0) {
     return <p className="text-sm text-muted-foreground">No hubo servicios en esta guardia.</p>;
   }
@@ -87,6 +95,7 @@ export function EfaCoordinationServiceList({ episodes }: { episodes: EfaOversigh
           ) : (
             <p className="text-xs text-muted-foreground">Sin despachos.</p>
           )}
+          <EfaCoordinationServiceModal episode={episode} {...(ownerName ? { ownerName } : {})} />
         </li>
       ))}
     </ul>
@@ -94,7 +103,7 @@ export function EfaCoordinationServiceList({ episodes }: { episodes: EfaOversigh
 }
 
 /** Fetches the services only once the detail is shown. */
-function GuardServices({ guardId }: { guardId: string }) {
+function GuardServices({ guardId, ownerName }: { guardId: string; ownerName: string }) {
   const listServices = useServerFn(listEfaGuardServices);
   const query = useQuery({
     queryKey: coordinationServicesQueryKey(guardId),
@@ -114,7 +123,7 @@ function GuardServices({ guardId }: { guardId: string }) {
       </p>
     );
   }
-  return <EfaCoordinationServiceList episodes={query.data} />;
+  return <EfaCoordinationServiceList episodes={query.data} ownerName={ownerName} />;
 }
 
 /** datetime-local value in the browser's time zone. */
@@ -230,7 +239,7 @@ export function EfaCoordinationGuardDetail({
         ))}
       </dl>
       <div className="min-w-0 space-y-4">
-        <GuardServices guardId={guard.id} />
+        <GuardServices guardId={guard.id} ownerName={guard.owner.name} />
         {guard.endedAt && (
           <EfaCoordinationEndCorrection
             key={`${guard.id}:${guard.version}`}

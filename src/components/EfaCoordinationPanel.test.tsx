@@ -16,6 +16,8 @@ import { EfaCoordinationGuardCard } from "./EfaCoordinationGuardCard";
 const now = new Date("2026-10-09T15:00:00.000Z");
 
 vi.mock("@tanstack/react-start", () => ({ useServerFn: () => vi.fn(async () => []) }));
+// The full-service summary has its own tests; the dialog is closed in these renders anyway.
+vi.mock("@/components/EfaEpisodeSummary", () => ({ EfaEpisodeSummary: () => null }));
 vi.mock("@/lib/efa-guards.functions", () => ({ correctEfaGuardEnd: vi.fn() }));
 vi.mock("@/lib/efa-guard-oversight.functions", () => ({
   listEfaGuardOversight: vi.fn(),
@@ -286,6 +288,8 @@ describe("coordination guard detail", () => {
         state: "closed",
         closedAt: new Date("2026-10-09T13:00:00.000Z"),
         cancelledAt: null,
+        cancelledFromState: null,
+        updatedAt: new Date("2026-10-09T13:05:00.000Z"),
         dispatches: [
           {
             id: "dispatch-1",
@@ -315,10 +319,12 @@ describe("coordination guard detail", () => {
         state: "draft",
         closedAt: null,
         cancelledAt: new Date("2026-10-09T14:10:00.000Z"),
+        cancelledFromState: "draft",
+        updatedAt: new Date("2026-10-09T14:10:00.000Z"),
         dispatches: [],
       },
     ];
-    const html = render(<EfaCoordinationServiceList episodes={episodes} />);
+    const html = render(<EfaCoordinationServiceList episodes={episodes} ownerName="Ana Pérez" />);
 
     expect(html).toContain("09/10/2026 09:15");
     expect(html).toContain("Cerrado");
@@ -332,6 +338,49 @@ describe("coordination guard detail", () => {
     expect(html).toContain("Despacho 09:16 · En camino 09:18 · Llegada a escena —");
     expect(html).toContain("Sin motivo registrado");
     expect(html).toContain("Sin despachos.");
+  });
+
+  it("offers a full-service CTA on every service, named after the service", () => {
+    const episodes: EfaOversightEpisodeView[] = [
+      {
+        id: "episode-1",
+        originGuardId: "g-open",
+        eventAt: new Date("2026-10-09T12:15:00.000Z"),
+        motive: "Dolor torácico",
+        address: null,
+        interventionNumber: null,
+        state: "closed",
+        closedAt: new Date("2026-10-09T13:00:00.000Z"),
+        cancelledAt: null,
+        cancelledFromState: null,
+        updatedAt: new Date("2026-10-09T13:05:00.000Z"),
+        dispatches: [],
+      },
+      {
+        id: "episode-2",
+        originGuardId: "g-open",
+        eventAt: new Date("2026-10-09T14:00:00.000Z"),
+        motive: null,
+        address: null,
+        interventionNumber: "B-12",
+        state: "draft",
+        closedAt: null,
+        cancelledAt: null,
+        cancelledFromState: null,
+        updatedAt: new Date("2026-10-09T14:05:00.000Z"),
+        dispatches: [],
+      },
+    ];
+    const html = render(<EfaCoordinationServiceList episodes={episodes} ownerName="Ana Pérez" />);
+
+    expect(html.match(/>Ver servicio completo<\/button>/g)).toHaveLength(2);
+    expect(html).toContain('aria-label="Ver servicio completo: 09/10/2026 09:15 · Dolor torácico"');
+    expect(html).toContain(
+      'aria-label="Ver servicio completo: 09/10/2026 11:00 · Intervención B-12"',
+    );
+    // Closed until asked for: no dialog and no summary fetch.
+    expect(html).not.toContain('role="dialog"');
+    expect(html).not.toContain("Resumen del servicio");
   });
 
   it("explains a guard without services", () => {
