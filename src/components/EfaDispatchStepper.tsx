@@ -150,13 +150,17 @@ function isDispatchMutationDto(value: unknown): value is DispatchMutationDto {
 }
 type BaseChoice = { id: string; name: string };
 const timeSteps = dispatchTimeSteps;
+// The first step merges base, linked call and the dispatch time (t0); the other time steps follow.
 const dispatchStepTitles = [
-  "Base y vínculo",
-  ...timeSteps.map(([, title]) => title),
+  "Despacho",
+  ...timeSteps.slice(1).map(([, title]) => title),
   "Prioridad",
   "Resultado",
   "Revisión",
 ] as const;
+const dispatchPriorityStep = timeSteps.length;
+const dispatchResultStep = dispatchPriorityStep + 1;
+const dispatchLastStep = dispatchStepTitles.length - 1;
 
 // eslint-disable-next-line react-refresh/only-export-components -- Shared with focused review-step regression tests.
 export function isDispatchReviewStep(step: number): boolean {
@@ -496,6 +500,165 @@ export function FirstResponseRoleSelect({
         </option>
       )}
     </select>
+  );
+}
+type DispatchTimeKey = (typeof timeSteps)[number][0];
+type DispatchTimeStatus = DispatchForm["t0Status"];
+const dispatchStatusKey = (key: DispatchTimeKey) =>
+  `${key.slice(0, 2)}Status` as keyof DispatchForm;
+
+/** Typing a time marks it observed; clearing it drops an observed status back to not observed. */
+// eslint-disable-next-line react-refresh/only-export-components -- Pure helper exported for deterministic tests.
+export function dispatchTimeChange(
+  form: DispatchForm,
+  key: DispatchTimeKey,
+  value: string,
+): DispatchForm {
+  const statusKey = dispatchStatusKey(key);
+  return {
+    ...form,
+    [key]: value,
+    [statusKey]: value
+      ? "observed"
+      : form[statusKey] === "observed"
+        ? "not_observed"
+        : form[statusKey],
+  };
+}
+
+/** Any status other than observed clears the time it belongs to. */
+// eslint-disable-next-line react-refresh/only-export-components -- Pure helper exported for deterministic tests.
+export function dispatchStatusChange(
+  form: DispatchForm,
+  key: DispatchTimeKey,
+  status: DispatchTimeStatus,
+): DispatchForm {
+  return {
+    ...form,
+    [dispatchStatusKey(key)]: status,
+    ...(status === "observed" ? {} : { [key]: "" }),
+  };
+}
+
+/** Time input, "Ahora" button and status select shared by every dispatch time step. */
+export function DispatchTimeFields({
+  timeKey,
+  timeLabel,
+  nowLabel,
+  form,
+  onChange,
+  onNow,
+}: {
+  timeKey: DispatchTimeKey;
+  timeLabel: string;
+  nowLabel: string;
+  form: DispatchForm;
+  onChange: (form: DispatchForm) => void;
+  onNow: () => void;
+}) {
+  const statusKey = dispatchStatusKey(timeKey);
+  return (
+    <>
+      <div className="grid min-w-0 grid-cols-1 items-end gap-2 min-[360px]:grid-cols-[minmax(0,1fr)_auto]">
+        <label className="min-w-0">
+          {timeLabel}
+          <input
+            type="datetime-local"
+            step="0.001"
+            className="mt-1 h-11 w-full min-w-0 max-w-full rounded border px-2 sm:px-3"
+            value={form[timeKey]}
+            onChange={(event) => onChange(dispatchTimeChange(form, timeKey, event.target.value))}
+          />
+        </label>
+        <button
+          type="button"
+          aria-label={`Usar ahora para ${nowLabel}`}
+          className="min-h-11 shrink-0 justify-self-start rounded border px-3 text-sm"
+          onClick={onNow}
+        >
+          Ahora
+        </button>
+      </div>
+      <label className="block">
+        Estado
+        <select
+          className="mt-1 h-11 w-full min-w-0 max-w-full rounded border px-3"
+          value={form[statusKey]}
+          onChange={(event) =>
+            onChange(dispatchStatusChange(form, timeKey, event.target.value as DispatchTimeStatus))
+          }
+        >
+          {statuses.map((value) => (
+            <option key={value} value={value}>
+              {timeStatusLabel(value)}
+            </option>
+          ))}
+        </select>
+      </label>
+    </>
+  );
+}
+
+/** Stored first response data must not stay hidden inside the collapsed block. */
+// eslint-disable-next-line react-refresh/only-export-components -- Pure helper exported for deterministic tests.
+export function hasFirstResponseValue(form: {
+  firstResponseRole: string;
+  firstResponseAt: string;
+}) {
+  return Boolean(form.firstResponseRole || form.firstResponseAt);
+}
+
+/** Optional, collapsed by default; opens by itself while it has data and then follows the user's choice. */
+export function DispatchFirstResponseBlock({
+  role,
+  at,
+  onRoleChange,
+  onAtChange,
+  onNow,
+}: {
+  role: string;
+  at: string;
+  onRoleChange: (value: string) => void;
+  onAtChange: (value: string) => void;
+  onNow: () => void;
+}) {
+  const [userOpen, setUserOpen] = useState<boolean | null>(null);
+  const open = userOpen ?? hasFirstResponseValue({ firstResponseRole: role, firstResponseAt: at });
+  return (
+    <details
+      className="min-w-0 rounded border px-3"
+      open={open}
+      onToggle={(event) => setUserOpen(event.currentTarget.open)}
+    >
+      <summary className="min-h-11 cursor-pointer py-3 font-medium">
+        Primera respuesta (opcional)
+      </summary>
+      <div className="min-w-0 space-y-3 pb-3">
+        <label className="block">
+          Primera respuesta (rol anónimo)
+          <FirstResponseRoleSelect value={role} onChange={onRoleChange} />
+        </label>
+        <div className="grid min-w-0 grid-cols-1 items-end gap-2 min-[360px]:grid-cols-[minmax(0,1fr)_auto]">
+          <label className="min-w-0">
+            Hora de primera respuesta
+            <input
+              type="datetime-local"
+              step="0.001"
+              className="mt-1 h-11 w-full min-w-0 max-w-full rounded border px-2 sm:px-3"
+              value={at}
+              onChange={(event) => onAtChange(event.target.value)}
+            />
+          </label>
+          <button
+            type="button"
+            className="min-h-11 shrink-0 rounded border px-3 text-sm"
+            onClick={onNow}
+          >
+            Ahora
+          </button>
+        </div>
+      </div>
+    </details>
   );
 }
 // eslint-disable-next-line react-refresh/only-export-components -- exported for deterministic tests; this predicate is bound to the support selector and handler.
@@ -1959,6 +2122,14 @@ export function EfaDispatchStepper({
                     ))}
                   </select>
                 </label>
+                <DispatchTimeFields
+                  timeKey="t0At"
+                  timeLabel="Hora de despacho"
+                  nowLabel={timeSteps[0][1].toLowerCase()}
+                  form={form}
+                  onChange={setForm}
+                  onNow={() => quickTime("t0At")}
+                />
                 <label className="block">
                   Llamada vinculada
                   <select
@@ -1998,99 +2169,33 @@ export function EfaDispatchStepper({
                   La prioridad se copia al crear; cambiar después el vínculo no la modifica. Se
                   permiten borradores parciales y las horas son opcionales.
                 </p>
-                <label className="block">
-                  Primera respuesta (rol anónimo)
-                  <FirstResponseRoleSelect
-                    value={form.firstResponseRole}
-                    onChange={(value) => setForm({ ...form, firstResponseRole: value })}
-                  />
-                </label>
-                <div className="grid min-w-0 grid-cols-1 items-end gap-2 min-[360px]:grid-cols-[minmax(0,1fr)_auto]">
-                  <label className="min-w-0">
-                    Hora de primera respuesta
-                    <input
-                      type="datetime-local"
-                      step="0.001"
-                      className="mt-1 h-11 w-full min-w-0 max-w-full rounded border px-2 sm:px-3"
-                      value={form.firstResponseAt}
-                      onChange={(event) =>
-                        setForm({ ...form, firstResponseAt: event.target.value })
-                      }
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    className="min-h-11 shrink-0 rounded border px-3 text-sm"
-                    onClick={() =>
-                      setForm({ ...form, firstResponseAt: captureDispatchTime(new Date()) })
-                    }
-                  >
-                    Ahora
-                  </button>
-                </div>
+                <DispatchFirstResponseBlock
+                  key={selected?.id ?? "new"}
+                  role={form.firstResponseRole}
+                  at={form.firstResponseAt}
+                  onRoleChange={(value) => setForm({ ...form, firstResponseRole: value })}
+                  onAtChange={(value) => setForm({ ...form, firstResponseAt: value })}
+                  onNow={() =>
+                    setForm({ ...form, firstResponseAt: captureDispatchTime(new Date()) })
+                  }
+                />
               </div>
             )}
-            {step >= 1 && step <= 7 && (
+            {step >= 1 && step < dispatchPriorityStep && (
               <div className="space-y-3">
                 <h3 className="font-medium">{stepTitle}</h3>
                 {(() => {
-                  const [key, title] = timeSteps[step - 1]!;
-                  const statusKey = `${key.slice(0, 2)}Status` as keyof DispatchForm;
+                  const [key, title] = timeSteps[step]!;
                   return (
                     <>
-                      <div className="grid min-w-0 grid-cols-1 items-end gap-2 min-[360px]:grid-cols-[minmax(0,1fr)_auto]">
-                        <label className="min-w-0">
-                          Hora observada
-                          <input
-                            type="datetime-local"
-                            step="0.001"
-                            className="mt-1 h-11 w-full min-w-0 max-w-full rounded border px-2 sm:px-3"
-                            value={form[key]}
-                            onChange={(event) =>
-                              setForm({
-                                ...form,
-                                [key]: event.target.value,
-                                [statusKey]: event.target.value
-                                  ? "observed"
-                                  : form[statusKey] === "observed"
-                                    ? "not_observed"
-                                    : form[statusKey],
-                              })
-                            }
-                          />
-                        </label>
-                        <button
-                          type="button"
-                          aria-label={`Usar ahora para ${title.toLowerCase()}`}
-                          className="min-h-11 shrink-0 justify-self-start rounded border px-3 text-sm"
-                          onClick={() => quickTime(key)}
-                        >
-                          Ahora
-                        </button>
-                      </div>
-                      <label className="block">
-                        Estado
-                        <select
-                          className="mt-1 h-11 w-full min-w-0 max-w-full rounded border px-3"
-                          value={form[statusKey]}
-                          onChange={(event) =>
-                            setForm({
-                              ...form,
-                              [statusKey]: event.target.value as DispatchForm[typeof statusKey],
-                              ...((event.target.value as DispatchForm[typeof statusKey]) ===
-                              "observed"
-                                ? {}
-                                : { [key]: "" }),
-                            })
-                          }
-                        >
-                          {statuses.map((value) => (
-                            <option key={value} value={value}>
-                              {timeStatusLabel(value)}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
+                      <DispatchTimeFields
+                        timeKey={key}
+                        timeLabel="Hora observada"
+                        nowLabel={title.toLowerCase()}
+                        form={form}
+                        onChange={setForm}
+                        onNow={() => quickTime(key)}
+                      />
                       {key === "t4At" && (
                         <DispatchInstitutionField
                           institutions={institutions}
@@ -2116,7 +2221,7 @@ export function EfaDispatchStepper({
                 })()}
               </div>
             )}
-            {step === 8 && (
+            {step === dispatchPriorityStep && (
               <div className="space-y-3">
                 <h3>Prioridad</h3>
                 <select
@@ -2139,7 +2244,7 @@ export function EfaDispatchStepper({
                 />
               </div>
             )}
-            {step === 9 && (
+            {step === dispatchResultStep && (
               <div className="space-y-3">
                 <h3>Resultado</h3>
                 <select
@@ -2166,7 +2271,7 @@ export function EfaDispatchStepper({
                 />
               </div>
             )}
-            {step === 10 && (
+            {step === dispatchLastStep && (
               <div className="min-w-0 space-y-3">
                 <p>
                   La finalización es manual y exige prioridad y resultado. Ninguna hora cierra el
@@ -2203,7 +2308,7 @@ export function EfaDispatchStepper({
                       <button
                         type="button"
                         className="ml-1 inline-flex min-h-11 items-center px-1 underline"
-                        onClick={() => setStep(8)}
+                        onClick={() => setStep(dispatchPriorityStep)}
                       >
                         Ir a Prioridad
                       </button>
@@ -2215,7 +2320,7 @@ export function EfaDispatchStepper({
                       <button
                         type="button"
                         className="ml-1 inline-flex min-h-11 items-center px-1 underline"
-                        onClick={() => setStep(9)}
+                        onClick={() => setStep(dispatchResultStep)}
                       >
                         Ir a Resultado
                       </button>
@@ -2252,9 +2357,9 @@ export function EfaDispatchStepper({
               </button>
               <button
                 type="button"
-                disabled={step === 10}
+                disabled={step === dispatchLastStep}
                 className="min-h-11 min-w-0 rounded bg-primary px-2 text-sm text-primary-foreground sm:px-4"
-                onClick={() => setStep((value) => Math.min(10, value + 1))}
+                onClick={() => setStep((value) => Math.min(dispatchLastStep, value + 1))}
               >
                 Siguiente
               </button>
