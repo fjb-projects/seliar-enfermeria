@@ -1,7 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
+import { Check, Loader2, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { EfaActionConfirmation } from "@/components/EfaActionConfirmation";
 import type { GuardBase } from "@/components/EfaGuardPanel";
+import { cn } from "@/lib/utils";
 import {
   createEfaMobileArrival,
   deleteEfaMobileArrival,
@@ -125,6 +128,46 @@ function toLocalDateTimeValue(value: string) {
   return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 }
 
+/**
+ * Removing a mobile keeps its records: active arrivals move to the read-only historical list and
+ * hygiene periods stop showing, until the mobile is added back. Returns the warning to confirm,
+ * or null when the mobile has nothing recorded in this guard and can be removed right away.
+ */
+export function getMobileRemovalConfirmation({
+  guardId,
+  base,
+  arrivals,
+  hygienePeriods = [],
+}: {
+  guardId: string;
+  base: GuardBase;
+  arrivals: MobileArrivalView[];
+  hygienePeriods?: MobileHygieneView[] | undefined;
+}): string | null {
+  const ownsRecord = (record: { guardId: string; baseId: string; deletedAt: string | null }) =>
+    record.guardId === guardId && record.baseId === base.id && record.deletedAt === null;
+  const hasArrivals = arrivals.some(ownsRecord);
+  const hasHygiene = hygienePeriods.some(ownsRecord);
+  if (!hasArrivals && !hasHygiene) return null;
+
+  const name = `Móvil ${base.name}`;
+  const comeBack = base.isActive
+    ? "Nada se borra: si lo volvés a sumar, vuelven a aparecer."
+    : "Nada se borra, pero este móvil ya no está disponible y no vas a poder volver a sumarlo.";
+  if (hasArrivals && hasHygiene)
+    return `${name} tiene ingresos y períodos de higiene registrados en esta guardia. Si lo quitás, los ingresos pasan a “Ingresos históricos” como solo lectura y la higiene deja de mostrarse acá. ${comeBack}`;
+  if (hasArrivals)
+    return `${name} tiene ingresos registrados en esta guardia. Si lo quitás, esos ingresos pasan a “Ingresos históricos” como solo lectura y no se pueden editar desde acá. ${comeBack}`;
+  return `${name} tiene períodos de higiene y reposición registrados en esta guardia. Si lo quitás, dejan de mostrarse acá. ${comeBack}`;
+}
+
+const mobileChipClasses = {
+  base: "inline-flex min-h-11 max-w-full items-center gap-2 rounded-full border px-4 py-2 text-left text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60",
+  selected: "border-primary bg-primary text-primary-foreground",
+  unselected:
+    "border-dashed border-muted-foreground/50 text-muted-foreground enabled:hover:bg-accent enabled:hover:text-accent-foreground",
+} as const;
+
 export function EfaMobileArrivalPanel({
   guardId,
   bases,
@@ -134,7 +177,6 @@ export function EfaMobileArrivalPanel({
   membershipErrors = {},
   baseSelectionBlocked = false,
   membershipBlocked = false,
-  focusRequest,
   onBaseSelectionChange,
   onArrivalMutationStart,
   arrivals,
@@ -151,7 +193,6 @@ export function EfaMobileArrivalPanel({
   membershipErrors?: Record<string, string>;
   baseSelectionBlocked?: boolean;
   membershipBlocked?: boolean;
-  focusRequest?: { baseId: string; requestId: number } | null;
   onBaseSelectionChange?: (baseId: string, selected: boolean) => void;
   onArrivalMutationStart?: (key: string) => (() => void) | null;
   arrivals: MobileArrivalView[];
@@ -170,29 +211,39 @@ export function EfaMobileArrivalPanel({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
-  const baseRows = useRef(new Map<string, HTMLElement>());
-  const focusBaseId = focusRequest?.baseId ?? null;
-  const focusRequestId = focusRequest?.requestId ?? null;
+  const [removalBaseId, setRemovalBaseId] = useState<string | null>(null);
 
   const selectedBaseIds = new Set(bases.map((base) => base.id));
   const requested = new Set(requestedBaseIds ?? bases.map((base) => base.id));
   const pendingBaseSet = new Set(membershipPendingBaseIds);
   const sortedBases = sortGuardMobileBases(availableBases);
+  const requestedBases = sortedBases.filter((base) => requested.has(base.id));
+  // Toggle chips need someone allowed to write and a membership handler; otherwise the guard's
+  // mobiles show as static tags.
+  const selectionEditable = canWrite && Boolean(onBaseSelectionChange);
   const historicalArrivals = arrivals.filter(
     (arrival) =>
       arrival.deletedAt === null &&
       arrival.guardId === guardId &&
       !selectedBaseIds.has(arrival.baseId),
   );
+  const removalBase = sortedBases.find((base) => base.id === removalBaseId);
+  const removalTargetKey = removalBase ? `${guardId}:${removalBase.id}` : null;
+  // The dialog closes on its own if the mobile left the selection while it was open.
+  const currentRemovalKey =
+    removalBase && requested.has(removalBase.id) ? `${guardId}:${removalBase.id}` : null;
 
-  useEffect(() => {
-    // Callers may rebuild the request object on unrelated renders; this pair identifies navigation intent.
-    if (focusBaseId === null || focusRequestId === null) return;
-    const row = baseRows.current.get(focusBaseId);
-    if (!row) return;
-    row.scrollIntoView?.({ behavior: "smooth", block: "nearest" });
-    row.focus();
-  }, [focusBaseId, focusRequestId]);
+  function toggleBase(base: GuardBase, selected: boolean) {
+    if (!onBaseSelectionChange) return;
+    if (
+      selected &&
+      getMobileRemovalConfirmation({ guardId, base, arrivals, hygienePeriods }) !== null
+    ) {
+      setRemovalBaseId(base.id);
+      return;
+    }
+    onBaseSelectionChange(base.id, !selected);
+  }
 
   function reportError(key: string, message: string) {
     setErrors((current) => ({ ...current, [key]: message }));
@@ -413,57 +464,79 @@ export function EfaMobileArrivalPanel({
   }
 
   return (
-    <section className="space-y-2" aria-label="Móviles">
-      {sortedBases.map((base) => {
-        const selected = requested.has(base.id);
+    <section className="space-y-3" aria-label="Móviles">
+      {selectionEditable && sortedBases.length > 0 && (
+        <div role="group" aria-label="Móviles de la guardia" className="flex flex-wrap gap-2">
+          {sortedBases.map((base) => {
+            const selected = requested.has(base.id);
+            const membershipPending = pendingBaseSet.has(base.id);
+            const Icon = membershipPending ? Loader2 : selected ? Check : Plus;
+            return (
+              <button
+                key={base.id}
+                type="button"
+                aria-pressed={selected}
+                aria-busy={membershipPending || undefined}
+                disabled={
+                  baseSelectionBlocked || membershipPending || (!base.isActive && !selected)
+                }
+                onClick={() => toggleBase(base, selected)}
+                className={cn(
+                  mobileChipClasses.base,
+                  selected ? mobileChipClasses.selected : mobileChipClasses.unselected,
+                )}
+              >
+                <Icon
+                  aria-hidden="true"
+                  className={cn("size-4 shrink-0", membershipPending && "motion-safe:animate-spin")}
+                />
+                <span className="min-w-0 break-words">{base.name}</span>
+                {membershipPending ? (
+                  <span className="text-xs font-normal">Guardando…</span>
+                ) : (
+                  !base.isActive && <span className="text-xs font-normal">No disponible</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {!selectionEditable && requestedBases.length > 0 && (
+        <ul aria-label="Móviles de la guardia" className="flex flex-wrap gap-2">
+          {requestedBases.map((base) => (
+            <li
+              key={base.id}
+              className="inline-flex min-h-8 max-w-full items-center rounded-full border px-3 text-sm break-words"
+            >
+              {base.name}
+            </li>
+          ))}
+        </ul>
+      )}
+      {sortedBases.map(
+        (base) =>
+          membershipErrors[base.id] && (
+            <p key={base.id} role="alert" className="text-sm text-destructive">
+              {`${base.name}: ${membershipErrors[base.id]}`}
+            </p>
+          ),
+      )}
+      {selectionEditable && sortedBases.length > 0 && requestedBases.length === 0 && (
+        <p className="text-sm text-muted-foreground">Elegir móviles es opcional.</p>
+      )}
+      {requestedBases.map((base) => {
         const membershipPending = pendingBaseSet.has(base.id);
         return (
           <article
             key={base.id}
-            ref={(element) => {
-              if (element) baseRows.current.set(base.id, element);
-              else baseRows.current.delete(base.id);
-            }}
-            tabIndex={-1}
             aria-label={`Móvil ${base.name}`}
             className="min-w-0 rounded-md border px-2 sm:px-3"
           >
-            <div className="flex min-h-11 min-w-0 flex-wrap items-center justify-between gap-2 py-1">
-              <label className="flex min-h-11 min-w-0 flex-1 items-center gap-3 text-sm">
-                <input
-                  className="size-5 shrink-0 accent-primary"
-                  type="checkbox"
-                  checked={selected}
-                  disabled={
-                    !canWrite ||
-                    !onBaseSelectionChange ||
-                    baseSelectionBlocked ||
-                    (!base.isActive && !selected)
-                  }
-                  onChange={(event) => onBaseSelectionChange?.(base.id, event.target.checked)}
-                />
-                <span className="min-w-0 break-words">
-                  {base.name}
-                  {!base.isActive && (
-                    <span className="ml-2 text-xs text-muted-foreground">No disponible</span>
-                  )}
-                </span>
-              </label>
-              {membershipPending && (
-                <span role="status" className="text-xs text-muted-foreground">
-                  Guardando móvil…
-                </span>
-              )}
-            </div>
-            {membershipErrors[base.id] && (
-              <p role="alert" className="pb-2 text-sm text-destructive">
-                {membershipErrors[base.id]}
-              </p>
-            )}
-            {selected && (
-              <div className="pb-2">{roles.map((role) => renderRoleRow(base, role))}</div>
-            )}
-            {selected && hygienePeriods && onHygieneChange && (
+            <h4 className="flex min-h-11 min-w-0 items-center py-1 text-sm font-medium break-words">
+              {base.name}
+            </h4>
+            <div className="pb-2">{roles.map((role) => renderRoleRow(base, role))}</div>
+            {hygienePeriods && onHygieneChange && (
               <div className="pb-2">
                 <EfaMobileHygienePanel
                   guardId={guardId}
@@ -503,6 +576,33 @@ export function EfaMobileArrivalPanel({
         <p className="rounded border border-dashed p-3 text-sm text-muted-foreground">
           No hay móviles disponibles para esta guardia.
         </p>
+      )}
+      {selectionEditable && (
+        <EfaActionConfirmation
+          open={removalTargetKey !== null}
+          onOpenChange={(open) => {
+            if (!open) setRemovalBaseId(null);
+          }}
+          capturedTargetKey={removalTargetKey}
+          currentTargetKey={currentRemovalKey}
+          title="Quitar móvil"
+          description={
+            removalBase
+              ? (getMobileRemovalConfirmation({
+                  guardId,
+                  base: removalBase,
+                  arrivals,
+                  hygienePeriods,
+                }) ?? `¿Quitar Móvil ${removalBase.name} de la guardia?`)
+              : ""
+          }
+          confirmLabel="Quitar móvil"
+          onConfirm={() => {
+            if (!removalBase) return;
+            setRemovalBaseId(null);
+            onBaseSelectionChange?.(removalBase.id, false);
+          }}
+        />
       )}
     </section>
   );

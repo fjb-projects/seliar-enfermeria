@@ -34,7 +34,6 @@ import { EfaMobileArrivalPanel, type MobileArrivalView } from "./EfaMobileArriva
 import type { MobileHygieneView } from "./EfaMobileHygienePanel";
 import {
   createEfaGuardMobileWorkspace,
-  sortGuardMobileBases,
   type EfaGuardMobileWorkspaceSnapshot,
 } from "@/lib/efa-guard-mobile-workspace";
 
@@ -698,16 +697,7 @@ export function EfaGuardPanel({
   const [guardDetailsOpen, setGuardDetailsOpen] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(initialGuards.map((guard) => [guard.id, false])),
   );
-  const [mobileManagerState, setMobileManagerState] = useState<{
-    guardId: string;
-    open: boolean;
-  } | null>(null);
-  const [mobileFocusState, setMobileFocusState] = useState<{
-    guardId: string;
-    baseId: string;
-    requestId: number;
-  } | null>(null);
-  const mobileFocusSequence = useRef(0);
+  const mobilesHeadingId = useId();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -880,11 +870,6 @@ export function EfaGuardPanel({
       "La guardia terminó manualmente.",
     ).finally(release);
   };
-  const managerOpen = openOwnGuard
-    ? mobileManagerState?.guardId === openOwnGuard.id
-      ? mobileManagerState.open
-      : openOwnGuard.bases.length === 0
-    : false;
   const confirmedActiveGuard = activeWorkspaceState?.confirmedGuard ?? openOwnGuard;
   const mobileCatalog = confirmedActiveGuard
     ? [
@@ -892,9 +877,6 @@ export function EfaGuardPanel({
         ...confirmedActiveGuard.bases.filter((base) => !bases.some((item) => item.id === base.id)),
       ]
     : bases;
-  const confirmedMobileBases = confirmedActiveGuard
-    ? sortGuardMobileBases(confirmedActiveGuard.bases)
-    : [];
 
   return (
     <div className="min-w-0 space-y-4">
@@ -976,57 +958,26 @@ export function EfaGuardPanel({
                   {canWrite ? "Registrar atenciones" : "Consultar atenciones de la guardia abierta"}
                 </Link>
               </Button>
-              <section
-                aria-label="Móviles activos"
-                className="min-w-0 space-y-2 rounded-md bg-muted/50 p-3"
-              >
-                <p className="text-sm font-medium">
-                  Móviles activos ({confirmedMobileBases.length})
-                </p>
-                {confirmedMobileBases.length > 0 ? (
-                  <div className="flex flex-wrap gap-2">
-                    {confirmedMobileBases.map((base) => (
-                      <Button
-                        key={base.id}
-                        type="button"
-                        variant="outline"
-                        className="min-h-11 min-w-0 max-w-full whitespace-normal break-words text-left"
-                        onClick={() => {
-                          setMobileManagerState({ guardId: openOwnGuard.id, open: true });
-                          setMobileFocusState({
-                            guardId: openOwnGuard.id,
-                            baseId: base.id,
-                            requestId: ++mobileFocusSequence.current,
-                          });
-                        }}
-                      >
-                        {base.name}
-                      </Button>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground">Elegir móviles es opcional.</p>
-                )}
-              </section>
-              <details
-                open={managerOpen}
-                onToggle={(event) =>
-                  setMobileManagerState({
-                    guardId: openOwnGuard.id,
-                    open: event.currentTarget.open,
-                  })
-                }
-                className="min-w-0 space-y-2"
-              >
-                <summary className="min-h-11 cursor-pointer py-2 text-sm font-medium">
-                  Gestionar móviles
-                </summary>
+              <section aria-labelledby={mobilesHeadingId} className="min-w-0 space-y-3 pt-2">
+                <div className="space-y-1">
+                  <h3
+                    id={mobilesHeadingId}
+                    className="text-xs font-medium tracking-wide text-muted-foreground uppercase"
+                  >
+                    Móviles
+                  </h3>
+                  {canWrite && mobileCatalog.length > 0 && (
+                    <p className="text-sm text-muted-foreground">
+                      Tocá un móvil para sumarlo o quitarlo de la guardia.
+                    </p>
+                  )}
+                </div>
                 <div className="min-w-0 space-y-2">
                   {canWrite && activeWorkspaceState?.unresolved && (
                     <div className="space-y-2" role="alert">
                       <p className="text-sm text-destructive">
-                        No se pudo completar la sincronización de móviles; revisa el detalle de la
-                        fila afectada.
+                        No se pudo completar la sincronización de móviles; revisá el error del móvil
+                        afectado.
                       </p>
                       <Button
                         type="button"
@@ -1058,11 +1009,6 @@ export function EfaGuardPanel({
                     membershipErrors={activeWorkspaceState?.errors ?? {}}
                     baseSelectionBlocked={!activeWorkspaceState?.canChangeBases}
                     membershipBlocked={!activeWorkspaceState?.canCapture}
-                    focusRequest={
-                      mobileFocusState?.guardId === openOwnGuard.id
-                        ? { baseId: mobileFocusState.baseId, requestId: mobileFocusState.requestId }
-                        : null
-                    }
                     onBaseSelectionChange={(baseId, selected) =>
                       void activeWorkspace?.requestBaseSelection(baseId, selected)
                     }
@@ -1084,7 +1030,7 @@ export function EfaGuardPanel({
                     }
                   />
                 </div>
-              </details>
+              </section>
               <div className="space-y-2 border-t pt-4">
                 <p className="text-sm text-muted-foreground">
                   Al terminar, la guardia no admite nuevos registros.
