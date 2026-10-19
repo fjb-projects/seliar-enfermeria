@@ -390,23 +390,77 @@ describe("EfaGuardPanel", () => {
     expect(html).not.toContain("Registrar atenciones");
   });
 
-  it("explains that starting a guard leads to episode recording and bases are optional", () => {
-    const html = renderToStaticMarkup(
-      <EfaGuardPanel
-        initialGuards={[]}
-        activeBases={[]}
-        initialStaffing={{}}
-        currentUserId="current-user"
-        isAdmin={false}
-        canWrite
-      />,
-    );
+  describe("start block as a shift time clock", () => {
+    const renderStart = (canWrite: boolean) =>
+      renderToStaticMarkup(
+        <EfaGuardPanel
+          initialGuards={[]}
+          activeBases={[]}
+          initialStaffing={{}}
+          currentUserId="current-user"
+          isAdmin={false}
+          canWrite={canWrite}
+        />,
+      );
+    const startBlock = (html: string) => html.slice(0, html.indexOf("Mis guardias"));
 
-    expect(html).toContain("Después de iniciar la guardia, registra las atenciones en episodios");
-    expect(html).toContain("El inicio y el cierre son manuales");
-    expect(html).toContain("no usa GPS ni verifica ubicación");
-    expect(html).toContain("Elegir bases es opcional");
-    expect(html).not.toContain("Ir a episodios de atención");
+    it("leads with a punch-in eyebrow and a display clock that renders a stable placeholder", () => {
+      const html = startBlock(renderStart(true));
+
+      expect(html).toContain("Fichar entrada");
+      expect(html).toMatch(/<[^>]*class="[^"]*\bfont-display\b[^"]*"[^>]*>--:--</);
+      expect(html.indexOf("Fichar entrada")).toBeLessThan(html.indexOf("--:--"));
+      expect(html).not.toContain('aria-live="polite">--:--');
+    });
+
+    it("puts the start action before the legal notice and the episodes link", () => {
+      const html = startBlock(renderStart(true));
+      const button = html.indexOf("Iniciar guardia");
+
+      expect(html).toContain("Guardia EFA");
+      expect(button).toBeGreaterThan(-1);
+      expect(button).toBeLessThan(
+        html.indexOf("El inicio y el cierre son manuales. La presencia es declarada"),
+      );
+      expect(button).toBeLessThan(html.indexOf("Ver episodios de atención"));
+      expect(html.indexOf("Guardia EFA")).toBeLessThan(html.indexOf("Ver episodios de atención"));
+      expect(html).toContain("no usa GPS ni verifica ubicación");
+      expect(html).toContain('href="/episodios-efa"');
+    });
+
+    it("drops the nested start box and the old helper copy for a voseo next step", () => {
+      const html = startBlock(renderStart(true));
+
+      expect(html).not.toContain("rounded-lg border p-3");
+      expect(html).not.toContain("Iniciar una guardia");
+      expect(html).not.toContain("Después de iniciar la guardia, registra las atenciones");
+      expect(html).not.toContain("Elegir bases es opcional");
+      expect(html).toContain("Después vas a poder elegir los móviles y registrar las atenciones.");
+      expect(html).not.toContain("Ir a episodios de atención");
+    });
+
+    it("presents the presence declaration as a signed statement the button refers to", () => {
+      const html = startBlock(renderStart(true));
+      const describedBy = html.match(/<button[^>]*aria-describedby="([^"]+)"[^>]*>Iniciar guardia/);
+
+      expect(html).toContain("Declaro que estoy en la Central al iniciar esta guardia.");
+      expect(html).toContain("border-[var(--brand-orange)]");
+      expect(describedBy).not.toBeNull();
+      expect(html).toContain(
+        `id="${describedBy?.[1]}">Declaro que estoy en la Central al iniciar esta guardia.`,
+      );
+      expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Iniciar guardia/);
+    });
+
+    it("keeps the episodes link and the notice for read-only users without a start action", () => {
+      const html = startBlock(renderStart(false));
+
+      expect(html).toContain('href="/episodios-efa"');
+      expect(html).toContain("Ver episodios de atención");
+      expect(html).toContain("La presencia es declarada: no usa GPS ni verifica ubicación.");
+      expect(html).not.toContain("Iniciar guardia");
+      expect(html).not.toContain("Declaro que estoy en la Central");
+    });
   });
 
   it("presents staffing as anonymous observed facts and keeps transfer times distinct", () => {

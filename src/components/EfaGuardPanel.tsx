@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
@@ -101,6 +101,48 @@ const staffingCauseLabels: Record<StaffingCause, string> = {
   temporary: "Salida temporal",
   other: "Otra",
 };
+
+const clockTimeFormat = new Intl.DateTimeFormat("es-AR", {
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
+const clockDateFormat = new Intl.DateTimeFormat("es-AR", {
+  weekday: "long",
+  day: "numeric",
+  month: "long",
+});
+
+// Punch-clock face for the start block. The server render has no trustworthy local time, so it
+// shows a fixed-width placeholder and the client fills it in, ticking on each minute boundary.
+function GuardStartClock() {
+  const [now, setNow] = useState<Date | null>(null);
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval> | undefined;
+    const tick = () => setNow(new Date());
+    tick();
+    const current = new Date();
+    const untilNextMinute = 60_000 - (current.getSeconds() * 1000 + current.getMilliseconds());
+    const timeout = setTimeout(() => {
+      tick();
+      interval = setInterval(tick, 60_000);
+    }, untilNextMinute);
+    return () => {
+      clearTimeout(timeout);
+      if (interval) clearInterval(interval);
+    };
+  }, []);
+  return (
+    <div>
+      <p className="font-display text-6xl leading-none font-semibold tabular-nums sm:text-7xl">
+        {now ? clockTimeFormat.format(now) : "--:--"}
+      </p>
+      <p className="mt-2 min-h-5 text-sm text-muted-foreground first-letter:uppercase">
+        {now ? clockDateFormat.format(now) : ""}
+      </p>
+    </div>
+  );
+}
 
 function PlannedCoverageReadOnly({ bases }: { bases: GuardBase[] }) {
   const previewPlan = useServerFn(previewEfaStaffingPlan);
@@ -605,6 +647,7 @@ export function EfaGuardPanel({
   const [arrivalsByGuard, setArrivalsByGuard] = useState(initialArrivals ?? {});
   const [hygieneByGuard, setHygieneByGuard] = useState(initialHygiene ?? {});
   const [centralConfirmed, setCentralConfirmed] = useState(false);
+  const declarationId = useId();
   const [guardDetailsOpen, setGuardDetailsOpen] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(initialGuards.map((guard) => [guard.id, false])),
   );
@@ -679,7 +722,7 @@ export function EfaGuardPanel({
       setMessage(success);
       return true;
     } catch {
-      setError("No se pudo guardar el cambio. Actualiza la guardia e inténtalo nuevamente.");
+      setError("No se pudo guardar el cambio. Actualizá la guardia e intentá nuevamente.");
       return false;
     } finally {
       setBusy(false);
@@ -808,20 +851,9 @@ export function EfaGuardPanel({
 
   return (
     <div className="min-w-0 space-y-4">
-      {!openOwnGuard && (
-        <Button asChild variant="outline" className="min-h-11">
-          <Link to="/episodios-efa">Ver episodios de atención</Link>
-        </Button>
-      )}
       <Card>
         <CardHeader>
           <CardTitle>Guardia EFA</CardTitle>
-          {!openOwnGuard && (
-            <p className="text-sm text-muted-foreground">
-              El inicio y el cierre son manuales. La declaración de presencia no usa GPS ni verifica
-              ubicación.
-            </p>
-          )}
         </CardHeader>
         <CardContent className="space-y-4 px-3 pt-0 sm:px-6">
           {error && (
@@ -834,34 +866,57 @@ export function EfaGuardPanel({
               {message}
             </p>
           )}
-          {!openOwnGuard && canWrite && (
-            <div className="space-y-3 rounded-lg border p-3">
-              <p className="font-medium">Iniciar una guardia</p>
-              <label className="flex min-h-11 items-start gap-3 text-sm">
-                <input
-                  className="mt-1 size-5 accent-primary"
-                  type="checkbox"
-                  checked={centralConfirmed}
-                  onChange={(event) => setCentralConfirmed(event.target.checked)}
-                />
-                <span>Declaro que estoy en la Central al iniciar esta guardia.</span>
-              </label>
-              <Button
-                className="min-h-11 w-full sm:w-auto"
-                disabled={busy || !canWrite || !centralConfirmed}
-                onClick={() =>
-                  void runAction(async () => {
-                    await startGuard({ data: { declaredAtCentral: true } });
-                    setCentralConfirmed(false);
-                  }, "La guardia se inició.")
-                }
-              >
-                Iniciar guardia
-              </Button>
-              <p className="text-sm text-muted-foreground">
-                Después de iniciar la guardia, registra las atenciones en episodios. Elegir bases es
-                opcional.
-              </p>
+          {!openOwnGuard && (
+            // The card is the only surface: the start block groups by spacing, not borders.
+            <div className="space-y-5">
+              {canWrite && (
+                <>
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                      Fichar entrada
+                    </p>
+                    <GuardStartClock />
+                  </div>
+                  <label className="flex min-h-11 cursor-pointer items-start gap-3 rounded-r-md border-l-4 border-[var(--brand-orange)] px-3 py-3 text-sm transition-colors has-[:checked]:bg-accent/40">
+                    <input
+                      className="mt-0.5 size-5 shrink-0 accent-primary"
+                      type="checkbox"
+                      checked={centralConfirmed}
+                      onChange={(event) => setCentralConfirmed(event.target.checked)}
+                    />
+                    <span id={declarationId}>
+                      Declaro que estoy en la Central al iniciar esta guardia.
+                    </span>
+                  </label>
+                  <div className="space-y-2">
+                    <Button
+                      className="min-h-11 w-full sm:w-auto"
+                      aria-describedby={declarationId}
+                      disabled={busy || !canWrite || !centralConfirmed}
+                      onClick={() =>
+                        void runAction(async () => {
+                          await startGuard({ data: { declaredAtCentral: true } });
+                          setCentralConfirmed(false);
+                        }, "La guardia se inició.")
+                      }
+                    >
+                      {busy ? "Iniciando…" : "Iniciar guardia"}
+                    </Button>
+                    <p className="text-sm text-muted-foreground">
+                      Después vas a poder elegir los móviles y registrar las atenciones.
+                    </p>
+                  </div>
+                </>
+              )}
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">
+                  El inicio y el cierre son manuales. La presencia es declarada: no usa GPS ni
+                  verifica ubicación.
+                </p>
+                <Button asChild variant="link" className="min-h-11 px-0">
+                  <Link to="/episodios-efa">Ver episodios de atención</Link>
+                </Button>
+              </div>
             </div>
           )}
           {openOwnGuard && (
