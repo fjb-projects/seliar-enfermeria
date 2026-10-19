@@ -36,7 +36,7 @@ function CalmBackdrop() {
   return (
     <div
       aria-hidden="true"
-      className="pointer-events-none absolute inset-0 hidden overflow-clip md:block dark:hidden"
+      className="pointer-events-none absolute inset-0  hidden overflow-clip md:block dark:hidden"
     >
       <div className="sticky top-0 h-svh overflow-clip opacity-15 mix-blend-multiply">
         <img
@@ -45,7 +45,7 @@ function CalmBackdrop() {
           aria-hidden="true"
           loading="lazy"
           decoding="async"
-          className="absolute -bottom-24 -right-24 aspect-square w-[44rem] max-w-none blur-3xl"
+          className="absolute -bottom-6 -right-1 aspect-square z-50 w-[44rem] max-w-none"
         />
       </div>
     </div>
