@@ -138,7 +138,8 @@ describe("EfaGuardPanel", () => {
     expect(html).not.toContain("Responsable");
     expect(html).not.toContain("Corregir hora de cierre");
     expect(html).toContain("Dotación observada");
-    expect(html).toContain('aria-label="Móviles"');
+    expect(html).toContain('aria-label="Móvil Central"');
+    expect(html).not.toContain('aria-label="Móviles"');
     expect(html).not.toContain("Registrar ingreso");
   });
 
@@ -175,9 +176,11 @@ describe("EfaGuardPanel", () => {
     expect(activeGuard).not.toContain("El inicio y el cierre son manuales");
     expect(activeGuard).not.toContain("Después de iniciar la guardia");
     expect(activeGuard).not.toContain("Presencia declarada en Central");
-    expect(activeGuard.match(/Registrar ingreso/g)).toHaveLength(3);
+    expect(activeGuard.match(/aria-label="Registrar ingreso de /g)).toHaveLength(3);
     expect(activeGuard).not.toMatch(/<details[^>]*\bopen(?:="")?/);
-    expect((html.match(/aria-label="Móviles"/g) ?? []).length).toBe(1);
+    // A single region named "Móviles": the guard panel's section, labelled by its heading.
+    expect(html).not.toContain('aria-label="Móviles"');
+    expect((activeGuard.match(/<section[^>]*aria-labelledby=/g) ?? []).length).toBe(1);
   });
 
   it("lists the catalog as toggle chips and renders only the selected mobiles", () => {
@@ -224,11 +227,12 @@ describe("EfaGuardPanel", () => {
     expect(activeGuard).not.toContain("Gestionar móviles");
     expect(activeGuard).not.toContain('type="checkbox"');
     expect(activeGuard).not.toContain('aria-label="Móvil Móvil 1"');
-    expect(activeGuard.match(/Registrar ingreso/g)).toHaveLength(6);
+    expect(activeGuard.match(/aria-label="Registrar ingreso de /g)).toHaveLength(6);
     expect(activeGuard).toContain("Tocá un móvil para sumarlo o quitarlo de la guardia.");
     expect(activeGuard).not.toContain("Guardar bases");
     expect((html.match(/Registrar atenciones/g) ?? []).length).toBe(1);
-    expect((html.match(/aria-label="Móviles"/g) ?? []).length).toBe(1);
+    expect(html).not.toContain('aria-label="Móviles"');
+    expect((activeGuard.match(/<section[^>]*aria-labelledby=/g) ?? []).length).toBe(1);
     expect(activeGuard).not.toContain("<details");
   });
 
@@ -296,7 +300,9 @@ describe("EfaGuardPanel", () => {
     expect(html.match(/<details[^>]*open=""/)).toBeNull();
 
     const empty = renderOpenWithout([]);
-    expect(empty).toContain("No hay móviles disponibles en el catálogo.");
+    expect(empty).not.toContain("No hay móviles disponibles en el catálogo.");
+    expect(empty.match(/No hay móviles disponibles/g)).toHaveLength(1);
+    expect(empty).toContain("No hay móviles disponibles para esta guardia.");
     expect(empty).not.toContain("Tocá un móvil para sumarlo o quitarlo de la guardia.");
   });
 
@@ -471,6 +477,21 @@ describe("EfaGuardPanel", () => {
       expect(html).not.toContain('aria-live="polite">--:--');
     });
 
+    it("keeps the clock at the live header's scale with the date folded into the eyebrow", () => {
+      const html = startBlock(renderStart(true));
+      const clock = html.match(/<[^>]*>--:--</)?.[0] ?? "";
+
+      expect(clock).toContain("text-3xl");
+      expect(clock).toContain("sm:text-4xl");
+      expect(clock).not.toContain("text-6xl");
+      expect(clock).not.toContain("text-7xl");
+      // Before the client clock the eyebrow is just the label, on a single line.
+      expect(html).toMatch(/<p class="[^"]*\buppercase\b[^"]*">Fichar entrada<\/p>/);
+      expect(html.match(/Fichar entrada/g)).toHaveLength(1);
+      expect(html).not.toContain("first-letter:uppercase");
+      expect(html).not.toContain("min-h-5");
+    });
+
     it("puts the start action before the legal notice and the episodes link", () => {
       const html = startBlock(renderStart(true));
       const button = html.indexOf("Iniciar guardia");
@@ -568,6 +589,16 @@ describe("EfaGuardPanel", () => {
       expect(html).not.toContain("Guardia en curso · Inicio:");
       expect(mobilesSection(html)).toBeGreaterThan(-1);
       expect(html.indexOf("En curso")).toBeLessThan(mobilesSection(html));
+    });
+
+    it("shows the start time at the same clock scale as the start block", () => {
+      const html = openBlock(renderOpen());
+      const time = html.match(new RegExp(`<[^>]*>${startLabel}<`))?.[0] ?? "";
+
+      expect(time).toContain("font-display");
+      expect(time).toContain("text-3xl");
+      expect(time).toContain("sm:text-4xl");
+      expect(time).not.toContain("text-5xl");
     });
 
     it("drops the nested open-guard box so the card is the only surface", () => {

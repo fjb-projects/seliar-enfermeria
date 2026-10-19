@@ -134,16 +134,23 @@ function useMinuteNow(): Date | null {
   return now;
 }
 
-// Punch-clock face for the start block: a fixed-width placeholder until the client knows the time.
+// "Lunes 19 de octubre": the weekday capitalized and without the comma Intl adds after it.
+function formatClockDate(date: Date) {
+  const text = clockDateFormat.format(date).replace(",", "");
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+// Punch-clock face for the start block, at the live header's scale. The date joins the eyebrow
+// once the client knows it; until then the eyebrow is only the label, still a single line.
 function GuardStartClock() {
   const now = useMinuteNow();
   return (
-    <div>
-      <p className="font-display text-6xl leading-none font-semibold tabular-nums sm:text-7xl">
-        {now ? clockTimeFormat.format(now) : "--:--"}
+    <div className="space-y-2">
+      <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+        {now ? `Fichar entrada · ${formatClockDate(now)}` : "Fichar entrada"}
       </p>
-      <p className="mt-2 min-h-5 text-sm text-muted-foreground first-letter:uppercase">
-        {now ? clockDateFormat.format(now) : ""}
+      <p className="font-display text-3xl leading-none font-semibold tabular-nums sm:text-4xl">
+        {now ? clockTimeFormat.format(now) : "--:--"}
       </p>
     </div>
   );
@@ -172,7 +179,7 @@ function GuardLiveStatus({ startedAt }: { startedAt: string | Date }) {
       </div>
       <p aria-hidden="true" className="flex items-baseline gap-2">
         <span className="text-sm text-muted-foreground">desde</span>
-        <span className="font-display text-4xl leading-none font-semibold tabular-nums sm:text-5xl">
+        <span className="font-display text-3xl leading-none font-semibold tabular-nums sm:text-4xl">
           {startLabel}
         </span>
       </p>
@@ -900,12 +907,7 @@ export function EfaGuardPanel({
             <div className="space-y-5">
               {canWrite && (
                 <>
-                  <div className="space-y-2">
-                    <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                      Fichar entrada
-                    </p>
-                    <GuardStartClock />
-                  </div>
+                  <GuardStartClock />
                   <label className="flex min-h-11 cursor-pointer items-start gap-3 rounded-r-md border-l-4 border-[var(--brand-orange)] px-3 py-3 text-sm transition-colors has-[:checked]:bg-accent/40">
                     <input
                       className="mt-0.5 size-5 shrink-0 accent-primary"
@@ -989,11 +991,6 @@ export function EfaGuardPanel({
                         Reintentar sincronización
                       </Button>
                     </div>
-                  )}
-                  {canWrite && mobileCatalog.length === 0 && (
-                    <p className="text-sm text-muted-foreground">
-                      No hay móviles disponibles en el catálogo.
-                    </p>
                   )}
                   <EfaMobileArrivalPanel
                     key={openOwnGuard.id}

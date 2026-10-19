@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   EfaMobileArrivalPanel,
   createSecureOperationId,
+  getMobileCrewState,
   getMobileRemovalConfirmation,
   getStableArrivalOperation,
   mobileArrivalEditClasses,
@@ -44,15 +45,14 @@ describe("EfaMobileArrivalPanel", () => {
     );
 
     expect(html).toContain("Central");
-    expect(html.match(/Registrar ingreso/g)).toHaveLength(3);
+    expect(html.match(/aria-label="Registrar ingreso de /g)).toHaveLength(3);
     expect(html).toContain("Enfermería");
     expect(html).toContain("Conducción");
     expect(html).toContain("Medicina");
     expect(html).toContain("min-h-11");
-    expect(html).toContain("px-2 sm:px-4");
   });
 
-  it("keeps mobile capture actions beside the role without repeating empty-state copy", () => {
+  it("keeps the three role cells side by side without repeating empty-state copy", () => {
     const html = renderToStaticMarkup(
       <EfaMobileArrivalPanel
         guardId="guard-a"
@@ -63,11 +63,247 @@ describe("EfaMobileArrivalPanel", () => {
       />,
     );
 
-    expect(mobileArrivalEditClasses.row).toContain("grid-cols-[minmax(0,1fr)_auto]");
-    expect(mobileArrivalEditClasses.row).not.toContain("sm:grid-cols-");
-    expect(html).not.toContain("Sin ingreso registrado");
-    expect(html).toContain("Registrar ingreso");
+    expect(mobileArrivalEditClasses.cells).toContain("grid-cols-3");
+    expect(mobileArrivalEditClasses.cells).not.toContain("sm:grid-cols-");
+    expect(html).not.toContain("Sin ingreso");
+    expect(html.match(/\+ Ingreso/g)).toHaveLength(3);
     expect(html).not.toContain("min-h-11 w-full sm:w-auto");
+  });
+
+  describe("mobile card", () => {
+    const mobile2 = { id: "mobile-2", name: "Móvil 2", isActive: true };
+    const arrivedAt = "2026-10-07T10:05:00.000Z";
+    const shortTime = new Date(arrivedAt).toLocaleTimeString("es-AR", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    const arrivalFor = (
+      role: MobileArrivalView["role"],
+      overrides: Partial<MobileArrivalView> = {},
+    ): MobileArrivalView => ({
+      id: `arrival-${role}`,
+      guardId: "guard-a",
+      baseId: "mobile-2",
+      baseNameSnapshot: "Móvil 2",
+      role,
+      arrivedAt,
+      deletedAt: null,
+      version: 1,
+      canEdit: true,
+      ...overrides,
+    });
+    const renderCard = (arrivals: MobileArrivalView[], canWrite = true) =>
+      renderToStaticMarkup(
+        <EfaMobileArrivalPanel
+          guardId="guard-a"
+          bases={[mobile2]}
+          arrivals={arrivals}
+          canWrite={canWrite}
+          onArrivalsChange={vi.fn()}
+        />,
+      );
+    const card = (html: string) =>
+      /<article[^>]*aria-label="Móvil Móvil 2"[\s\S]*?<\/article>/.exec(html)?.[0] ?? "";
+    const cells = (html: string) =>
+      [
+        ...card(html).matchAll(
+          /<(div|button)[^>]*data-role="(nurse|driver|doctor)"[\s\S]*?<\/\1>/g,
+        ),
+      ].map(([cell, , role = ""]) => ({ cell, role }));
+
+    it("heads the card with the mobile name in display type and a text state badge", () => {
+      const html = card(renderCard([]));
+
+      expect(html).toMatch(
+        /<h4[^>]*class="[^"]*\bfont-display\b[^"]*\btext-lg\b[^"]*"[^>]*>Móvil 2<\/h4>/,
+      );
+      expect(html).toMatch(
+        /<span[^>]*class="[^"]*\brounded-full\b[^"]*"[^>]*>Sin tripulación<\/span>/,
+      );
+      expect(html.indexOf("Móvil 2</h4>")).toBeLessThan(html.indexOf("Sin tripulación"));
+    });
+
+    it("shows the operational state when nurse and driver are on board", () => {
+      const html = card(renderCard([arrivalFor("nurse"), arrivalFor("driver")]));
+
+      expect(html).toMatch(/<span[^>]*class="[^"]*var\(--success\)[^"]*"[^>]*>Operativo<\/span>/);
+    });
+
+    it("lays out three role cells in role order, each with an icon and its full label", () => {
+      const html = renderCard([]);
+      const rendered = cells(html);
+
+      expect(card(html)).toMatch(/class="[^"]*\bgrid\b[^"]*\bgrid-cols-3\b[^"]*\bgap-2\b/);
+      expect(rendered.map(({ role }) => role)).toEqual(["nurse", "driver", "doctor"]);
+      expect(rendered[0]?.cell).toContain("Enfermería");
+      expect(rendered[0]?.cell).toMatch(/<svg[^>]*lucide-syringe[^>]*aria-hidden="true"/);
+      expect(rendered[1]?.cell).toContain("Conducción");
+      expect(rendered[1]?.cell).toMatch(/<svg[^>]*data-icon="steering-wheel"/);
+      expect(rendered[1]?.cell).toMatch(/<svg[^>]*viewBox="0 0 24 24"[^>]*>/);
+      expect(rendered[1]?.cell).toMatch(/<svg[^>]*aria-hidden="true"/);
+      expect(rendered[2]?.cell).toContain("Medicina");
+      expect(rendered[2]?.cell).toMatch(/<svg[^>]*lucide-stethoscope[^>]*aria-hidden="true"/);
+    });
+
+    it("registers each role from its empty cell with a named one-tap button", () => {
+      const rendered = cells(renderCard([]));
+
+      expect(rendered.map(({ cell }) => /aria-label="([^"]+)"/.exec(cell)?.[1])).toEqual([
+        "Registrar ingreso de Enfermería en Móvil 2",
+        "Registrar ingreso de Conducción en Móvil 2",
+        "Registrar ingreso de Medicina en Móvil 2",
+      ]);
+      for (const { cell } of rendered) {
+        expect(cell).toMatch(/^<button[^>]*type="button"/);
+        expect(cell).toContain("min-h-11");
+        expect(cell).toContain("+ Ingreso");
+      }
+    });
+
+    it("marks the Medicina cell as optional with a dashed border", () => {
+      const [nurse, driver, doctor] = cells(renderCard([]));
+
+      expect(doctor?.cell).toMatch(/^<button[^>]*class="[^"]*\bborder-dashed\b/);
+      expect(doctor?.cell).toContain("opcional");
+      expect(nurse?.cell).not.toContain("border-dashed");
+      expect(nurse?.cell).not.toContain("opcional");
+      expect(driver?.cell).not.toContain("border-dashed");
+    });
+
+    it("turns editable filled cells into collapsed option toggles without permanent actions", () => {
+      const html = renderCard([arrivalFor("nurse")]);
+      const [nurse] = cells(html);
+
+      expect(nurse?.cell).toMatch(/^<button[^>]*type="button"/);
+      expect(nurse?.cell).toContain('aria-expanded="false"');
+      expect(nurse?.cell).toContain(`aria-label="Enfermería, ingreso ${shortTime}. Opciones"`);
+      expect(nurse?.cell).toMatch(/<time[^>]*class="[^"]*\bfont-display\b[^"]*\btext-lg\b/);
+      expect(nurse?.cell).toContain(`>${shortTime}</time>`);
+      expect(html).not.toContain("Editar");
+      expect(html).not.toContain("Eliminar");
+    });
+
+    it("keeps filled cells static when the server does not allow changes", () => {
+      const [nurse] = cells(renderCard([arrivalFor("nurse", { canEdit: false })]));
+
+      expect(nurse?.cell).toMatch(/^<div/);
+      expect(nurse?.cell).not.toContain("aria-expanded");
+      expect(nurse?.cell).toContain(`>${shortTime}</time>`);
+    });
+
+    it("shows read-only users static cells with the time or no arrival", () => {
+      const html = renderCard([arrivalFor("driver")], false);
+      const [nurse, driver, doctor] = cells(html);
+
+      expect(card(html)).not.toContain("<button");
+      expect(nurse?.cell).toContain("Sin ingreso");
+      expect(driver?.cell).toContain(`>${shortTime}</time>`);
+      expect(doctor?.cell).toContain("Sin ingreso");
+    });
+
+    it("leaves the mobiles region to the guard panel and keeps its own empty message", () => {
+      const html = renderToStaticMarkup(
+        <EfaMobileArrivalPanel
+          guardId="guard-a"
+          bases={[]}
+          availableBases={[]}
+          arrivals={[]}
+          canWrite
+          onArrivalsChange={vi.fn()}
+        />,
+      );
+
+      expect(html).not.toContain('aria-label="Móviles"');
+      expect(html).not.toContain("<section");
+      expect(html).toContain("No hay móviles disponibles para esta guardia.");
+    });
+  });
+
+  describe("getMobileCrewState", () => {
+    const arrival = (role: MobileArrivalView["role"], overrides: Partial<MobileArrivalView> = {}) =>
+      ({
+        id: `arrival-${role}`,
+        guardId: "guard-a",
+        baseId: "base-a",
+        baseNameSnapshot: "Central",
+        role,
+        arrivedAt: "2026-10-14T10:00:00.000Z",
+        deletedAt: null,
+        version: 1,
+        canEdit: true,
+        ...overrides,
+      }) satisfies MobileArrivalView;
+    const period: MobileHygieneView = {
+      id: "period-a",
+      guardId: "guard-a",
+      baseId: "base-a",
+      baseNameSnapshot: "Central",
+      requestedAt: "2026-10-14T14:00:00.000Z",
+      availableAt: null,
+      notInformed: false,
+      note: null,
+      deletedAt: null,
+      version: 1,
+      canEdit: true,
+    };
+    const state = (arrivals: MobileArrivalView[], hygienePeriods: MobileHygieneView[] = []) =>
+      getMobileCrewState({ guardId: "guard-a", baseId: "base-a", arrivals, hygienePeriods });
+
+    it("has no crew without nurse and driver, even with a doctor alone", () => {
+      expect(state([])).toEqual({ tone: "empty", label: "Sin tripulación" });
+      expect(state([arrival("doctor")])).toEqual({ tone: "empty", label: "Sin tripulación" });
+    });
+
+    it("names the missing required role", () => {
+      expect(state([arrival("nurse")])).toEqual({ tone: "partial", label: "Falta Conducción" });
+      expect(state([arrival("driver")])).toEqual({ tone: "partial", label: "Falta Enfermería" });
+      expect(state([arrival("doctor"), arrival("nurse")])).toEqual({
+        tone: "partial",
+        label: "Falta Conducción",
+      });
+    });
+
+    it("is operational with nurse and driver and adds the doctor when present", () => {
+      expect(state([arrival("nurse"), arrival("driver")])).toEqual({
+        tone: "operational",
+        label: "Operativo",
+      });
+      expect(state([arrival("nurse"), arrival("driver"), arrival("doctor")])).toEqual({
+        tone: "operational",
+        label: "Operativo · con médico",
+      });
+    });
+
+    it("ignores deleted arrivals and records of other mobiles or guards", () => {
+      expect(
+        state([
+          arrival("nurse", { deletedAt: "2026-10-14T11:00:00.000Z" }),
+          arrival("driver", { baseId: "base-b" }),
+          arrival("driver", { guardId: "guard-b" }),
+        ]),
+      ).toEqual({ tone: "empty", label: "Sin tripulación" });
+    });
+
+    it("reports an open hygiene period over the crew state", () => {
+      expect(state([arrival("nurse"), arrival("driver")], [period])).toEqual({
+        tone: "hygiene",
+        label: "En higiene desde 11:00",
+      });
+    });
+
+    it("ignores closed, not-informed, deleted and foreign hygiene periods", () => {
+      expect(
+        state(
+          [arrival("nurse"), arrival("driver")],
+          [
+            { ...period, availableAt: "2026-10-14T14:30:00.000Z" },
+            { ...period, notInformed: true },
+            { ...period, deletedAt: "2026-10-14T14:10:00.000Z" },
+            { ...period, baseId: "base-b" },
+          ],
+        ),
+      ).toEqual({ tone: "operational", label: "Operativo" });
+    });
   });
 
   describe("mobile toggle chips", () => {
@@ -135,9 +371,11 @@ describe("EfaMobileArrivalPanel", () => {
       expect(html).toMatch(/<article[^>]*aria-label="Móvil Móvil 2"/);
       expect(html).not.toContain('aria-label="Móvil Móvil 1"');
       expect(html).not.toContain('aria-label="Móvil Móvil 10"');
-      expect(html).toMatch(/<article[^>]*aria-label="Móvil Móvil 2"[^>]*><h4[^>]*>Móvil 2<\/h4>/);
-      expect(html.match(/Registrar ingreso/g)).toHaveLength(3);
-      expect(html).toMatch(/Registrar ingreso<\/button>/);
+      expect(html).toMatch(
+        /<article[^>]*aria-label="Móvil Móvil 2"[^>]*>(?:<div[^>]*>)?<h4[^>]*>Móvil 2<\/h4>/,
+      );
+      expect(html.match(/aria-label="Registrar ingreso de /g)).toHaveLength(3);
+      expect(html).toMatch(/<button[^>]*aria-label="Registrar ingreso de Enfermería en Móvil 2"/);
       expect(html.indexOf("Móviles de la guardia")).toBeLessThan(html.indexOf("<article"));
     });
 
@@ -277,10 +515,10 @@ describe("EfaMobileArrivalPanel", () => {
     });
   });
 
-  it("keeps the mobile edit grid and datetime control shrinkable", () => {
-    expect(mobileArrivalEditClasses.row).toContain("min-w-0");
-    expect(mobileArrivalEditClasses.editingRow).toContain("grid-cols-1");
-    expect(mobileArrivalEditClasses.content).toContain("min-w-0");
+  it("keeps the role cells, the actions row and the datetime control shrinkable", () => {
+    expect(mobileArrivalEditClasses.cells).toContain("min-w-0");
+    expect(mobileArrivalEditClasses.cell).toContain("min-w-0");
+    expect(mobileArrivalEditClasses.actions).toContain("min-w-0");
     expect(mobileArrivalEditClasses.form).toContain("grid-cols-1");
     expect(mobileArrivalEditClasses.form).toContain("min-w-0");
     expect(mobileArrivalEditClasses.label).toContain("min-w-0");
@@ -300,7 +538,7 @@ describe("EfaMobileArrivalPanel", () => {
     );
 
     expect(html).toContain("Enfermería");
-    expect(html.match(/Registrar ingreso/g)).toHaveLength(6);
+    expect(html.match(/aria-label="Registrar ingreso de /g)).toHaveLength(6);
     expect(html).not.toContain("<details");
   });
 

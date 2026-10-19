@@ -1,6 +1,6 @@
-import { useRef, useState } from "react";
+import { useId, useRef, useState, type ComponentType } from "react";
 import { useServerFn } from "@tanstack/react-start";
-import { Check, Loader2, Plus } from "lucide-react";
+import { Check, Loader2, Plus, Stethoscope, Syringe } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EfaActionConfirmation } from "@/components/EfaActionConfirmation";
 import type { GuardBase } from "@/components/EfaGuardPanel";
@@ -12,6 +12,7 @@ import {
 } from "@/lib/efa-mobile-arrivals.functions";
 import type { MobileArrivalRole } from "@/lib/efa-mobile-arrivals.server";
 import { sortGuardMobileBases } from "@/lib/efa-guard-mobile-workspace";
+import { formatTimeMinutes, hygienePeriodStatus } from "@/lib/efa-labels";
 import { EfaMobileHygienePanel, type MobileHygieneView } from "@/components/EfaMobileHygienePanel";
 
 export type MobileArrivalView = {
@@ -107,21 +108,121 @@ export function setBusyArrivalOperation(current: ReadonlySet<string>, key: strin
   return next;
 }
 
-const roles: { id: MobileArrivalRole; label: string }[] = [
-  { id: "nurse", label: "Enfermería" },
-  { id: "driver", label: "Conducción" },
-  { id: "doctor", label: "Medicina" },
+type RoleIcon = ComponentType<{ className?: string; "aria-hidden"?: "true" }>;
+
+// The installed lucide-react has no steering wheel, so this one follows lucide's drawing style.
+function SteeringWheelIcon({
+  className,
+  ...props
+}: {
+  className?: string;
+  "aria-hidden"?: "true";
+}) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      data-icon="steering-wheel"
+      className={className}
+      {...props}
+    >
+      <circle cx="12" cy="12" r="10" />
+      <circle cx="12" cy="12" r="2" />
+      <path d="M10 12H2" />
+      <path d="M14 12h8" />
+      <path d="M12 14v8" />
+    </svg>
+  );
+}
+
+// Nurse and driver make a mobile operational; the doctor is optional and only adds to the state.
+const roles: { id: MobileArrivalRole; label: string; required: boolean; icon: RoleIcon }[] = [
+  { id: "nurse", label: "Enfermería", required: true, icon: Syringe },
+  { id: "driver", label: "Conducción", required: true, icon: SteeringWheelIcon },
+  { id: "doctor", label: "Medicina", required: false, icon: Stethoscope },
 ];
 
+const roleLabel = (role: MobileArrivalRole) => roles.find((item) => item.id === role)?.label;
+
+export type MobileCrewState = {
+  tone: "hygiene" | "empty" | "partial" | "operational";
+  label: string;
+};
+
+/**
+ * Card state of a mobile from its active arrivals and hygiene periods in this guard. An open
+ * hygiene period wins; otherwise nurse plus driver make it operational and a doctor adds to it.
+ */
+export function getMobileCrewState({
+  guardId,
+  baseId,
+  arrivals,
+  hygienePeriods = [],
+}: {
+  guardId: string;
+  baseId: string;
+  arrivals: MobileArrivalView[];
+  hygienePeriods?: MobileHygieneView[] | undefined;
+}): MobileCrewState {
+  const owns = (record: { guardId: string; baseId: string; deletedAt: string | null }) =>
+    record.guardId === guardId && record.baseId === baseId && record.deletedAt === null;
+  const openHygiene = hygienePeriods
+    .filter((period) => owns(period) && hygienePeriodStatus(period) === "open")
+    .reduce<MobileHygieneView | undefined>(
+      (latest, period) =>
+        !latest || Date.parse(period.requestedAt) > Date.parse(latest.requestedAt)
+          ? period
+          : latest,
+      undefined,
+    );
+  if (openHygiene)
+    return {
+      tone: "hygiene",
+      label: `En higiene desde ${formatTimeMinutes(openHygiene.requestedAt)}`,
+    };
+
+  const present = new Set(arrivals.filter(owns).map((arrival) => arrival.role));
+  const nurse = present.has("nurse");
+  const driver = present.has("driver");
+  if (!nurse && !driver) return { tone: "empty", label: "Sin tripulación" };
+  if (!driver) return { tone: "partial", label: `Falta ${roleLabel("driver")}` };
+  if (!nurse) return { tone: "partial", label: `Falta ${roleLabel("nurse")}` };
+  return {
+    tone: "operational",
+    label: present.has("doctor") ? "Operativo · con médico" : "Operativo",
+  };
+}
+
+// Text always carries the state; color only reinforces it.
+const crewStateClasses: Record<MobileCrewState["tone"], string> = {
+  hygiene: "bg-[var(--brand-orange)]/15 text-foreground",
+  empty: "bg-muted text-muted-foreground",
+  partial: "bg-warning-soft text-warning-foreground dark:text-warning",
+  operational: "bg-[var(--success)]/15 text-[var(--success)]",
+};
+
 export const mobileArrivalEditClasses = {
-  row: "grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-t py-2 text-sm",
-  editingRow: "grid min-w-0 grid-cols-1 gap-2 border-t py-2 text-sm",
-  content: "min-w-0",
-  form: "mt-2 grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]",
+  cells: "grid min-w-0 grid-cols-3 gap-2",
+  cell: "flex min-h-11 min-w-0 flex-col items-start justify-between gap-1 rounded-md border p-2 text-left",
+  cellButton:
+    "transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 enabled:hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-60",
+  actions: "grid min-w-0 gap-2 border-t pt-2 text-sm",
+  form: "grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]",
   label: "grid min-w-0 gap-1 text-xs text-muted-foreground",
   input:
     "min-h-11 w-full min-w-0 max-w-full rounded-md border bg-background px-3 text-sm text-foreground",
 } as const;
+
+function formatArrivalTime(value: string) {
+  return new Date(value).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
+}
 
 function toLocalDateTimeValue(value: string) {
   const date = new Date(value);
@@ -212,6 +313,10 @@ export function EfaMobileArrivalPanel({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   const [removalBaseId, setRemovalBaseId] = useState<string | null>(null);
+  // One open actions row per mobile, keyed by mobile and holding the arrival it acts on. A new
+  // arrival has a new id, so a deleted-then-registered role starts collapsed.
+  const [openActions, setOpenActions] = useState<Record<string, string | null>>({});
+  const actionsIdPrefix = useId();
 
   const selectedBaseIds = new Set(bases.map((base) => base.id));
   const requested = new Set(requestedBaseIds ?? bases.map((base) => base.id));
@@ -339,7 +444,7 @@ export function EfaMobileArrivalPanel({
   function remove(arrival: MobileArrivalView) {
     if (
       !window.confirm(
-        `¿Eliminar el ingreso de ${arrival.baseNameSnapshot} · ${roles.find((role) => role.id === arrival.role)?.label}?`,
+        `¿Eliminar el ingreso de ${arrival.baseNameSnapshot} · ${roleLabel(arrival.role)}?`,
       )
     )
       return;
@@ -353,109 +458,171 @@ export function EfaMobileArrivalPanel({
     });
   }
 
-  function renderRoleRow(base: GuardBase, role: (typeof roles)[number]) {
+  function toggleActions(baseId: string, arrivalId: string) {
+    const closing = openActions[baseId] === arrivalId;
+    setOpenActions((current) => ({ ...current, [baseId]: closing ? null : arrivalId }));
+    // An edit in progress belongs to the actions row being closed or replaced on this mobile.
+    if (arrivals.some((arrival) => arrival.id === editingId && arrival.baseId === baseId))
+      setEditingId(null);
+  }
+
+  function renderArrivalTime(arrival: MobileArrivalView) {
+    return (
+      <time
+        dateTime={arrival.arrivedAt}
+        aria-label={`Ingreso registrado el ${new Date(arrival.arrivedAt).toLocaleString("es-AR")}`}
+        className="font-display text-lg leading-none font-semibold tabular-nums"
+      >
+        {formatArrivalTime(arrival.arrivedAt)}
+      </time>
+    );
+  }
+
+  function renderRoleCell(base: GuardBase, role: (typeof roles)[number]) {
     const arrival = activeArrival(base.id, role.id);
     const createKey = `${base.id}:${role.id}:create`;
-    const updateKey = `${arrival?.id}:update`;
-    const deleteKey = `${arrival?.id}:delete`;
     const createBusy = busyKeys.has(createKey);
+    const rowBlocked = membershipBlocked || pendingBaseSet.has(base.id);
+    const Icon = role.icon;
+    const optional = !role.required && !arrival;
+    const cellClass = cn(mobileArrivalEditClasses.cell, optional && "border-dashed");
+    const heading = (
+      <span className="flex min-w-0 flex-wrap items-center gap-1 text-xs text-muted-foreground">
+        <Icon aria-hidden="true" className="size-4 shrink-0" />
+        <span className="min-w-0 break-words">{role.label}</span>
+        {optional && <span className="text-[0.625rem] leading-none italic">opcional</span>}
+      </span>
+    );
+
+    if (!arrival && canWrite)
+      return (
+        <button
+          key={role.id}
+          type="button"
+          data-role={role.id}
+          aria-label={`Registrar ingreso de ${role.label} en ${base.name}`}
+          aria-busy={createBusy || undefined}
+          disabled={createBusy || rowBlocked}
+          onClick={() => register(base.id, role.id)}
+          className={cn(cellClass, mobileArrivalEditClasses.cellButton)}
+        >
+          {heading}
+          <span className="text-sm font-medium">{createBusy ? "Registrando…" : "+ Ingreso"}</span>
+        </button>
+      );
+
+    if (arrival && canWrite && arrival.canEdit) {
+      const expanded = openActions[base.id] === arrival.id;
+      return (
+        <button
+          key={role.id}
+          type="button"
+          data-role={role.id}
+          aria-expanded={expanded}
+          aria-controls={expanded ? `${actionsIdPrefix}-${base.id}` : undefined}
+          aria-label={`${role.label}, ingreso ${formatArrivalTime(arrival.arrivedAt)}. Opciones`}
+          onClick={() => toggleActions(base.id, arrival.id)}
+          className={cn(
+            cellClass,
+            mobileArrivalEditClasses.cellButton,
+            expanded && "border-primary bg-accent/40",
+          )}
+        >
+          {heading}
+          {renderArrivalTime(arrival)}
+        </button>
+      );
+    }
+
+    return (
+      <div key={role.id} data-role={role.id} className={cellClass}>
+        {heading}
+        {arrival ? (
+          renderArrivalTime(arrival)
+        ) : (
+          <span className="text-sm text-muted-foreground">Sin ingreso</span>
+        )}
+      </div>
+    );
+  }
+
+  // Actions for the one filled role whose cell is expanded: the same edit form and delete as
+  // before, out of the cells so they stay compact.
+  function renderRoleActions(base: GuardBase) {
+    if (!canWrite) return null;
+    const arrival = arrivals.find(
+      (item) =>
+        item.id === openActions[base.id] &&
+        item.guardId === guardId &&
+        item.baseId === base.id &&
+        item.deletedAt === null,
+    );
+    if (!arrival?.canEdit) return null;
+    const updateKey = `${arrival.id}:update`;
+    const deleteKey = `${arrival.id}:delete`;
     const updateBusy = busyKeys.has(updateKey);
     const deleteBusy = busyKeys.has(deleteKey);
-    const editable = Boolean(canWrite && arrival?.canEdit);
-    const isEditing = Boolean(arrival && editingId === arrival.id);
     const rowBlocked = membershipBlocked || pendingBaseSet.has(base.id);
     return (
-      <div
-        key={role.id}
-        className={isEditing ? mobileArrivalEditClasses.editingRow : mobileArrivalEditClasses.row}
-      >
-        <div className={mobileArrivalEditClasses.content}>
-          <p className="font-medium">{role.label}</p>
-          {arrival ? (
-            editingId === arrival.id ? (
-              <div className={mobileArrivalEditClasses.form}>
-                <label className={mobileArrivalEditClasses.label}>
-                  Hora de ingreso
-                  <input
-                    className={mobileArrivalEditClasses.input}
-                    type="datetime-local"
-                    value={editValue}
-                    onChange={(event) => setEditValue(event.target.value)}
-                  />
-                </label>
-                <Button
-                  type="button"
-                  className="min-h-11"
-                  disabled={!editValue || updateBusy || rowBlocked}
-                  onClick={() => saveEdit(arrival)}
-                >
-                  {updateBusy ? "Guardando…" : "Guardar"}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="min-h-11"
-                  disabled={updateBusy || rowBlocked}
-                  onClick={() => setEditingId(null)}
-                >
-                  Cancelar
-                </Button>
-              </div>
-            ) : (
-              <time
-                dateTime={arrival.arrivedAt}
-                aria-label={`Ingreso registrado el ${new Date(arrival.arrivedAt).toLocaleString("es-AR")}`}
-                className="text-muted-foreground"
+      <div id={`${actionsIdPrefix}-${base.id}`} className={mobileArrivalEditClasses.actions}>
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <p className="mr-auto min-w-0 font-medium break-words">
+            {`${roleLabel(arrival.role)} · ${formatArrivalTime(arrival.arrivedAt)}`}
+          </p>
+          {editingId !== arrival.id && (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                className="min-h-11 px-2 sm:px-4"
+                disabled={updateBusy || deleteBusy || rowBlocked}
+                onClick={() => {
+                  setEditValue(toLocalDateTimeValue(arrival.arrivedAt));
+                  setEditingId(arrival.id);
+                  setErrors((current) => ({ ...current, [updateKey]: "" }));
+                }}
               >
-                {new Date(arrival.arrivedAt).toLocaleTimeString("es-AR", {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </time>
-            )
-          ) : !canWrite ? (
-            <p className="text-muted-foreground">Sin ingreso registrado</p>
-          ) : null}
-          {(errors[createKey] || errors[updateKey] || errors[deleteKey]) && (
-            <p role="alert" className="mt-1 text-sm text-destructive">
-              {errors[createKey] || errors[updateKey] || errors[deleteKey]}
-            </p>
+                Editar
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                className="min-h-11 px-2 sm:px-4"
+                disabled={updateBusy || deleteBusy || rowBlocked}
+                onClick={() => remove(arrival)}
+              >
+                {deleteBusy ? "Eliminando…" : "Eliminar"}
+              </Button>
+            </>
           )}
         </div>
-        {!arrival && canWrite && (
-          <Button
-            type="button"
-            variant="outline"
-            className="min-h-11 shrink-0 px-2 sm:px-4"
-            disabled={createBusy || rowBlocked}
-            onClick={() => register(base.id, role.id)}
-          >
-            {createBusy ? "Registrando…" : "Registrar ingreso"}
-          </Button>
-        )}
-        {arrival && editable && editingId !== arrival.id && (
-          <div className="flex flex-wrap justify-end gap-2">
+        {editingId === arrival.id && (
+          <div className={mobileArrivalEditClasses.form}>
+            <label className={mobileArrivalEditClasses.label}>
+              Hora de ingreso
+              <input
+                className={mobileArrivalEditClasses.input}
+                type="datetime-local"
+                value={editValue}
+                onChange={(event) => setEditValue(event.target.value)}
+              />
+            </label>
             <Button
               type="button"
-              variant="outline"
-              className="min-h-11 px-2 sm:px-4"
-              disabled={updateBusy || deleteBusy || rowBlocked}
-              onClick={() => {
-                setEditValue(toLocalDateTimeValue(arrival.arrivedAt));
-                setEditingId(arrival.id);
-                setErrors((current) => ({ ...current, [updateKey]: "" }));
-              }}
+              className="min-h-11"
+              disabled={!editValue || updateBusy || rowBlocked}
+              onClick={() => saveEdit(arrival)}
             >
-              Editar
+              {updateBusy ? "Guardando…" : "Guardar"}
             </Button>
             <Button
               type="button"
-              variant="destructive"
-              className="min-h-11 px-2 sm:px-4"
-              disabled={updateBusy || deleteBusy || rowBlocked}
-              onClick={() => remove(arrival)}
+              variant="outline"
+              className="min-h-11"
+              disabled={updateBusy || rowBlocked}
+              onClick={() => setEditingId(null)}
             >
-              {deleteBusy ? "Eliminando…" : "Eliminar"}
+              Cancelar
             </Button>
           </div>
         )}
@@ -463,8 +630,26 @@ export function EfaMobileArrivalPanel({
     );
   }
 
+  function renderRoleErrors(base: GuardBase) {
+    return roles.map((role) => {
+      const arrival = activeArrival(base.id, role.id);
+      const message =
+        errors[`${base.id}:${role.id}:create`] ||
+        errors[`${arrival?.id}:update`] ||
+        errors[`${arrival?.id}:delete`];
+      return (
+        message && (
+          <p key={role.id} role="alert" className="text-sm text-destructive">
+            {`${role.label}: ${message}`}
+          </p>
+        )
+      );
+    });
+  }
+
+  // An unnamed container: the caller owns the "Móviles" region and its heading.
   return (
-    <section className="space-y-3" aria-label="Móviles">
+    <div className="space-y-3">
       {selectionEditable && sortedBases.length > 0 && (
         <div role="group" aria-label="Móviles de la guardia" className="flex flex-wrap gap-2">
           {sortedBases.map((base) => {
@@ -526,18 +711,38 @@ export function EfaMobileArrivalPanel({
       )}
       {requestedBases.map((base) => {
         const membershipPending = pendingBaseSet.has(base.id);
+        const crewState = getMobileCrewState({
+          guardId,
+          baseId: base.id,
+          arrivals,
+          hygienePeriods,
+        });
         return (
           <article
             key={base.id}
             aria-label={`Móvil ${base.name}`}
-            className="min-w-0 rounded-md border px-2 sm:px-3"
+            className="min-w-0 space-y-2 rounded-md border p-2 sm:p-3"
           >
-            <h4 className="flex min-h-11 min-w-0 items-center py-1 text-sm font-medium break-words">
-              {base.name}
-            </h4>
-            <div className="pb-2">{roles.map((role) => renderRoleRow(base, role))}</div>
+            <div className="flex min-h-11 min-w-0 flex-wrap items-center justify-between gap-2">
+              <h4 className="min-w-0 font-display text-lg font-semibold break-words">
+                {base.name}
+              </h4>
+              <span
+                className={cn(
+                  "rounded-full px-2 py-0.5 text-xs font-medium",
+                  crewStateClasses[crewState.tone],
+                )}
+              >
+                {crewState.label}
+              </span>
+            </div>
+            <div className={mobileArrivalEditClasses.cells}>
+              {roles.map((role) => renderRoleCell(base, role))}
+            </div>
+            {renderRoleActions(base)}
+            {renderRoleErrors(base)}
             {hygienePeriods && onHygieneChange && (
-              <div className="pb-2">
+              <div>
                 <EfaMobileHygienePanel
                   guardId={guardId}
                   baseId={base.id}
@@ -561,8 +766,7 @@ export function EfaMobileArrivalPanel({
           <ul className="space-y-2 pb-3 text-sm">
             {historicalArrivals.map((arrival) => (
               <li key={arrival.id}>
-                {arrival.baseNameSnapshot} · {roles.find((role) => role.id === arrival.role)?.label}{" "}
-                ·{" "}
+                {arrival.baseNameSnapshot} · {roleLabel(arrival.role)} ·{" "}
                 <time dateTime={arrival.arrivedAt}>
                   {new Date(arrival.arrivedAt).toLocaleString()}
                 </time>
@@ -604,6 +808,6 @@ export function EfaMobileArrivalPanel({
           }}
         />
       )}
-    </section>
+    </div>
   );
 }
