@@ -46,6 +46,7 @@ function EfaCoordinationPage() {
       title="Coordinación EFA"
       description="Guardias de todos los usuarios"
       contentWidth="full"
+      surface="calm"
     >
       <EfaCoordinationPanel
         guards={guards as EfaOversightGuardView[]}

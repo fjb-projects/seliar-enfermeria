@@ -138,11 +138,12 @@ describe("EfaGuardPanel", () => {
     expect(html).not.toContain("Responsable");
     expect(html).not.toContain("Corregir hora de cierre");
     expect(html).toContain("Dotación observada");
-    expect(html).toContain('aria-label="Móviles"');
+    expect(html).toContain('aria-label="Móvil Central"');
+    expect(html).not.toContain('aria-label="Móviles"');
     expect(html).not.toContain("Registrar ingreso");
   });
 
-  it("shows the single unified mobile manager for the active guard", () => {
+  it("shows the guard's mobiles inline without a separate manager", () => {
     const html = renderToStaticMarkup(
       <EfaGuardPanel
         initialGuards={[
@@ -166,18 +167,23 @@ describe("EfaGuardPanel", () => {
     );
     const activeGuard = html.slice(0, html.indexOf("Mis guardias"));
 
-    expect(activeGuard).toContain("Gestionar móviles");
+    expect(activeGuard).not.toContain("Gestionar móviles");
+    expect(activeGuard).not.toContain("Móviles activos");
+    expect(activeGuard).not.toContain("<details");
+    expect(activeGuard).toMatch(/<button[^>]*aria-pressed="true"[^>]*>[\s\S]*?Central/);
     expect(activeGuard).not.toContain("Guardar bases");
-    expect(activeGuard).toContain("Guardia en curso · Inicio:");
+    expect(activeGuard).toContain("Guardia en curso desde ");
     expect(activeGuard).not.toContain("El inicio y el cierre son manuales");
     expect(activeGuard).not.toContain("Después de iniciar la guardia");
     expect(activeGuard).not.toContain("Presencia declarada en Central");
-    expect(activeGuard.match(/Registrar ingreso/g)).toHaveLength(3);
+    expect(activeGuard.match(/aria-label="Registrar ingreso de /g)).toHaveLength(3);
     expect(activeGuard).not.toMatch(/<details[^>]*\bopen(?:="")?/);
-    expect((html.match(/aria-label="Móviles"/g) ?? []).length).toBe(1);
+    // A single region named "Móviles": the guard panel's section, labelled by its heading.
+    expect(html).not.toContain('aria-label="Móviles"');
+    expect((activeGuard.match(/<section[^>]*aria-labelledby=/g) ?? []).length).toBe(1);
   });
 
-  it("shows one confirmed mobile summary and a collapsed unified manager for an active selection", () => {
+  it("lists the catalog as toggle chips and renders only the selected mobiles", () => {
     const html = renderToStaticMarkup(
       <EfaGuardPanel
         initialGuards={[
@@ -208,16 +214,29 @@ describe("EfaGuardPanel", () => {
     );
     const activeGuard = html.slice(0, html.indexOf("Mis guardias"));
 
-    expect(activeGuard).toContain("Móviles activos");
-    expect(activeGuard.indexOf("Móvil 2")).toBeLessThan(activeGuard.indexOf("Móvil 10"));
-    expect(activeGuard).toContain("Gestionar móviles");
+    const chipStates = [
+      ...activeGuard.matchAll(/<button[^>]*aria-pressed="(true|false)"[^>]*>([\s\S]*?)<\/button>/g),
+    ].map(([, pressed, content = ""]) => [content.replace(/<[^>]+>/g, ""), pressed]);
+
+    expect(chipStates).toEqual([
+      ["Móvil 1", "false"],
+      ["Móvil 2", "true"],
+      ["Móvil 10", "true"],
+    ]);
+    expect(activeGuard).not.toContain("Móviles activos");
+    expect(activeGuard).not.toContain("Gestionar móviles");
+    expect(activeGuard).not.toContain('type="checkbox"');
+    expect(activeGuard).not.toContain('aria-label="Móvil Móvil 1"');
+    expect(activeGuard.match(/aria-label="Registrar ingreso de /g)).toHaveLength(6);
+    expect(activeGuard).toContain("Tocá un móvil para sumarlo o quitarlo de la guardia.");
     expect(activeGuard).not.toContain("Guardar bases");
     expect((html.match(/Registrar atenciones/g) ?? []).length).toBe(1);
-    expect((html.match(/aria-label="Móviles"/g) ?? []).length).toBe(1);
-    expect(activeGuard).not.toMatch(/<details[^>]*\bopen(?:="")?[^>]*>/);
+    expect(html).not.toContain('aria-label="Móviles"');
+    expect((activeGuard.match(/<section[^>]*aria-labelledby=/g) ?? []).length).toBe(1);
+    expect(activeGuard).not.toContain("<details");
   });
 
-  it("opens the unified mobile manager when an active guard has no selected mobiles", () => {
+  it("labels the mobiles area with its own small heading", () => {
     const html = renderToStaticMarkup(
       <EfaGuardPanel
         initialGuards={[
@@ -232,20 +251,59 @@ describe("EfaGuardPanel", () => {
             baseEvents: [],
           },
         ]}
-        activeBases={[]}
+        activeBases={[{ id: "base-a", name: "Central", isActive: true }]}
         initialStaffing={{}}
         currentUserId="current-user"
         isAdmin={false}
         canWrite
       />,
     );
+    const labelledBy = html.match(/<section[^>]*aria-labelledby="([^"]+)"/)?.[1];
 
-    expect(html).toContain("Gestionar móviles");
+    expect(labelledBy).toBeTruthy();
+    expect(html).toMatch(
+      new RegExp(`<h3[^>]*id="${labelledBy}"[^>]*class="[^"]*\\buppercase\\b[^"]*">Móviles</h3>`),
+    );
+  });
+
+  it("keeps the catalog in view and says mobiles are optional when none is selected", () => {
+    const renderOpenWithout = (activeBases: GuardView["bases"]) =>
+      renderToStaticMarkup(
+        <EfaGuardPanel
+          initialGuards={[
+            {
+              id: "open-guard",
+              ownerUserId: "current-user",
+              startedAt: "2026-10-07T08:00:00.000Z",
+              endedAt: null,
+              declaredAtCentral: true,
+              version: 1,
+              bases: [],
+              baseEvents: [],
+            },
+          ]}
+          activeBases={activeBases}
+          initialStaffing={{}}
+          currentUserId="current-user"
+          isAdmin={false}
+          canWrite
+        />,
+      );
+    const html = renderOpenWithout([{ id: "base-a", name: "Central", isActive: true }]);
+
+    expect(html).toMatch(/<button[^>]*aria-pressed="false"[^>]*>[\s\S]*?Central/);
     expect(html).toContain("Elegir móviles es opcional.");
+    expect(html).not.toContain("Gestionar móviles");
     expect(html).not.toContain(
       "Después de iniciar la guardia, registra las atenciones en episodios",
     );
-    expect(html.match(/<details[^>]*open=""/)).not.toBeNull();
+    expect(html.match(/<details[^>]*open=""/)).toBeNull();
+
+    const empty = renderOpenWithout([]);
+    expect(empty).not.toContain("No hay móviles disponibles en el catálogo.");
+    expect(empty.match(/No hay móviles disponibles/g)).toHaveLength(1);
+    expect(empty).toContain("No hay móviles disponibles para esta guardia.");
+    expect(empty).not.toContain("Tocá un móvil para sumarlo o quitarlo de la guardia.");
   });
 
   it("makes an open guard status obvious without hiding the episode action", () => {
@@ -286,7 +344,7 @@ describe("EfaGuardPanel", () => {
     expect(html).toContain("Registrar atenciones");
     expect(
       [...html.matchAll(/<details[^>]*>/g)].map(([tag]) => /\bopen(?:="")?/.test(tag)),
-    ).toEqual([true, false, false]);
+    ).toEqual([false, false]);
     expect(html).toContain("Ver detalles");
   });
 
@@ -330,10 +388,16 @@ describe("EfaGuardPanel", () => {
         canWrite
       />,
     );
-    expect(html).toContain("Móviles activos (2)");
-    expect(html).toContain(">Central</button>");
-    expect(html).toContain(">Norte</button>");
-    expect(html).toContain("Oeste");
+    expect(html).not.toContain("Móviles activos");
+    expect(
+      [...html.matchAll(/<button[^>]*aria-pressed="(true|false)"[^>]*>([\s\S]*?)<\/button>/g)].map(
+        ([, pressed, content = ""]) => [content.replace(/<[^>]+>/g, ""), pressed],
+      ),
+    ).toEqual([
+      ["Central", "true"],
+      ["Norte", "true"],
+      ["Oeste", "false"],
+    ]);
     expect(html).toContain("/episodios-efa");
     expect(html).toContain("Ver conductas observadas");
     expect(html).toContain("Planificación futura (solo lectura)");
@@ -390,23 +454,225 @@ describe("EfaGuardPanel", () => {
     expect(html).not.toContain("Registrar atenciones");
   });
 
-  it("explains that starting a guard leads to episode recording and bases are optional", () => {
-    const html = renderToStaticMarkup(
-      <EfaGuardPanel
-        initialGuards={[]}
-        activeBases={[]}
-        initialStaffing={{}}
-        currentUserId="current-user"
-        isAdmin={false}
-        canWrite
-      />,
-    );
+  describe("start block as a shift time clock", () => {
+    const renderStart = (canWrite: boolean) =>
+      renderToStaticMarkup(
+        <EfaGuardPanel
+          initialGuards={[]}
+          activeBases={[]}
+          initialStaffing={{}}
+          currentUserId="current-user"
+          isAdmin={false}
+          canWrite={canWrite}
+        />,
+      );
+    const startBlock = (html: string) => html.slice(0, html.indexOf("Mis guardias"));
 
-    expect(html).toContain("Después de iniciar la guardia, registra las atenciones en episodios");
-    expect(html).toContain("El inicio y el cierre son manuales");
-    expect(html).toContain("no usa GPS ni verifica ubicación");
-    expect(html).toContain("Elegir bases es opcional");
-    expect(html).not.toContain("Ir a episodios de atención");
+    it("leads with a punch-in eyebrow and a display clock that renders a stable placeholder", () => {
+      const html = startBlock(renderStart(true));
+
+      expect(html).toContain("Fichar entrada");
+      expect(html).toMatch(/<[^>]*class="[^"]*\bfont-display\b[^"]*"[^>]*>--:--</);
+      expect(html.indexOf("Fichar entrada")).toBeLessThan(html.indexOf("--:--"));
+      expect(html).not.toContain('aria-live="polite">--:--');
+    });
+
+    it("keeps the clock at the live header's scale with the date folded into the eyebrow", () => {
+      const html = startBlock(renderStart(true));
+      const clock = html.match(/<[^>]*>--:--</)?.[0] ?? "";
+
+      expect(clock).toContain("text-3xl");
+      expect(clock).toContain("sm:text-4xl");
+      expect(clock).not.toContain("text-6xl");
+      expect(clock).not.toContain("text-7xl");
+      // Before the client clock the eyebrow is just the label, on a single line.
+      expect(html).toMatch(/<p class="[^"]*\buppercase\b[^"]*">Fichar entrada<\/p>/);
+      expect(html.match(/Fichar entrada/g)).toHaveLength(1);
+      expect(html).not.toContain("first-letter:uppercase");
+      expect(html).not.toContain("min-h-5");
+    });
+
+    it("puts the start action before the legal notice and the episodes link", () => {
+      const html = startBlock(renderStart(true));
+      const button = html.indexOf("Iniciar guardia");
+
+      expect(html).toContain("Guardia EFA");
+      expect(button).toBeGreaterThan(-1);
+      expect(button).toBeLessThan(
+        html.indexOf("El inicio y el cierre son manuales. La presencia es declarada"),
+      );
+      expect(button).toBeLessThan(html.indexOf("Ver episodios de atención"));
+      expect(html.indexOf("Guardia EFA")).toBeLessThan(html.indexOf("Ver episodios de atención"));
+      expect(html).toContain("no usa GPS ni verifica ubicación");
+      expect(html).toContain('href="/episodios-efa"');
+    });
+
+    it("drops the nested start box and the old helper copy for a voseo next step", () => {
+      const html = startBlock(renderStart(true));
+
+      expect(html).not.toContain("rounded-lg border p-3");
+      expect(html).not.toContain("Iniciar una guardia");
+      expect(html).not.toContain("Después de iniciar la guardia, registra las atenciones");
+      expect(html).not.toContain("Elegir bases es opcional");
+      expect(html).toContain("Después vas a poder elegir los móviles y registrar las atenciones.");
+      expect(html).not.toContain("Ir a episodios de atención");
+    });
+
+    it("presents the presence declaration as a signed statement the button refers to", () => {
+      const html = startBlock(renderStart(true));
+      const describedBy = html.match(/<button[^>]*aria-describedby="([^"]+)"[^>]*>Iniciar guardia/);
+
+      expect(html).toContain("Declaro que estoy en la Central al iniciar esta guardia.");
+      expect(html).toContain("border-[var(--brand-orange)]");
+      expect(describedBy).not.toBeNull();
+      expect(html).toContain(
+        `id="${describedBy?.[1]}">Declaro que estoy en la Central al iniciar esta guardia.`,
+      );
+      expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Iniciar guardia/);
+    });
+
+    it("keeps the episodes link and the notice for read-only users without a start action", () => {
+      const html = startBlock(renderStart(false));
+
+      expect(html).toContain('href="/episodios-efa"');
+      expect(html).toContain("Ver episodios de atención");
+      expect(html).toContain("La presencia es declarada: no usa GPS ni verifica ubicación.");
+      expect(html).not.toContain("Iniciar guardia");
+      expect(html).not.toContain("Declaro que estoy en la Central");
+    });
+  });
+
+  describe("open guard as a live status board", () => {
+    const startedAt = "2026-10-07T08:00:00.000Z";
+    // 24 h Buenos Aires time, like every other time in the area.
+    const startLabel = "05:00";
+    const renderOpen = (canWrite = true) =>
+      renderToStaticMarkup(
+        <EfaGuardPanel
+          initialGuards={[
+            {
+              id: "open-guard",
+              ownerUserId: "current-user",
+              startedAt,
+              endedAt: null,
+              declaredAtCentral: true,
+              version: 1,
+              bases: [],
+              baseEvents: [],
+            },
+          ]}
+          activeBases={[]}
+          initialStaffing={{}}
+          currentUserId="current-user"
+          isAdmin={false}
+          canWrite={canWrite}
+        />,
+      );
+    const openBlock = (html: string) => html.slice(0, html.indexOf("Mis guardias"));
+    const mobilesSection = (html: string) => html.search(/<section[^>]*aria-labelledby=/);
+
+    it("leads with a live status header: pulse dot, eyebrow, display start time and elapsed placeholder", () => {
+      const html = openBlock(renderOpen());
+
+      expect(html).toContain("En curso");
+      expect(html).toMatch(
+        /class="[^"]*bg-\[var\(--brand-orange\)\][^"]*motion-safe:animate-pulse/,
+      );
+      expect(html).toMatch(
+        new RegExp(`<[^>]*class="[^"]*\\bfont-display\\b[^"]*"[^>]*>${startLabel}<`),
+      );
+      expect(html).toContain(">desde<");
+      expect(html).toContain("-- min");
+      expect(html).toContain(`Guardia en curso desde ${startLabel}`);
+      expect(html).not.toContain("Guardia en curso · Inicio:");
+      expect(mobilesSection(html)).toBeGreaterThan(-1);
+      expect(html.indexOf("En curso")).toBeLessThan(mobilesSection(html));
+    });
+
+    it("shows the start time at the same clock scale as the start block", () => {
+      const html = openBlock(renderOpen());
+      const time = html.match(new RegExp(`<[^>]*>${startLabel}<`))?.[0] ?? "";
+
+      expect(time).toContain("font-display");
+      expect(time).toContain("text-3xl");
+      expect(time).toContain("leading-none");
+      expect(time).not.toContain("sm:text-4xl");
+      expect(time).not.toContain("text-5xl");
+    });
+
+    it("formats the start time in 24 h Buenos Aires time without AM or PM", () => {
+      const html = openBlock(renderOpen());
+
+      expect(html).toContain(`Guardia en curso desde 05:00`);
+      expect(html).not.toMatch(/\b\d{1,2}:\d{2}\s?(?:AM|PM|a\.\s?m\.|p\.\s?m\.)/i);
+    });
+
+    it("puts the status and the episode action in one wrapping row", () => {
+      const html = openBlock(renderOpen());
+      const rowStart = html.search(
+        /<div class="[^"]*\bflex\b[^"]*\bflex-wrap\b[^"]*\bitems-center\b[^"]*\bjustify-between\b[^"]*">/,
+      );
+      const row = html.slice(rowStart, html.search(/<section[^>]*aria-labelledby=/));
+      const button = row.match(/<a[^>]*>Registrar atenciones<\/a>/)?.[0] ?? "";
+
+      expect(rowStart).toBeGreaterThan(-1);
+      expect(row).toMatch(/class="[^"]*\bgap-x-4\b[^"]*\bgap-y-2\b/);
+      expect(row).toContain("En curso");
+      expect(row).toContain(">desde<");
+      expect(row).toContain(`>${startLabel}<`);
+      expect(row).toContain("-- min");
+      expect(button).toContain("w-full");
+      expect(button).toContain("sm:w-auto");
+      expect(row.indexOf("-- min")).toBeLessThan(row.indexOf("Registrar atenciones"));
+      // Time and elapsed sit inline on the same baseline instead of stacking.
+      expect(row).toMatch(
+        /<p[^>]*class="[^"]*\bitems-baseline\b[^"]*"[^>]*>[\s\S]*?05:00[\s\S]*?-- min[\s\S]*?<\/p>/,
+      );
+    });
+
+    it("drops the nested open-guard box so the card is the only surface", () => {
+      const html = openBlock(renderOpen());
+
+      expect(html).not.toContain("rounded-lg border p-2 sm:p-3");
+    });
+
+    it("puts the episode action first and the end action last behind a note", () => {
+      const html = openBlock(renderOpen());
+      const register = html.indexOf("Registrar atenciones");
+      const manager = mobilesSection(html);
+      const note = html.indexOf("Al terminar, la guardia no admite nuevos registros.");
+      const end = html.search(/<button[^>]*>Terminar guardia/);
+
+      expect(register).toBeGreaterThan(-1);
+      expect(manager).toBeGreaterThan(-1);
+      expect(html.indexOf("En curso")).toBeLessThan(register);
+      expect(register).toBeLessThan(manager);
+      expect(note).toBeGreaterThan(manager);
+      expect(end).toBeGreaterThan(manager);
+      expect(html).toMatch(/class="[^"]*\bborder-t\b[^"]*\bpt-4\b/);
+    });
+
+    it("styles the end action as a readable destructive outline", () => {
+      const html = openBlock(renderOpen());
+      const endButton = html.match(/<button[^>]*>Terminar guardia/)?.[0] ?? "";
+
+      expect(endButton).toContain("text-destructive");
+      expect(endButton).toContain("border-destructive");
+      expect(endButton).toContain("hover:bg-destructive/10");
+      expect(endButton).not.toContain("bg-red-800");
+      expect(endButton).not.toContain("text-white");
+      expect(endButton).not.toContain("bg-indigo-400");
+    });
+
+    it("keeps the consult label first for read-only users", () => {
+      const html = openBlock(renderOpen(false));
+
+      expect(mobilesSection(html)).toBeGreaterThan(-1);
+      expect(html.indexOf("Consultar atenciones de la guardia abierta")).toBeLessThan(
+        mobilesSection(html),
+      );
+      expect(html).not.toContain("Tocá un móvil para sumarlo o quitarlo de la guardia.");
+    });
   });
 
   it("presents staffing as anonymous observed facts and keeps transfer times distinct", () => {
@@ -595,24 +861,24 @@ describe("EfaGuardPanel hygiene and restocking", () => {
       </QueryClientProvider>,
     );
 
-  it("offers both actions and the period list inside the mobile card of the open guard", () => {
+  it("keeps the hygiene block inside the collapsed card and shows its state on the card", () => {
     const html = render([guard({})], [hygiene()]);
+    const card = /<article[^>]*aria-label="Móvil Central"[\s\S]*?<\/article>/.exec(html)?.[0] ?? "";
 
-    expect(html.match(/Solicitó higiene y reposición/g)).toHaveLength(1);
-    expect(html).toContain("Disponible (handy)");
-    expect(html).toContain("En higiene y reposición");
-    expect(html.indexOf('aria-label="Móvil Central"')).toBeLessThan(
-      html.indexOf("Solicitó higiene y reposición"),
-    );
+    expect(card).toContain('aria-expanded="false"');
+    expect(card).toContain("En higiene desde 07:00");
+    // Hygiene actions and periods live in the card body, hidden until it is expanded.
+    expect(html).not.toContain("Solicitó higiene y reposición");
+    expect(html).not.toContain("Disponible (handy)");
   });
 
-  it("shows a period left open at close as not informed and read-only in the closed guard", () => {
+  it("does not report a period left open at close as an open hygiene state", () => {
     const html = render(
       [guard({ endedAt: "2026-10-07T12:00:00.000Z", version: 3 })],
       [hygiene({ notInformed: true, canEdit: false })],
     );
 
-    expect(html).toContain("No informado");
+    expect(html).not.toContain("En higiene desde");
     expect(html).not.toContain("Solicitó higiene y reposición");
     expect(html).not.toContain("Disponible (handy)");
   });

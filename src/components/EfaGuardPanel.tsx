@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
@@ -26,7 +26,7 @@ import {
 } from "@/lib/efa-guards.functions";
 import { previewEfaStaffingPlan } from "@/lib/efa-staffing-plan.functions";
 import { getOperationalDateRange } from "@/lib/efa-staffing-plan.date";
-import { formatDateTimeMinutes } from "@/lib/efa-labels";
+import { formatDateTimeMinutes, formatTimeMinutes } from "@/lib/efa-labels";
 import type { DatedSlot } from "@/lib/efa-staffing-plan.server";
 import { listEfaMobileArrivalsForGuard } from "@/lib/efa-mobile-arrivals.functions";
 import { listEfaMobileHygieneForGuard } from "@/lib/efa-mobile-hygiene.functions";
@@ -34,7 +34,6 @@ import { EfaMobileArrivalPanel, type MobileArrivalView } from "./EfaMobileArriva
 import type { MobileHygieneView } from "./EfaMobileHygienePanel";
 import {
   createEfaGuardMobileWorkspace,
-  sortGuardMobileBases,
   type EfaGuardMobileWorkspaceSnapshot,
 } from "@/lib/efa-guard-mobile-workspace";
 
@@ -101,6 +100,111 @@ const staffingCauseLabels: Record<StaffingCause, string> = {
   temporary: "Salida temporal",
   other: "Otra",
 };
+
+const clockTimeFormat = new Intl.DateTimeFormat("es-AR", {
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
+const clockDateFormat = new Intl.DateTimeFormat("es-AR", {
+  weekday: "long",
+  day: "numeric",
+  month: "long",
+});
+
+// Current time refreshed on each minute boundary. The server render has no trustworthy local
+// time, so it returns null there (and on the first client render) until the effect fills it in.
+function useMinuteNow(): Date | null {
+  const [now, setNow] = useState<Date | null>(null);
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval> | undefined;
+    const tick = () => setNow(new Date());
+    tick();
+    const current = new Date();
+    const untilNextMinute = 60_000 - (current.getSeconds() * 1000 + current.getMilliseconds());
+    const timeout = setTimeout(() => {
+      tick();
+      interval = setInterval(tick, 60_000);
+    }, untilNextMinute);
+    return () => {
+      clearTimeout(timeout);
+      if (interval) clearInterval(interval);
+    };
+  }, []);
+  return now;
+}
+
+// "Lunes 19 de octubre": the weekday capitalized and without the comma Intl adds after it.
+function formatClockDate(date: Date) {
+  const text = clockDateFormat.format(date).replace(",", "");
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+// Punch-clock face for the start block, at the live header's scale. The date joins the eyebrow
+// once the client knows it; until then the eyebrow is only the label, still a single line.
+function GuardStartClock() {
+  const now = useMinuteNow();
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+        {now ? `Fichar entrada · ${formatClockDate(now)}` : "Fichar entrada"}
+      </p>
+      <p className="font-display text-3xl leading-none font-semibold tabular-nums sm:text-4xl">
+        {now ? clockTimeFormat.format(now) : "--:--"}
+      </p>
+    </div>
+  );
+}
+
+function formatElapsed(ms: number) {
+  const totalMinutes = Math.max(0, Math.floor(ms / 60_000));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return hours > 0 ? `${hours} h ${minutes} min` : `${minutes} min`;
+}
+
+// Status-board header for the open guard, read as one line: "En curso · desde 08:05 · 1 h 16 min".
+// The start time is fixed 24 h Buenos Aires time, so server and client agree; the elapsed time
+// needs the client clock and keeps a placeholder until then. The visual pieces are hidden from
+// assistive tech in favor of one unambiguous sentence.
+function GuardLiveStatus({ startedAt }: { startedAt: string | Date }) {
+  const now = useMinuteNow();
+  const start = new Date(startedAt);
+  const startLabel = formatTimeMinutes(start);
+  return (
+    <div className="min-w-0">
+      <p className="sr-only">{`Guardia en curso desde ${startLabel}`}</p>
+      <p className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+        <span
+          aria-hidden="true"
+          className="text-xs font-medium tracking-wide whitespace-nowrap uppercase"
+        >
+          <span className="mr-2 inline-block size-2.5 rounded-full bg-[var(--brand-orange)] align-middle motion-safe:animate-pulse" />
+          En curso
+        </span>
+        <span aria-hidden="true" className="text-sm text-muted-foreground">
+          desde
+        </span>
+        <span
+          aria-hidden="true"
+          className="font-display text-3xl leading-none font-semibold tabular-nums"
+        >
+          {startLabel}
+        </span>
+        <span className="text-sm whitespace-nowrap text-muted-foreground tabular-nums">
+          {now ? (
+            <>
+              <span className="sr-only">Duración: </span>
+              {formatElapsed(now.getTime() - start.getTime())}
+            </>
+          ) : (
+            <span aria-hidden="true">-- min</span>
+          )}
+        </span>
+      </p>
+    </div>
+  );
+}
 
 function PlannedCoverageReadOnly({ bases }: { bases: GuardBase[] }) {
   const previewPlan = useServerFn(previewEfaStaffingPlan);
@@ -605,19 +709,11 @@ export function EfaGuardPanel({
   const [arrivalsByGuard, setArrivalsByGuard] = useState(initialArrivals ?? {});
   const [hygieneByGuard, setHygieneByGuard] = useState(initialHygiene ?? {});
   const [centralConfirmed, setCentralConfirmed] = useState(false);
+  const declarationId = useId();
   const [guardDetailsOpen, setGuardDetailsOpen] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(initialGuards.map((guard) => [guard.id, false])),
   );
-  const [mobileManagerState, setMobileManagerState] = useState<{
-    guardId: string;
-    open: boolean;
-  } | null>(null);
-  const [mobileFocusState, setMobileFocusState] = useState<{
-    guardId: string;
-    baseId: string;
-    requestId: number;
-  } | null>(null);
-  const mobileFocusSequence = useRef(0);
+  const mobilesHeadingId = useId();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -679,7 +775,7 @@ export function EfaGuardPanel({
       setMessage(success);
       return true;
     } catch {
-      setError("No se pudo guardar el cambio. Actualiza la guardia e inténtalo nuevamente.");
+      setError("No se pudo guardar el cambio. Actualizá la guardia e intentá nuevamente.");
       return false;
     } finally {
       setBusy(false);
@@ -790,11 +886,6 @@ export function EfaGuardPanel({
       "La guardia terminó manualmente.",
     ).finally(release);
   };
-  const managerOpen = openOwnGuard
-    ? mobileManagerState?.guardId === openOwnGuard.id
-      ? mobileManagerState.open
-      : openOwnGuard.bases.length === 0
-    : false;
   const confirmedActiveGuard = activeWorkspaceState?.confirmedGuard ?? openOwnGuard;
   const mobileCatalog = confirmedActiveGuard
     ? [
@@ -802,26 +893,12 @@ export function EfaGuardPanel({
         ...confirmedActiveGuard.bases.filter((base) => !bases.some((item) => item.id === base.id)),
       ]
     : bases;
-  const confirmedMobileBases = confirmedActiveGuard
-    ? sortGuardMobileBases(confirmedActiveGuard.bases)
-    : [];
 
   return (
     <div className="min-w-0 space-y-4">
-      {!openOwnGuard && (
-        <Button asChild variant="outline" className="min-h-11">
-          <Link to="/episodios-efa">Ver episodios de atención</Link>
-        </Button>
-      )}
       <Card>
         <CardHeader>
           <CardTitle>Guardia EFA</CardTitle>
-          {!openOwnGuard && (
-            <p className="text-sm text-muted-foreground">
-              El inicio y el cierre son manuales. La declaración de presencia no usa GPS ni verifica
-              ubicación.
-            </p>
-          )}
         </CardHeader>
         <CardContent className="space-y-4 px-3 pt-0 sm:px-6">
           {error && (
@@ -834,96 +911,88 @@ export function EfaGuardPanel({
               {message}
             </p>
           )}
-          {!openOwnGuard && canWrite && (
-            <div className="space-y-3 rounded-lg border p-3">
-              <p className="font-medium">Iniciar una guardia</p>
-              <label className="flex min-h-11 items-start gap-3 text-sm">
-                <input
-                  className="mt-1 size-5 accent-primary"
-                  type="checkbox"
-                  checked={centralConfirmed}
-                  onChange={(event) => setCentralConfirmed(event.target.checked)}
-                />
-                <span>Declaro que estoy en la Central al iniciar esta guardia.</span>
-              </label>
-              <Button
-                className="min-h-11 w-full sm:w-auto"
-                disabled={busy || !canWrite || !centralConfirmed}
-                onClick={() =>
-                  void runAction(async () => {
-                    await startGuard({ data: { declaredAtCentral: true } });
-                    setCentralConfirmed(false);
-                  }, "La guardia se inició.")
-                }
-              >
-                Iniciar guardia
-              </Button>
-              <p className="text-sm text-muted-foreground">
-                Después de iniciar la guardia, registra las atenciones en episodios. Elegir bases es
-                opcional.
-              </p>
+          {!openOwnGuard && (
+            // The card is the only surface: the start block groups by spacing, not borders.
+            <div className="space-y-5">
+              {canWrite && (
+                <>
+                  <GuardStartClock />
+                  <label className="flex min-h-11 cursor-pointer items-start gap-3 rounded-r-md border-l-4 border-[var(--brand-orange)] px-3 py-3 text-sm transition-colors has-[:checked]:bg-accent/40">
+                    <input
+                      className="mt-0.5 size-5 shrink-0 accent-primary"
+                      type="checkbox"
+                      checked={centralConfirmed}
+                      onChange={(event) => setCentralConfirmed(event.target.checked)}
+                    />
+                    <span id={declarationId}>
+                      Declaro que estoy en la Central al iniciar esta guardia.
+                    </span>
+                  </label>
+                  <div className="space-y-2">
+                    <Button
+                      className="min-h-11 w-full sm:w-auto"
+                      aria-describedby={declarationId}
+                      disabled={busy || !canWrite || !centralConfirmed}
+                      onClick={() =>
+                        void runAction(async () => {
+                          await startGuard({ data: { declaredAtCentral: true } });
+                          setCentralConfirmed(false);
+                        }, "La guardia se inició.")
+                      }
+                    >
+                      {busy ? "Iniciando…" : "Iniciar guardia"}
+                    </Button>
+                    <p className="text-sm text-muted-foreground">
+                      Después vas a poder elegir los móviles y registrar las atenciones.
+                    </p>
+                  </div>
+                </>
+              )}
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">
+                  El inicio y el cierre son manuales. La presencia es declarada: no usa GPS ni
+                  verifica ubicación.
+                </p>
+                <Button asChild variant="link" className="min-h-11 px-0">
+                  <Link to="/episodios-efa">Ver episodios de atención</Link>
+                </Button>
+              </div>
             </div>
           )}
           {openOwnGuard && (
-            <div className="min-w-0 space-y-3 rounded-lg border p-2 sm:p-3">
-              <p className="text-sm text-muted-foreground">
-                Guardia en curso · Inicio:{" "}
-                {new Date(openOwnGuard.startedAt).toLocaleTimeString(undefined, {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </p>
-              <section
-                aria-label="Móviles activos"
-                className="min-w-0 space-y-2 rounded-md bg-muted/50 p-3"
-              >
-                <p className="text-sm font-medium">
-                  Móviles activos ({confirmedMobileBases.length})
-                </p>
-                {confirmedMobileBases.length > 0 ? (
-                  <div className="flex flex-wrap gap-2">
-                    {confirmedMobileBases.map((base) => (
-                      <Button
-                        key={base.id}
-                        type="button"
-                        variant="outline"
-                        className="min-h-11 min-w-0 max-w-full whitespace-normal break-words text-left"
-                        onClick={() => {
-                          setMobileManagerState({ guardId: openOwnGuard.id, open: true });
-                          setMobileFocusState({
-                            guardId: openOwnGuard.id,
-                            baseId: base.id,
-                            requestId: ++mobileFocusSequence.current,
-                          });
-                        }}
-                      >
-                        {base.name}
-                      </Button>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground">Elegir móviles es opcional.</p>
-                )}
-              </section>
-              <details
-                open={managerOpen}
-                onToggle={(event) =>
-                  setMobileManagerState({
-                    guardId: openOwnGuard.id,
-                    open: event.currentTarget.open,
-                  })
-                }
-                className="min-w-0 space-y-2"
-              >
-                <summary className="min-h-11 cursor-pointer py-2 text-sm font-medium">
-                  Gestionar móviles
-                </summary>
+            // Same single surface as the start block: status first, the frequent action next,
+            // the mobiles in the middle and the irreversible close at the end.
+            <div className="min-w-0 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+                <GuardLiveStatus startedAt={openOwnGuard.startedAt} />
+                <Button asChild className="min-h-11 w-full sm:w-auto">
+                  <Link to="/episodios-efa">
+                    {canWrite
+                      ? "Registrar atenciones"
+                      : "Consultar atenciones de la guardia abierta"}
+                  </Link>
+                </Button>
+              </div>
+              <section aria-labelledby={mobilesHeadingId} className="min-w-0 space-y-3 pt-2">
+                <div className="space-y-1">
+                  <h3
+                    id={mobilesHeadingId}
+                    className="text-xs font-medium tracking-wide text-muted-foreground uppercase"
+                  >
+                    Móviles
+                  </h3>
+                  {canWrite && mobileCatalog.length > 0 && (
+                    <p className="text-sm text-muted-foreground">
+                      Tocá un móvil para sumarlo o quitarlo de la guardia.
+                    </p>
+                  )}
+                </div>
                 <div className="min-w-0 space-y-2">
                   {canWrite && activeWorkspaceState?.unresolved && (
                     <div className="space-y-2" role="alert">
                       <p className="text-sm text-destructive">
-                        No se pudo completar la sincronización de móviles; revisa el detalle de la
-                        fila afectada.
+                        No se pudo completar la sincronización de móviles; revisá el error del móvil
+                        afectado.
                       </p>
                       <Button
                         type="button"
@@ -935,11 +1004,6 @@ export function EfaGuardPanel({
                         Reintentar sincronización
                       </Button>
                     </div>
-                  )}
-                  {canWrite && mobileCatalog.length === 0 && (
-                    <p className="text-sm text-muted-foreground">
-                      No hay móviles disponibles en el catálogo.
-                    </p>
                   )}
                   <EfaMobileArrivalPanel
                     key={openOwnGuard.id}
@@ -955,11 +1019,6 @@ export function EfaGuardPanel({
                     membershipErrors={activeWorkspaceState?.errors ?? {}}
                     baseSelectionBlocked={!activeWorkspaceState?.canChangeBases}
                     membershipBlocked={!activeWorkspaceState?.canCapture}
-                    focusRequest={
-                      mobileFocusState?.guardId === openOwnGuard.id
-                        ? { baseId: mobileFocusState.baseId, requestId: mobileFocusState.requestId }
-                        : null
-                    }
                     onBaseSelectionChange={(baseId, selected) =>
                       void activeWorkspace?.requestBaseSelection(baseId, selected)
                     }
@@ -981,20 +1040,21 @@ export function EfaGuardPanel({
                     }
                   />
                 </div>
-              </details>
-              <Button asChild className="min-h-11 w-full sm:w-auto">
-                <Link to="/episodios-efa">
-                  {canWrite ? "Registrar atenciones" : "Consultar atenciones de la guardia abierta"}
-                </Link>
-              </Button>
-              <Button
-                variant="outline"
-                className="min-h-11 w-full border-destructive text-white font-semibold bg-red-800 hover:bg-destructive/10 sm:w-auto"
-                disabled={busy || !canWrite || !activeWorkspaceState?.canClose}
-                onClick={() => setEndingGuardTarget(guardEndTargetKey)}
-              >
-                Terminar guardia
-              </Button>
+              </section>
+              <div className="space-y-2 border-t pt-4">
+                <p className="text-sm text-muted-foreground">
+                  Al terminar, la guardia no admite nuevos registros.
+                </p>
+                {/* Ghost base: the repo's outline variant carries its own fill. */}
+                <Button
+                  variant="ghost"
+                  className="min-h-11 w-full border border-destructive font-semibold text-destructive hover:bg-destructive/10 hover:text-destructive sm:w-auto"
+                  disabled={busy || !canWrite || !activeWorkspaceState?.canClose}
+                  onClick={() => setEndingGuardTarget(guardEndTargetKey)}
+                >
+                  Terminar guardia
+                </Button>
+              </div>
               <EfaActionConfirmation
                 open={endingGuardTarget !== null}
                 onOpenChange={(open) => {

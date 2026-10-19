@@ -48,6 +48,15 @@ import {
   selectGuardWorkspaceEpisodes,
   type EfaEpisodeWorkspaceSection,
 } from "@/components/EfaEpisodeWorkspace";
+import {
+  clearEpisodePosition,
+  getEpisodePositionStorage,
+  readEpisodePosition,
+  resolveWorkspaceSection,
+  saveEpisodeSection,
+  saveEpisodeSectionPosition,
+  type EfaEpisodePosition,
+} from "@/lib/efa-episode-position";
 
 const loadEpisodeClientHelpers = createClientOnlyFn(() => import("@/lib/efa-episodes.client"));
 const loadEpisodeQueue = createClientOnlyFn(() => import("@/lib/efa-episodes.queue"));
@@ -290,6 +299,10 @@ export function EfaEpisodePanel({
   const [visitedWorkspaceSections, setVisitedWorkspaceSections] = useState<
     Set<EfaEpisodeWorkspaceSection>
   >(() => new Set());
+  // Per-section positions remembered for the open work area, read once when it opens.
+  const [workspaceSectionPositions, setWorkspaceSectionPositions] = useState<
+    EfaEpisodePosition["sections"]
+  >({});
   const [pending, setPending] = useState<PendingEpisodeOperation | null>(null);
   const [conflict, setConflict] = useState<ActiveEpisodeConflict | null>(null);
   const [busy, setBusy] = useState(false);
@@ -527,7 +540,18 @@ export function EfaEpisodePanel({
     setMessage("");
   }
 
-  function openWorkspace(episodeId: string, section: EfaEpisodeWorkspaceSection) {
+  function openWorkspace(episodeId: string, section?: EfaEpisodeWorkspaceSection) {
+    const positionStorage = getEpisodePositionStorage();
+    const openingEpisode = workspaceEpisodeIdRef.current !== episodeId;
+    const remembered =
+      section === undefined || openingEpisode
+        ? readEpisodePosition(positionStorage, currentUserId, episodeId)
+        : null;
+    const targetSection = resolveWorkspaceSection(
+      section,
+      section === undefined ? remembered?.section : null,
+      "communications",
+    );
     const selection = planEpisodeWorkspaceSelection(
       {
         episodeId: workspaceEpisodeIdRef.current,
@@ -536,7 +560,7 @@ export function EfaEpisodePanel({
         requiresDiscardConfirmation: false,
       },
       episodeId,
-      section,
+      targetSection,
     );
     if (selection.requiresDiscardConfirmation) {
       if (
@@ -547,12 +571,17 @@ export function EfaEpisodePanel({
         return false;
     }
     advanceEpisodeNavigationRevision();
+    // The steppers restore their record once when they mount, so a new open needs a fresh read.
+    if (openingEpisode) setWorkspaceSectionPositions(remembered?.sections ?? {});
     setVisitedWorkspaceSections(selection.visited);
     setWorkspaceEpisodeId(selection.episodeId);
     setActiveWorkspaceSection(selection.section);
     visitedWorkspaceSectionsRef.current = selection.visited;
     workspaceEpisodeIdRef.current = selection.episodeId;
     activeWorkspaceSectionRef.current = selection.section;
+    if (selection.episodeId !== null) {
+      saveEpisodeSection(positionStorage, currentUserId, selection.episodeId, selection.section);
+    }
     return true;
   }
 
@@ -739,6 +768,19 @@ export function EfaEpisodePanel({
           episodesRef.current = adopted;
           setEpisodes(adopted);
         },
+      );
+    }
+    if (
+      operation.kind === "close" &&
+      (outcome.status === "confirmed" ||
+        outcome.status === "confirmed-cleanup-failed" ||
+        outcome.status === "cleaned" ||
+        outcome.status === "cleanup-failed")
+    ) {
+      clearEpisodePosition(
+        getEpisodePositionStorage(),
+        ticket.ownerUserId,
+        (operation.payload as PendingEpisodeClose["payload"]).episodeId,
       );
     }
     try {
@@ -1413,6 +1455,9 @@ export function EfaEpisodePanel({
           : await reactivateEpisodeFn({ data: input })
       ) as EpisodeMutationResult;
       lifecycleOperationRef.current = null;
+      if (action === "cancel") {
+        clearEpisodePosition(getEpisodePositionStorage(), currentUserId, result.episode.id);
+      }
       setEpisodes((current) =>
         current.map((item) =>
           item.id === result.episode.id && result.episode.version >= item.version
@@ -2090,7 +2135,7 @@ export function EfaEpisodePanel({
                       variant="outline"
                       className="min-h-11 max-w-full border-sky-200 bg-sky-50 px-2.5 text-sm text-sky-950 hover:bg-sky-100 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100 dark:hover:bg-sky-950/60 sm:px-3"
                       aria-label={`Abrir área de trabajo de ${accessibleDisplayName(episode)}`}
-                      onClick={() => openWorkspace(episode.id, "communications")}
+                      onClick={() => openWorkspace(episode.id)}
                     >
                       <PanelsTopLeft aria-hidden="true" className="size-4" />
                       Abrir área
@@ -2193,6 +2238,16 @@ export function EfaEpisodePanel({
                               }
                             : null
                         }
+                        initialPosition={workspaceSectionPositions.communications ?? null}
+                        onPositionChange={(position) =>
+                          saveEpisodeSectionPosition(
+                            getEpisodePositionStorage(),
+                            currentUserId,
+                            episode.id,
+                            "communications",
+                            position,
+                          )
+                        }
                         onContinueToDispatches={() => {
                           openWorkspace(episode.id, "dispatches");
                         }}
@@ -2218,6 +2273,16 @@ export function EfaEpisodePanel({
                         currentUserId={currentUserId}
                         canWrite={canWrite}
                         episodeCanEdit={episode.canEdit}
+                        initialPosition={workspaceSectionPositions.dispatches ?? null}
+                        onPositionChange={(position) =>
+                          saveEpisodeSectionPosition(
+                            getEpisodePositionStorage(),
+                            currentUserId,
+                            episode.id,
+                            "dispatches",
+                            position,
+                          )
+                        }
                       />
                     </div>
                   )}

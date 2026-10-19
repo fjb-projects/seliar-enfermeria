@@ -115,6 +115,13 @@
     rgb(255 0 97 / 85%),
     rgb(0 31 255 / 85%) 105%
   );
+  --workflow-background-2: linear-gradient(
+    110deg,
+    rgb(240 218 63 / 85%),
+    rgb(255 85 0 / 85%),
+    rgb(255 0 97 / 85%),
+    rgb(0 31 255 / 85%) 105%
+  );
 }
 
 .dark {
@@ -164,7 +171,7 @@
   }
 
   body {
-    background-color: var(--color-background);
+    background-color: var(--workflow-background-2)
     background-image:
       linear-gradient(var(--paper-line) 1px, transparent 1px),
       linear-gradient(90deg, var(--paper-line) 1px, transparent 1px);
@@ -191,5 +198,18 @@
   .workflow-background {
     background-color: white;
     background-image: var(--workflow-background);
+  }
+
+  /* The same gradient on phones only; from md the page falls back to the plain theme background. */
+  .workflow-background-mobile-only {
+    background-color: white;
+    background-image: var(--workflow-background);
+  }
+
+  @media (min-width: 48rem) {
+    .workflow-background-mobile-only {
+      background-color: transparent;
+      background-image: none;
+    }
   }
 }

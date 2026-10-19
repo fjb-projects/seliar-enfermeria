@@ -190,7 +190,7 @@ export function EfaMobileHygienePanel({
     if (onMutationStart && !release) {
       reportError(
         key,
-        "Espera a que termine la sincronización de móviles antes de cambiar higiene y reposición.",
+        "Esperá a que termine la sincronización de móviles antes de cambiar higiene y reposición.",
       );
       return false;
     }
@@ -209,7 +209,7 @@ export function EfaMobileHygienePanel({
         clearConfirmedHygieneOperation(pendingOperations.current, creationScope, creationKey);
       return true;
     } catch {
-      reportError(key, "No se pudo guardar el cambio. Reintenta esta acción.");
+      reportError(key, "No se pudo guardar el cambio. Reintentá esta acción.");
       return false;
     } finally {
       inFlight.current.delete(key);
@@ -227,7 +227,7 @@ export function EfaMobileHygienePanel({
     if (!manualTime) return { ok: true };
     const value = parseLocalHygieneTimestamp(manualTime);
     if (!value) {
-      reportError(key, "Ingresa una fecha y hora válidas.");
+      reportError(key, "Ingresá una fecha y hora válidas.");
       return { ok: false };
     }
     return { ok: true, value };
@@ -285,7 +285,7 @@ export function EfaMobileHygienePanel({
     const requestedAt = parseLocalHygieneTimestamp(editRequested);
     const availableAt = editAvailable ? parseLocalHygieneTimestamp(editAvailable) : null;
     if (!requestedAt || (editAvailable && !availableAt)) {
-      reportError(key, "Ingresa una fecha y hora válidas.");
+      reportError(key, "Ingresá una fecha y hora válidas.");
       return;
     }
     if (period.availableAt && !availableAt) {

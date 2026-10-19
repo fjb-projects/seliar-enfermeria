@@ -30,6 +30,7 @@ import type {
   CommunicationQueueEntry,
   CommunicationQueueStore,
 } from "@/lib/efa-communications.queue";
+import type { EfaEpisodeSectionPosition } from "@/lib/efa-episode-position";
 import { directionLabel, formatDateTimeMinutes, priorityLabel } from "@/lib/efa-labels";
 
 const loadCommunicationClient = createClientOnlyFn(() => import("@/lib/efa-communications.client"));
@@ -388,6 +389,24 @@ export const canEditCommunication = (canWrite: boolean, communication: { canEdit
 // eslint-disable-next-line react-refresh/only-export-components -- Keep the tested permission gate beside its UI use.
 export const canCreateCommunication = (canWrite: boolean, episodeCanEdit: boolean) =>
   canWrite && episodeCanEdit;
+
+/**
+ * Decides whether a remembered position can be restored: only a call that still exists and the
+ * user can still edit, with its step clamped to the valid range.
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- Pure helper exported for deterministic tests.
+export function resolveCommunicationRestore<T extends { id: string; canEdit: boolean }>(
+  position: EfaEpisodeSectionPosition | null | undefined,
+  calls: readonly T[],
+  canWrite: boolean,
+): { record: T; step: number } | null {
+  if (!position || position.recordId === null) return null;
+  const record = calls.find((call) => call.id === position.recordId);
+  if (!record || !canEditCommunication(canWrite, record)) return null;
+  const lastStep = communicationSteps.length - 1;
+  const step = Number.isInteger(position.step) ? Math.min(Math.max(position.step, 0), lastStep) : 0;
+  return { record, step };
+}
 // eslint-disable-next-line react-refresh/only-export-components -- The recovery visibility predicate is tested and used by this render path.
 export function shouldShowCommunicationEditor(input: {
   hasSelectedCall: boolean;
@@ -449,6 +468,8 @@ export function EfaCommunicationPanel({
   onInitialCallSelected,
   onContinueToDispatches,
   episode,
+  initialPosition,
+  onPositionChange,
 }: {
   episode?: CommunicationServiceContext | undefined;
   episodeId: string;
@@ -460,6 +481,10 @@ export function EfaCommunicationPanel({
   onInitialCallSelected?: (operationId: string, communicationId: string) => void;
   /** Called only after the server confirmed a "finalize and continue" request. */
   onContinueToDispatches?: () => void;
+  /** Remembered call and step, restored once after the calls load when still editable. */
+  initialPosition?: EfaEpisodeSectionPosition | null;
+  /** Reports the selected call and step after the initial restore. */
+  onPositionChange?: (position: EfaEpisodeSectionPosition) => void;
 }) {
   const listForEpisode = useServerFn(listEfaCommunicationsForEpisode);
   const listNotices = useServerFn(listEfaCommunicationNotices);
@@ -530,6 +555,10 @@ export function EfaCommunicationPanel({
     endedAt: null,
   });
   const submissionGateRef = useRef(createCommunicationSubmissionGate());
+  const initialPositionRef = useRef(initialPosition ?? null);
+  const onPositionChangeRef = useRef(onPositionChange);
+  const positionReadyRef = useRef(false);
+  onPositionChangeRef.current = onPositionChange;
   queueEntriesRef.current = queueEntries;
   selectedOperationRef.current = selectedOperationId;
   selectedCallRef.current = selected;
@@ -1246,6 +1275,44 @@ export function EfaCommunicationPanel({
     noteCallEditorInteraction();
     const client = await loadCommunicationClient();
     if (!currentContext()) return;
+    applyCallSelection(call, client, 0);
+  }
+
+  /**
+   * Restores the remembered call and step once, unless a queued operation, the first-call
+   * continuation or the user already selected or started something.
+   */
+  async function restoreRememberedPosition() {
+    const canRestore = () =>
+      !pendingRef.current &&
+      !busyRef.current &&
+      !dirtyRef.current &&
+      selectedCallRef.current === null &&
+      selectedOperationRef.current === "" &&
+      !initialSelectionClaimedRef.current &&
+      initialCallTargetRef.current === null;
+    const restore = resolveCommunicationRestore(
+      initialPositionRef.current,
+      callsRef.current,
+      canWriteRef.current,
+    );
+    if (!restore || !canRestore()) return;
+    const expectedRevision = initialSelectionRevisionRef.current;
+    const client = await loadCommunicationClient();
+    if (
+      !currentContext() ||
+      !canRestore() ||
+      initialSelectionRevisionRef.current !== expectedRevision
+    )
+      return;
+    applyCallSelection(restore.record, client, restore.step);
+  }
+
+  function applyCallSelection(
+    call: EfaCommunicationView,
+    client: Awaited<ReturnType<typeof loadCommunicationClient>>,
+    nextStep: number,
+  ) {
     setSelected(call);
     selectedCallRef.current = call;
     setConfirmingLifecycle(null);
@@ -1257,7 +1324,7 @@ export function EfaCommunicationPanel({
     setTimeReviewed({ startedAt: false, endedAt: false });
     originalTimesRef.current = { startedAt: call.startedAt, endedAt: call.endedAt };
     setDirty(false);
-    setStep(0);
+    setStep(nextStep);
     setMessage("");
     setError("");
   }
@@ -1371,10 +1438,12 @@ export function EfaCommunicationPanel({
         );
         setCallsReady(true);
         if (entries.length === 1) await restorePending(entries[0]!);
+        if (active && currentContext()) await restoreRememberedPosition();
       } catch {
         if (active && currentContext())
           setError("No se pudo cargar el historial de llamadas del episodio.");
       }
+      if (active) positionReadyRef.current = true;
     })();
     const onOnline = () => {
       if (!active || !currentContext() || !canWriteRef.current || !storeRef.current) return;
@@ -1473,6 +1542,12 @@ export function EfaCommunicationPanel({
       }
     })();
   }, [callsReady, initialCallTarget?.operationId, initialCallTarget?.communicationId]);
+
+  useEffect(() => {
+    // Mount defaults are not a position: report only once the remembered one had its chance.
+    if (!positionReadyRef.current) return;
+    onPositionChangeRef.current?.({ recordId: selected?.id ?? null, step });
+  }, [selected?.id, step]);
 
   useEffect(() => {
     const pendingFocus = pendingInitialCallFocusRef.current;

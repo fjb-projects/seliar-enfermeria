@@ -116,6 +116,29 @@ describe("private account header", () => {
     );
   });
 
+  it("keeps the gradient surface by default and passes the calm surface through", () => {
+    const session = {
+      user: { id: "user-1", name: "Ana Example", email: "ana@example.test" },
+      roles: ["admin"],
+      expiresAt: "2026-10-07T12:00:00.000Z",
+    };
+    const defaultHtml = renderToStaticMarkup(
+      <PrivateAccountShell session={session}>
+        <p>Contenido</p>
+      </PrivateAccountShell>,
+    );
+    const calmHtml = renderToStaticMarkup(
+      <PrivateAccountShell session={session} surface="calm">
+        <p>Contenido</p>
+      </PrivateAccountShell>,
+    );
+
+    expect(defaultHtml).toContain('<main class="workflow-background min-h-screen');
+    expect(defaultHtml).not.toContain('alt=""');
+    expect(calmHtml).toContain('<main class="workflow-background-mobile-only');
+    expect(calmHtml).toContain('<img src="/logoSIES.jpg" alt="" aria-hidden="true"');
+  });
+
   it("expands for mouse hover but preserves focus and permits an explicit close", () => {
     const initial = { expanded: false, mouseInside: false, focusInside: false };
     const hovered = reduceAccountHeaderInteraction(initial, {

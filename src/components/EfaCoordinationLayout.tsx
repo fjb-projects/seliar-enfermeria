@@ -37,6 +37,7 @@ import {
   EfaCoordinationFilterFields,
   type CoordinationOwnerOption,
 } from "@/components/EfaCoordinationFilters";
+import { cn } from "@/lib/utils";
 import {
   clearCoordinationFilters,
   countActiveFilters,
@@ -57,6 +58,19 @@ type FilterProps = {
   onSearchChange: (next: CoordinationSearch) => void;
 };
 
+// The sidebar carries the workflow gradient, where no single text color reaches 4.5:1 across
+// orange, pink and violet. Labels, nav items and counts sitting directly on it use white with a
+// dense dark shadow (icons get the same as a drop-shadow); form controls sit on an opaque card.
+const onGradientText = "font-semibold text-white [text-shadow:0_2px_2px_rgb(0_0_0/0.75)]";
+const onGradientIcon = "[&_svg]:drop-shadow-[0_2px_2px_rgb(0_0_0/0.75)]";
+// Hover and the active item switch to the light sidebar-accent pill, so the shadow steps aside.
+const onGradientMenuButton = cn(
+  onGradientText,
+  onGradientIcon,
+  "hover:[text-shadow:none] hover:[&_svg]:drop-shadow-none",
+  "data-[active=true]:font-semibold data-[active=true]:[text-shadow:none] data-[active=true]:[&_svg]:drop-shadow-none",
+);
+
 function filterCountLabel(count: number) {
   return count ? `Filtros (${count})` : "Filtros";
 }
@@ -76,6 +90,7 @@ function SectionMenu({
             isActive={section.id === active}
             aria-current={section.id === active ? "page" : undefined}
             tooltip={section.label}
+            className={onGradientMenuButton}
             onClick={onNavigate}
           >
             <section.icon aria-hidden="true" />
@@ -103,13 +118,22 @@ function DesktopSidebar({
       aria-label="Coordinación EFA"
       // A full-height left column in the page flow: it sits under the top nav and stays pinned
       // once that nav scrolls away, instead of the fixed viewport rail shadcn renders by default.
-      className="sticky top-0 h-svh [&>[data-sidebar=sidebar]]:bg-transparent"
+      // The gradient goes on the inner panel (which fills the collapsing rail), over a white base.
+      className="sticky top-0 h-svh [&>[data-sidebar=sidebar]]:bg-white [&>[data-sidebar=sidebar]]:bg-[image:var(--workflow-background)]"
     >
       <SidebarHeader className="flex-row items-center justify-between">
-        <span className="px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground group-data-[collapsible=icon]:hidden">
+        <span
+          className={cn(
+            "px-2 text-xs uppercase tracking-wide group-data-[collapsible=icon]:hidden",
+            onGradientText,
+          )}
+        >
           Secciones
         </span>
-        <SidebarTrigger aria-label="Contraer o expandir el panel lateral" />
+        <SidebarTrigger
+          aria-label="Contraer o expandir el panel lateral"
+          className={cn("text-white", onGradientIcon, "hover:[&_svg]:drop-shadow-none")}
+        />
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup className="pt-0">
@@ -117,16 +141,18 @@ function DesktopSidebar({
             <SectionMenu active={active} />
           </SidebarGroupContent>
         </SidebarGroup>
-        <SidebarSeparator />
+        <SidebarSeparator className="bg-white/60" />
         <SidebarGroup>
-          <SidebarGroupLabel className="justify-between text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          <SidebarGroupLabel
+            className={cn("justify-between text-xs uppercase tracking-wide", onGradientText)}
+          >
             <span>Filtros</span>
             {activeCount > 0 && (
               <span className="font-medium normal-case tabular-nums">{activeCount} activos</span>
             )}
           </SidebarGroupLabel>
           <SidebarGroupContent className="group-data-[collapsible=icon]:hidden">
-            <div className="space-y-4 px-2 pt-1">
+            <div className="mt-1 space-y-4 rounded-lg bg-card p-2 text-card-foreground shadow-sm">
               <EfaCoordinationFilterFields
                 idPrefix="sidebar-filter"
                 owners={owners}
@@ -150,6 +176,7 @@ function DesktopSidebar({
               <SidebarMenuButton
                 tooltip={filterCountLabel(activeCount)}
                 aria-label={`Mostrar ${filterCountLabel(activeCount).toLowerCase()}`}
+                className={onGradientMenuButton}
                 onClick={() => setOpen(true)}
               >
                 <SlidersHorizontal aria-hidden="true" />
@@ -157,7 +184,7 @@ function DesktopSidebar({
               {activeCount > 0 && (
                 <span
                   aria-hidden="true"
-                  className="pointer-events-none absolute -right-0.5 -top-1 flex size-4 items-center justify-center rounded-full bg-primary text-[10px] font-semibold tabular-nums text-primary-foreground"
+                  className="pointer-events-none absolute -right-0.5 -top-1 flex size-4 items-center justify-center rounded-full bg-primary text-[10px] ring-2 ring-white font-semibold tabular-nums text-primary-foreground"
                 >
                   {activeCount}
                 </span>
@@ -299,9 +326,8 @@ export function EfaCoordinationLayout({
         search={search}
         onSearchChange={onSearchChange}
       />
-      {/* Named container: the guard list picks table or cards from the room left by the sidebar.
-          The backdrop filter tones down the workflow gradient behind the list without tinting it. */}
-      <div className="@container/main min-w-0 flex-1 space-y-4 rounded-lg backdrop-blur-xl backdrop-saturate-55">
+      {/* Named container: the guard list picks table or cards from the room left by the sidebar. */}
+      <div className="@container/main min-w-0 flex-1 space-y-4">
         <header className="flex min-h-11 items-center gap-2">
           <MobileSections active={active} />
           <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3">

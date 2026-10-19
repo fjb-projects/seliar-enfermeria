@@ -130,7 +130,7 @@ function EndButton({
       aria-label={`Terminar la guardia iniciada a las ${formatTimeMinutes(startedAt)}`}
       disabled={controller.pending}
       onClick={controller.requestEnd}
-      className={`rounded-md border border-destructive/40 px-3 text-xs font-bold text-destructive hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60 ${className}`}
+      className={`rounded-md border border-destructive/40 px-1 text-xs font-bold text-destructive hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60 ${className}`}
     >
       {controller.pending ? "Terminando…" : "Terminar"}
     </button>

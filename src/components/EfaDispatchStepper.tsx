@@ -36,6 +36,7 @@ import {
 } from "@/lib/efa-dispatches.functions";
 import type { DispatchForm, DispatchLifecycleOperation } from "@/lib/efa-dispatches.client";
 import type { DispatchQueueEntry, DispatchQueueStore } from "@/lib/efa-dispatches.queue";
+import type { EfaEpisodeSectionPosition } from "@/lib/efa-episode-position";
 import {
   dispatchResultOptions,
   dispatchTimeSteps,
@@ -165,6 +166,24 @@ const dispatchLastStep = dispatchStepTitles.length - 1;
 // eslint-disable-next-line react-refresh/only-export-components -- Shared with focused review-step regression tests.
 export function isDispatchReviewStep(step: number): boolean {
   return step === dispatchStepTitles.length - 1;
+}
+
+/**
+ * Decides whether a remembered position can be restored: only a dispatch that still exists and the
+ * user can still edit (same rule as the editor), with its step clamped to the valid range.
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- Pure helper exported for deterministic tests.
+export function resolveDispatchRestore<T extends { id: string; canEdit: boolean }>(
+  position: EfaEpisodeSectionPosition | null | undefined,
+  dispatches: readonly T[],
+  canWrite: boolean,
+): { record: T; step: number } | null {
+  if (!position || position.recordId === null || !canWrite) return null;
+  const record = dispatches.find((row) => row.id === position.recordId);
+  if (!record?.canEdit) return null;
+  const lastStep = dispatchStepTitles.length - 1;
+  const step = Number.isInteger(position.step) ? Math.min(Math.max(position.step, 0), lastStep) : 0;
+  return { record, step };
 }
 
 type DispatchStepState = "complete" | "current" | "pending";
@@ -744,12 +763,18 @@ export function EfaDispatchStepper({
   currentUserId,
   canWrite,
   episodeCanEdit,
+  initialPosition,
+  onPositionChange,
 }: {
   episodeId: string;
   episodeLabel: string;
   currentUserId: string;
   canWrite: boolean;
   episodeCanEdit: boolean;
+  /** Remembered dispatch and step, restored once after the dispatches load when still editable. */
+  initialPosition?: EfaEpisodeSectionPosition | null;
+  /** Reports the selected dispatch and step after the initial restore. */
+  onPositionChange?: (position: EfaEpisodeSectionPosition) => void;
 }) {
   const listForEpisode = useServerFn(listEfaDispatchesForEpisode);
   const getHistory = useServerFn(getEfaDispatchHistory);
@@ -851,6 +876,10 @@ export function EfaDispatchStepper({
   const retryQueueRef = useRef<() => Promise<void>>(async () => {});
   const selectedQueueRef = useRef<string | null>(null);
   const inFlightOperations = useRef(new Set<string>());
+  const initialPositionRef = useRef(initialPosition ?? null);
+  const onPositionChangeRef = useRef(onPositionChange);
+  const positionReadyRef = useRef(false);
+  onPositionChangeRef.current = onPositionChange;
   owner.current = currentUserId;
   canWriteRef.current = canWrite;
   episodeCanEditRef.current = episodeCanEdit;
@@ -965,12 +994,33 @@ export function EfaDispatchStepper({
           const pending = await store.list(ticket, episodeId);
           if (!active || owner.current !== ticket) return;
           setQueueEntries(pending);
+          if (!positionReadyRef.current) {
+            positionReadyRef.current = true;
+            const restore = resolveDispatchRestore(
+              initialPositionRef.current,
+              dispatches as unknown as DispatchView[],
+              canWriteRef.current,
+            );
+            // Never replace a selection or a typed new form made while the dispatches loaded.
+            if (
+              restore &&
+              selectedIdRef.current === null &&
+              selectedQueueRef.current === null &&
+              !dispatchFormChanged(editorRef.current.form, emptyDispatchForm())
+            ) {
+              selectedIdRef.current = restore.record.id;
+              setSelectedId(restore.record.id);
+              setForm(restoreDispatchForm(restore.record));
+              setStep(restore.step);
+            }
+          }
           setQueueReady(true);
           setReady(true);
         },
       )
       .catch((reason: unknown) => {
         if (active && owner.current === ticket) {
+          positionReadyRef.current = true;
           setErrorSurface("global");
           setError(
             reason instanceof Error ? reason.message : "No se pudieron cargar los despachos.",
@@ -992,6 +1042,12 @@ export function EfaDispatchStepper({
     listForEpisode,
     listNotices,
   ]);
+
+  useEffect(() => {
+    // Mount defaults are not a position: report only once the remembered one had its chance.
+    if (!positionReadyRef.current) return;
+    onPositionChangeRef.current?.({ recordId: selectedId, step });
+  }, [selectedId, step]);
 
   useEffect(() => {
     if (!selected) {

@@ -1,7 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useId, useRef, useState, type ComponentType } from "react";
 import { useServerFn } from "@tanstack/react-start";
+import { Check, ChevronDown, Loader2, Plus, Stethoscope, Syringe } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { EfaActionConfirmation } from "@/components/EfaActionConfirmation";
 import type { GuardBase } from "@/components/EfaGuardPanel";
+import { cn } from "@/lib/utils";
 import {
   createEfaMobileArrival,
   deleteEfaMobileArrival,
@@ -9,6 +12,7 @@ import {
 } from "@/lib/efa-mobile-arrivals.functions";
 import type { MobileArrivalRole } from "@/lib/efa-mobile-arrivals.server";
 import { sortGuardMobileBases } from "@/lib/efa-guard-mobile-workspace";
+import { formatTimeMinutes, hygienePeriodStatus } from "@/lib/efa-labels";
 import { EfaMobileHygienePanel, type MobileHygieneView } from "@/components/EfaMobileHygienePanel";
 
 export type MobileArrivalView = {
@@ -104,26 +108,175 @@ export function setBusyArrivalOperation(current: ReadonlySet<string>, key: strin
   return next;
 }
 
-const roles: { id: MobileArrivalRole; label: string }[] = [
-  { id: "nurse", label: "Enfermería" },
-  { id: "driver", label: "Conducción" },
-  { id: "doctor", label: "Medicina" },
+type RoleIcon = ComponentType<{ className?: string; "aria-hidden"?: "true" }>;
+
+// The installed lucide-react has no steering wheel, so this one follows lucide's drawing style.
+function SteeringWheelIcon({
+  className,
+  ...props
+}: {
+  className?: string;
+  "aria-hidden"?: "true";
+}) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      data-icon="steering-wheel"
+      className={className}
+      {...props}
+    >
+      <circle cx="12" cy="12" r="10" />
+      <circle cx="12" cy="12" r="2" />
+      <path d="M10 12H2" />
+      <path d="M14 12h8" />
+      <path d="M12 14v8" />
+    </svg>
+  );
+}
+
+// Nurse and driver make a mobile operational; the doctor is optional and only adds to the state.
+const roles: { id: MobileArrivalRole; label: string; required: boolean; icon: RoleIcon }[] = [
+  { id: "nurse", label: "Enfermería", required: true, icon: Syringe },
+  { id: "driver", label: "Conducción", required: true, icon: SteeringWheelIcon },
+  { id: "doctor", label: "Medicina", required: false, icon: Stethoscope },
 ];
 
+const roleLabel = (role: MobileArrivalRole) => roles.find((item) => item.id === role)?.label;
+
+export type MobileCrewState = {
+  tone: "hygiene" | "empty" | "partial" | "operational";
+  label: string;
+};
+
+/**
+ * Card state of a mobile from its active arrivals and hygiene periods in this guard. An open
+ * hygiene period wins; otherwise nurse plus driver make it operational and a doctor adds to it.
+ */
+export function getMobileCrewState({
+  guardId,
+  baseId,
+  arrivals,
+  hygienePeriods = [],
+}: {
+  guardId: string;
+  baseId: string;
+  arrivals: MobileArrivalView[];
+  hygienePeriods?: MobileHygieneView[] | undefined;
+}): MobileCrewState {
+  const owns = (record: { guardId: string; baseId: string; deletedAt: string | null }) =>
+    record.guardId === guardId && record.baseId === baseId && record.deletedAt === null;
+  const openHygiene = hygienePeriods
+    .filter((period) => owns(period) && hygienePeriodStatus(period) === "open")
+    .reduce<MobileHygieneView | undefined>(
+      (latest, period) =>
+        !latest || Date.parse(period.requestedAt) > Date.parse(latest.requestedAt)
+          ? period
+          : latest,
+      undefined,
+    );
+  if (openHygiene)
+    return {
+      tone: "hygiene",
+      label: `En higiene desde ${formatTimeMinutes(openHygiene.requestedAt)}`,
+    };
+
+  const present = new Set(arrivals.filter(owns).map((arrival) => arrival.role));
+  const nurse = present.has("nurse");
+  const driver = present.has("driver");
+  if (!nurse && !driver) return { tone: "empty", label: "Sin tripulación" };
+  if (!driver) return { tone: "partial", label: `Falta ${roleLabel("driver")}` };
+  if (!nurse) return { tone: "partial", label: `Falta ${roleLabel("nurse")}` };
+  return {
+    tone: "operational",
+    label: present.has("doctor") ? "Operativo · con médico" : "Operativo",
+  };
+}
+
+// Text always carries the state; color only reinforces it.
+const crewStateClasses: Record<MobileCrewState["tone"], string> = {
+  hygiene: "bg-[var(--brand-orange)]/15 text-foreground",
+  empty: "bg-muted text-muted-foreground",
+  partial: "bg-warning-soft text-warning-foreground dark:text-warning",
+  operational: "bg-[var(--success)]/15 text-[var(--success)]",
+};
+
 export const mobileArrivalEditClasses = {
-  row: "grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-t py-2 text-sm",
-  editingRow: "grid min-w-0 grid-cols-1 gap-2 border-t py-2 text-sm",
-  content: "min-w-0",
-  form: "mt-2 grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]",
+  cells: "grid min-w-0 grid-cols-3 gap-2",
+  cell: "flex min-h-11 min-w-0 flex-col items-start justify-between gap-1 rounded-md border p-2 text-left",
+  cellButton:
+    "transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 enabled:hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-60",
+  actions: "grid min-w-0 gap-2 border-t pt-2 text-sm",
+  form: "grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]",
   label: "grid min-w-0 gap-1 text-xs text-muted-foreground",
   input:
     "min-h-11 w-full min-w-0 max-w-full rounded-md border bg-background px-3 text-sm text-foreground",
 } as const;
 
+function formatArrivalTime(value: string) {
+  return new Date(value).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
+}
+
 function toLocalDateTimeValue(value: string) {
   const date = new Date(value);
   return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 }
+
+/**
+ * Removing a mobile keeps its records: active arrivals move to the read-only historical list and
+ * hygiene periods stop showing, until the mobile is added back. Returns the warning to confirm,
+ * or null when the mobile has nothing recorded in this guard and can be removed right away.
+ */
+export function getMobileRemovalConfirmation({
+  guardId,
+  base,
+  arrivals,
+  hygienePeriods = [],
+}: {
+  guardId: string;
+  base: GuardBase;
+  arrivals: MobileArrivalView[];
+  hygienePeriods?: MobileHygieneView[] | undefined;
+}): string | null {
+  const ownsRecord = (record: { guardId: string; baseId: string; deletedAt: string | null }) =>
+    record.guardId === guardId && record.baseId === base.id && record.deletedAt === null;
+  const hasArrivals = arrivals.some(ownsRecord);
+  const hasHygiene = hygienePeriods.some(ownsRecord);
+  if (!hasArrivals && !hasHygiene) return null;
+
+  const name = `Móvil ${base.name}`;
+  const comeBack = base.isActive
+    ? "Nada se borra: si lo volvés a sumar, vuelven a aparecer."
+    : "Nada se borra, pero este móvil ya no está disponible y no vas a poder volver a sumarlo.";
+  if (hasArrivals && hasHygiene)
+    return `${name} tiene ingresos y períodos de higiene registrados en esta guardia. Si lo quitás, los ingresos pasan a “Ingresos históricos” como solo lectura y la higiene deja de mostrarse acá. ${comeBack}`;
+  if (hasArrivals)
+    return `${name} tiene ingresos registrados en esta guardia. Si lo quitás, esos ingresos pasan a “Ingresos históricos” como solo lectura y no se pueden editar desde acá. ${comeBack}`;
+  return `${name} tiene períodos de higiene y reposición registrados en esta guardia. Si lo quitás, dejan de mostrarse acá. ${comeBack}`;
+}
+
+const mobileChipClasses = {
+  base: "inline-flex min-h-11 max-w-full items-center gap-2 rounded-full border px-4 py-2 text-left text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60",
+  unselected:
+    "border-dashed border-muted-foreground/50 text-muted-foreground enabled:hover:bg-accent enabled:hover:text-accent-foreground",
+  // A selected mobile is a filled pill holding its toggle plus one quick check-in per role.
+  group:
+    "inline-flex max-w-full min-w-0 items-center gap-1.5 rounded-full border border-primary bg-primary pr-1.5 text-primary-foreground",
+  toggle:
+    "inline-flex min-h-11 min-w-0 items-center gap-2 rounded-full py-2 pr-2 pl-4 text-left text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 enabled:hover:bg-primary-foreground/10 disabled:cursor-not-allowed disabled:opacity-60",
+  // 32px circles with a gap: compact, still above the 24px minimum of WCAG 2.5.8.
+  role: "inline-flex size-8 shrink-0 items-center justify-center rounded-full",
+  roleOff:
+    "text-primary-foreground/50 ring-1 ring-primary-foreground/40 transition-colors ring-inset focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 enabled:hover:bg-primary-foreground/15 enabled:hover:text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50",
+  roleOn: "bg-[var(--brand-orange)] text-white",
+} as const;
 
 export function EfaMobileArrivalPanel({
   guardId,
@@ -134,7 +287,6 @@ export function EfaMobileArrivalPanel({
   membershipErrors = {},
   baseSelectionBlocked = false,
   membershipBlocked = false,
-  focusRequest,
   onBaseSelectionChange,
   onArrivalMutationStart,
   arrivals,
@@ -142,6 +294,7 @@ export function EfaMobileArrivalPanel({
   onArrivalsChange,
   hygienePeriods,
   onHygieneChange,
+  defaultExpandedBaseIds,
 }: {
   guardId: string;
   bases: GuardBase[];
@@ -151,7 +304,6 @@ export function EfaMobileArrivalPanel({
   membershipErrors?: Record<string, string>;
   baseSelectionBlocked?: boolean;
   membershipBlocked?: boolean;
-  focusRequest?: { baseId: string; requestId: number } | null;
   onBaseSelectionChange?: (baseId: string, selected: boolean) => void;
   onArrivalMutationStart?: (key: string) => (() => void) | null;
   arrivals: MobileArrivalView[];
@@ -160,6 +312,8 @@ export function EfaMobileArrivalPanel({
   /** When both hygiene props are given, each selected mobile card shows its hygiene periods. */
   hygienePeriods?: MobileHygieneView[];
   onHygieneChange?: (period: MobileHygieneView) => void;
+  /** Mobile cards that start expanded; every other card starts collapsed to its summary row. */
+  defaultExpandedBaseIds?: string[];
 }) {
   const createArrival = useServerFn(createEfaMobileArrival);
   const updateArrival = useServerFn(updateEfaMobileArrival);
@@ -170,29 +324,46 @@ export function EfaMobileArrivalPanel({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
-  const baseRows = useRef(new Map<string, HTMLElement>());
-  const focusBaseId = focusRequest?.baseId ?? null;
-  const focusRequestId = focusRequest?.requestId ?? null;
+  const [removalBaseId, setRemovalBaseId] = useState<string | null>(null);
+  // One open actions row per mobile, keyed by mobile and holding the arrival it acts on. A new
+  // arrival has a new id, so a deleted-then-registered role starts collapsed.
+  const [openActions, setOpenActions] = useState<Record<string, string | null>>({});
+  const [expandedBaseIds, setExpandedBaseIds] = useState<ReadonlySet<string>>(
+    () => new Set(defaultExpandedBaseIds),
+  );
+  const actionsIdPrefix = useId();
 
   const selectedBaseIds = new Set(bases.map((base) => base.id));
   const requested = new Set(requestedBaseIds ?? bases.map((base) => base.id));
   const pendingBaseSet = new Set(membershipPendingBaseIds);
   const sortedBases = sortGuardMobileBases(availableBases);
+  const requestedBases = sortedBases.filter((base) => requested.has(base.id));
+  // Toggle chips need someone allowed to write and a membership handler; otherwise the guard's
+  // mobiles show as static tags.
+  const selectionEditable = canWrite && Boolean(onBaseSelectionChange);
   const historicalArrivals = arrivals.filter(
     (arrival) =>
       arrival.deletedAt === null &&
       arrival.guardId === guardId &&
       !selectedBaseIds.has(arrival.baseId),
   );
+  const removalBase = sortedBases.find((base) => base.id === removalBaseId);
+  const removalTargetKey = removalBase ? `${guardId}:${removalBase.id}` : null;
+  // The dialog closes on its own if the mobile left the selection while it was open.
+  const currentRemovalKey =
+    removalBase && requested.has(removalBase.id) ? `${guardId}:${removalBase.id}` : null;
 
-  useEffect(() => {
-    // Callers may rebuild the request object on unrelated renders; this pair identifies navigation intent.
-    if (focusBaseId === null || focusRequestId === null) return;
-    const row = baseRows.current.get(focusBaseId);
-    if (!row) return;
-    row.scrollIntoView?.({ behavior: "smooth", block: "nearest" });
-    row.focus();
-  }, [focusBaseId, focusRequestId]);
+  function toggleBase(base: GuardBase, selected: boolean) {
+    if (!onBaseSelectionChange) return;
+    if (
+      selected &&
+      getMobileRemovalConfirmation({ guardId, base, arrivals, hygienePeriods }) !== null
+    ) {
+      setRemovalBaseId(base.id);
+      return;
+    }
+    onBaseSelectionChange(base.id, !selected);
+  }
 
   function reportError(key: string, message: string) {
     setErrors((current) => ({ ...current, [key]: message }));
@@ -210,7 +381,7 @@ export function EfaMobileArrivalPanel({
     if (onArrivalMutationStart && !releaseAdmission) {
       reportError(
         key,
-        "Espera a que termine la sincronización de móviles antes de cambiar ingresos.",
+        "Esperá a que termine la sincronización de móviles antes de cambiar ingresos.",
       );
       return false;
     }
@@ -230,7 +401,7 @@ export function EfaMobileArrivalPanel({
       setErrors((current) => ({ ...current, [key]: "" }));
       return true;
     } catch {
-      reportError(key, "No se pudo guardar el cambio. Reintenta esta acción.");
+      reportError(key, "No se pudo guardar el cambio. Reintentá esta acción.");
       return false;
     } finally {
       inFlight.current.delete(key);
@@ -288,7 +459,7 @@ export function EfaMobileArrivalPanel({
   function remove(arrival: MobileArrivalView) {
     if (
       !window.confirm(
-        `¿Eliminar el ingreso de ${arrival.baseNameSnapshot} · ${roles.find((role) => role.id === arrival.role)?.label}?`,
+        `¿Eliminar el ingreso de ${arrival.baseNameSnapshot} · ${roleLabel(arrival.role)}?`,
       )
     )
       return;
@@ -302,109 +473,252 @@ export function EfaMobileArrivalPanel({
     });
   }
 
-  function renderRoleRow(base: GuardBase, role: (typeof roles)[number]) {
+  function toggleActions(baseId: string, arrivalId: string) {
+    const closing = openActions[baseId] === arrivalId;
+    setOpenActions((current) => ({ ...current, [baseId]: closing ? null : arrivalId }));
+    // An edit in progress belongs to the actions row being closed or replaced on this mobile.
+    if (arrivals.some((arrival) => arrival.id === editingId && arrival.baseId === baseId))
+      setEditingId(null);
+  }
+
+  function toggleCard(baseId: string) {
+    const collapsing = expandedBaseIds.has(baseId);
+    setExpandedBaseIds((current) => {
+      const next = new Set(current);
+      if (next.has(baseId)) next.delete(baseId);
+      else next.add(baseId);
+      return next;
+    });
+    if (!collapsing) return;
+    // Collapsing hides the actions row and its edit form, so close them like the cell toggle does.
+    setOpenActions((current) => ({ ...current, [baseId]: null }));
+    if (arrivals.some((arrival) => arrival.id === editingId && arrival.baseId === baseId))
+      setEditingId(null);
+  }
+
+  // Quick check-in inside a selected chip: an empty role is a small button that registers the
+  // arrival now (same call and rules as the "+ Ingreso" cell); a registered role is painted and
+  // static, and is edited from the card.
+  function renderRoleChip(base: GuardBase, role: (typeof roles)[number]) {
     const arrival = activeArrival(base.id, role.id);
-    const createKey = `${base.id}:${role.id}:create`;
-    const updateKey = `${arrival?.id}:update`;
-    const deleteKey = `${arrival?.id}:delete`;
-    const createBusy = busyKeys.has(createKey);
-    const updateBusy = busyKeys.has(updateKey);
-    const deleteBusy = busyKeys.has(deleteKey);
-    const editable = Boolean(canWrite && arrival?.canEdit);
-    const isEditing = Boolean(arrival && editingId === arrival.id);
+    const Icon = role.icon;
+    if (arrival)
+      return (
+        <span
+          key={role.id}
+          role="img"
+          aria-label={`${role.label} ingresó a las ${formatArrivalTime(arrival.arrivedAt)}`}
+          className={cn(mobileChipClasses.role, mobileChipClasses.roleOn)}
+        >
+          <Icon aria-hidden="true" className="size-4" />
+        </span>
+      );
+
+    const createBusy = busyKeys.has(`${base.id}:${role.id}:create`);
     const rowBlocked = membershipBlocked || pendingBaseSet.has(base.id);
     return (
-      <div
+      <button
         key={role.id}
-        className={isEditing ? mobileArrivalEditClasses.editingRow : mobileArrivalEditClasses.row}
+        type="button"
+        aria-label={`Registrar ingreso de ${role.label} en ${base.name}`}
+        aria-busy={createBusy || undefined}
+        disabled={createBusy || rowBlocked || !canWrite}
+        onClick={() => register(base.id, role.id)}
+        className={cn(mobileChipClasses.role, mobileChipClasses.roleOff)}
       >
-        <div className={mobileArrivalEditClasses.content}>
-          <p className="font-medium">{role.label}</p>
-          {arrival ? (
-            editingId === arrival.id ? (
-              <div className={mobileArrivalEditClasses.form}>
-                <label className={mobileArrivalEditClasses.label}>
-                  Hora de ingreso
-                  <input
-                    className={mobileArrivalEditClasses.input}
-                    type="datetime-local"
-                    value={editValue}
-                    onChange={(event) => setEditValue(event.target.value)}
-                  />
-                </label>
-                <Button
-                  type="button"
-                  className="min-h-11"
-                  disabled={!editValue || updateBusy || rowBlocked}
-                  onClick={() => saveEdit(arrival)}
-                >
-                  {updateBusy ? "Guardando…" : "Guardar"}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="min-h-11"
-                  disabled={updateBusy || rowBlocked}
-                  onClick={() => setEditingId(null)}
-                >
-                  Cancelar
-                </Button>
-              </div>
-            ) : (
-              <time
-                dateTime={arrival.arrivedAt}
-                aria-label={`Ingreso registrado el ${new Date(arrival.arrivedAt).toLocaleString("es-AR")}`}
-                className="text-muted-foreground"
+        {createBusy ? (
+          <Loader2 aria-hidden="true" className="size-4 motion-safe:animate-spin" />
+        ) : (
+          <Icon aria-hidden="true" className="size-4" />
+        )}
+      </button>
+    );
+  }
+
+  // One role in the collapsed card's summary row: its icon and arrival time, or a dash.
+  function renderRoleSummary(base: GuardBase, role: (typeof roles)[number]) {
+    const arrival = activeArrival(base.id, role.id);
+    const Icon = role.icon;
+    return (
+      <span key={role.id} className="inline-flex items-center gap-1 text-muted-foreground">
+        <Icon
+          aria-hidden="true"
+          className={cn("size-4 shrink-0", arrival && "text-[var(--brand-orange)]")}
+        />
+        <span className="sr-only">{`${role.label}: `}</span>
+        {arrival ? (
+          <time dateTime={arrival.arrivedAt} className="text-xs text-foreground tabular-nums">
+            {formatArrivalTime(arrival.arrivedAt)}
+          </time>
+        ) : (
+          <>
+            <span aria-hidden="true" className="text-xs tabular-nums">
+              —
+            </span>
+            <span className="sr-only">sin ingreso</span>
+          </>
+        )}
+      </span>
+    );
+  }
+
+  function renderArrivalTime(arrival: MobileArrivalView) {
+    return (
+      <time
+        dateTime={arrival.arrivedAt}
+        aria-label={`Ingreso registrado el ${new Date(arrival.arrivedAt).toLocaleString("es-AR")}`}
+        className="font-display text-lg leading-none font-semibold tabular-nums"
+      >
+        {formatArrivalTime(arrival.arrivedAt)}
+      </time>
+    );
+  }
+
+  function renderRoleCell(base: GuardBase, role: (typeof roles)[number]) {
+    const arrival = activeArrival(base.id, role.id);
+    const createKey = `${base.id}:${role.id}:create`;
+    const createBusy = busyKeys.has(createKey);
+    const rowBlocked = membershipBlocked || pendingBaseSet.has(base.id);
+    const Icon = role.icon;
+    const optional = !role.required && !arrival;
+    const cellClass = cn(mobileArrivalEditClasses.cell, optional && "border-dashed");
+    const heading = (
+      <span className="flex min-w-0 flex-wrap items-center gap-1 text-xs text-muted-foreground">
+        <Icon aria-hidden="true" className="size-4 shrink-0" />
+        <span className="min-w-0 break-words">{role.label}</span>
+        {optional && <span className="text-[0.625rem] leading-none italic">opcional</span>}
+      </span>
+    );
+
+    if (!arrival && canWrite)
+      return (
+        <button
+          key={role.id}
+          type="button"
+          data-role={role.id}
+          aria-label={`Registrar ingreso de ${role.label} en ${base.name}`}
+          aria-busy={createBusy || undefined}
+          disabled={createBusy || rowBlocked}
+          onClick={() => register(base.id, role.id)}
+          className={cn(cellClass, mobileArrivalEditClasses.cellButton)}
+        >
+          {heading}
+          <span className="text-sm font-medium">{createBusy ? "Registrando…" : "+ Ingreso"}</span>
+        </button>
+      );
+
+    if (arrival && canWrite && arrival.canEdit) {
+      const expanded = openActions[base.id] === arrival.id;
+      return (
+        <button
+          key={role.id}
+          type="button"
+          data-role={role.id}
+          aria-expanded={expanded}
+          aria-controls={expanded ? `${actionsIdPrefix}-${base.id}` : undefined}
+          aria-label={`${role.label}, ingreso ${formatArrivalTime(arrival.arrivedAt)}. Opciones`}
+          onClick={() => toggleActions(base.id, arrival.id)}
+          className={cn(
+            cellClass,
+            mobileArrivalEditClasses.cellButton,
+            expanded && "border-primary bg-accent/40",
+          )}
+        >
+          {heading}
+          {renderArrivalTime(arrival)}
+        </button>
+      );
+    }
+
+    return (
+      <div key={role.id} data-role={role.id} className={cellClass}>
+        {heading}
+        {arrival ? (
+          renderArrivalTime(arrival)
+        ) : (
+          <span className="text-sm text-muted-foreground">Sin ingreso</span>
+        )}
+      </div>
+    );
+  }
+
+  // Actions for the one filled role whose cell is expanded: the same edit form and delete as
+  // before, out of the cells so they stay compact.
+  function renderRoleActions(base: GuardBase) {
+    if (!canWrite) return null;
+    const arrival = arrivals.find(
+      (item) =>
+        item.id === openActions[base.id] &&
+        item.guardId === guardId &&
+        item.baseId === base.id &&
+        item.deletedAt === null,
+    );
+    if (!arrival?.canEdit) return null;
+    const updateKey = `${arrival.id}:update`;
+    const deleteKey = `${arrival.id}:delete`;
+    const updateBusy = busyKeys.has(updateKey);
+    const deleteBusy = busyKeys.has(deleteKey);
+    const rowBlocked = membershipBlocked || pendingBaseSet.has(base.id);
+    return (
+      <div id={`${actionsIdPrefix}-${base.id}`} className={mobileArrivalEditClasses.actions}>
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <p className="mr-auto min-w-0 font-medium break-words">
+            {`${roleLabel(arrival.role)} · ${formatArrivalTime(arrival.arrivedAt)}`}
+          </p>
+          {editingId !== arrival.id && (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                className="min-h-11 px-2 sm:px-4"
+                disabled={updateBusy || deleteBusy || rowBlocked}
+                onClick={() => {
+                  setEditValue(toLocalDateTimeValue(arrival.arrivedAt));
+                  setEditingId(arrival.id);
+                  setErrors((current) => ({ ...current, [updateKey]: "" }));
+                }}
               >
-                {new Date(arrival.arrivedAt).toLocaleTimeString("es-AR", {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </time>
-            )
-          ) : !canWrite ? (
-            <p className="text-muted-foreground">Sin ingreso registrado</p>
-          ) : null}
-          {(errors[createKey] || errors[updateKey] || errors[deleteKey]) && (
-            <p role="alert" className="mt-1 text-sm text-destructive">
-              {errors[createKey] || errors[updateKey] || errors[deleteKey]}
-            </p>
+                Editar
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                className="min-h-11 px-2 sm:px-4"
+                disabled={updateBusy || deleteBusy || rowBlocked}
+                onClick={() => remove(arrival)}
+              >
+                {deleteBusy ? "Eliminando…" : "Eliminar"}
+              </Button>
+            </>
           )}
         </div>
-        {!arrival && canWrite && (
-          <Button
-            type="button"
-            variant="outline"
-            className="min-h-11 shrink-0 px-2 sm:px-4"
-            disabled={createBusy || rowBlocked}
-            onClick={() => register(base.id, role.id)}
-          >
-            {createBusy ? "Registrando…" : "Registrar ingreso"}
-          </Button>
-        )}
-        {arrival && editable && editingId !== arrival.id && (
-          <div className="flex flex-wrap justify-end gap-2">
+        {editingId === arrival.id && (
+          <div className={mobileArrivalEditClasses.form}>
+            <label className={mobileArrivalEditClasses.label}>
+              Hora de ingreso
+              <input
+                className={mobileArrivalEditClasses.input}
+                type="datetime-local"
+                value={editValue}
+                onChange={(event) => setEditValue(event.target.value)}
+              />
+            </label>
             <Button
               type="button"
-              variant="outline"
-              className="min-h-11 px-2 sm:px-4"
-              disabled={updateBusy || deleteBusy || rowBlocked}
-              onClick={() => {
-                setEditValue(toLocalDateTimeValue(arrival.arrivedAt));
-                setEditingId(arrival.id);
-                setErrors((current) => ({ ...current, [updateKey]: "" }));
-              }}
+              className="min-h-11"
+              disabled={!editValue || updateBusy || rowBlocked}
+              onClick={() => saveEdit(arrival)}
             >
-              Editar
+              {updateBusy ? "Guardando…" : "Guardar"}
             </Button>
             <Button
               type="button"
-              variant="destructive"
-              className="min-h-11 px-2 sm:px-4"
-              disabled={updateBusy || deleteBusy || rowBlocked}
-              onClick={() => remove(arrival)}
+              variant="outline"
+              className="min-h-11"
+              disabled={updateBusy || rowBlocked}
+              onClick={() => setEditingId(null)}
             >
-              {deleteBusy ? "Eliminando…" : "Eliminar"}
+              Cancelar
             </Button>
           </div>
         )}
@@ -412,69 +726,187 @@ export function EfaMobileArrivalPanel({
     );
   }
 
+  function renderRoleErrors(base: GuardBase) {
+    return roles.map((role) => {
+      const arrival = activeArrival(base.id, role.id);
+      const message =
+        errors[`${base.id}:${role.id}:create`] ||
+        errors[`${arrival?.id}:update`] ||
+        errors[`${arrival?.id}:delete`];
+      return (
+        message && (
+          <p key={role.id} role="alert" className="text-sm text-destructive">
+            {`${role.label}: ${message}`}
+          </p>
+        )
+      );
+    });
+  }
+
+  // An unnamed container: the caller owns the "Móviles" region and its heading.
   return (
-    <section className="space-y-2" aria-label="Móviles">
-      {sortedBases.map((base) => {
-        const selected = requested.has(base.id);
+    <div className="space-y-3">
+      {selectionEditable && sortedBases.length > 0 && (
+        <div role="group" aria-label="Móviles de la guardia" className="flex flex-wrap gap-2">
+          {sortedBases.map((base) => {
+            const selected = requested.has(base.id);
+            const membershipPending = pendingBaseSet.has(base.id);
+            const Icon = membershipPending ? Loader2 : selected ? Check : Plus;
+            const toggle = (
+              <button
+                key={base.id}
+                type="button"
+                aria-pressed={selected}
+                aria-busy={membershipPending || undefined}
+                disabled={
+                  baseSelectionBlocked || membershipPending || (!base.isActive && !selected)
+                }
+                onClick={() => toggleBase(base, selected)}
+                className={
+                  selected
+                    ? mobileChipClasses.toggle
+                    : cn(mobileChipClasses.base, mobileChipClasses.unselected)
+                }
+              >
+                <Icon
+                  aria-hidden="true"
+                  className={cn("size-4 shrink-0", membershipPending && "motion-safe:animate-spin")}
+                />
+                <span className="min-w-0 break-words">{base.name}</span>
+                {membershipPending ? (
+                  <span className="text-xs font-normal">Guardando…</span>
+                ) : (
+                  !base.isActive && <span className="text-xs font-normal">No disponible</span>
+                )}
+              </button>
+            );
+            if (!selected) return toggle;
+            return (
+              <div
+                key={base.id}
+                role="group"
+                aria-label={base.name}
+                className={mobileChipClasses.group}
+              >
+                {toggle}
+                {roles.map((role) => renderRoleChip(base, role))}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {!selectionEditable && requestedBases.length > 0 && (
+        <ul aria-label="Móviles de la guardia" className="flex flex-wrap gap-2">
+          {requestedBases.map((base) => (
+            <li
+              key={base.id}
+              className="inline-flex min-h-8 max-w-full items-center rounded-full border px-3 text-sm break-words"
+            >
+              {base.name}
+            </li>
+          ))}
+        </ul>
+      )}
+      {sortedBases.map(
+        (base) =>
+          membershipErrors[base.id] && (
+            <p key={base.id} role="alert" className="text-sm text-destructive">
+              {`${base.name}: ${membershipErrors[base.id]}`}
+            </p>
+          ),
+      )}
+      {/* A check-in tapped from a chip can fail while its card is collapsed: name it here. */}
+      {requestedBases.flatMap((base) =>
+        expandedBaseIds.has(base.id)
+          ? []
+          : roles.map((role) => {
+              const message = errors[`${base.id}:${role.id}:create`];
+              return (
+                message && (
+                  <p
+                    key={`${base.id}:${role.id}`}
+                    role="alert"
+                    className="text-sm text-destructive"
+                  >
+                    {`${base.name} · ${role.label}: ${message}`}
+                  </p>
+                )
+              );
+            }),
+      )}
+      {selectionEditable && sortedBases.length > 0 && requestedBases.length === 0 && (
+        <p className="text-sm text-muted-foreground">Elegir móviles es opcional.</p>
+      )}
+      {requestedBases.map((base) => {
         const membershipPending = pendingBaseSet.has(base.id);
+        const crewState = getMobileCrewState({
+          guardId,
+          baseId: base.id,
+          arrivals,
+          hygienePeriods,
+        });
+        const expanded = expandedBaseIds.has(base.id);
+        const bodyId = `${actionsIdPrefix}-card-${base.id}`;
+        // Collapsed to one summary row by default; the body (cells, actions, hygiene) renders
+        // only while expanded.
         return (
           <article
             key={base.id}
-            ref={(element) => {
-              if (element) baseRows.current.set(base.id, element);
-              else baseRows.current.delete(base.id);
-            }}
-            tabIndex={-1}
             aria-label={`Móvil ${base.name}`}
-            className="min-w-0 rounded-md border px-2 sm:px-3"
+            className="min-w-0 rounded-md border"
           >
-            <div className="flex min-h-11 min-w-0 flex-wrap items-center justify-between gap-2 py-1">
-              <label className="flex min-h-11 min-w-0 flex-1 items-center gap-3 text-sm">
-                <input
-                  className="size-5 shrink-0 accent-primary"
-                  type="checkbox"
-                  checked={selected}
-                  disabled={
-                    !canWrite ||
-                    !onBaseSelectionChange ||
-                    baseSelectionBlocked ||
-                    (!base.isActive && !selected)
-                  }
-                  onChange={(event) => onBaseSelectionChange?.(base.id, event.target.checked)}
-                />
-                <span className="min-w-0 break-words">
+            <h4 className="min-w-0">
+              <button
+                type="button"
+                aria-expanded={expanded}
+                aria-controls={expanded ? bodyId : undefined}
+                onClick={() => toggleCard(base.id)}
+                className="flex min-h-11 w-full min-w-0 flex-wrap items-center gap-x-3 gap-y-1 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:px-3"
+              >
+                <span className="min-w-0 font-display text-sm font-semibold break-words">
                   {base.name}
-                  {!base.isActive && (
-                    <span className="ml-2 text-xs text-muted-foreground">No disponible</span>
+                </span>
+                <span
+                  className={cn(
+                    "rounded-full px-2 py-0.5 text-xs font-medium",
+                    crewStateClasses[crewState.tone],
                   )}
+                >
+                  {crewState.label}
                 </span>
-              </label>
-              {membershipPending && (
-                <span role="status" className="text-xs text-muted-foreground">
-                  Guardando móvil…
+                <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  {roles.map((role) => renderRoleSummary(base, role))}
                 </span>
-              )}
-            </div>
-            {membershipErrors[base.id] && (
-              <p role="alert" className="pb-2 text-sm text-destructive">
-                {membershipErrors[base.id]}
-              </p>
-            )}
-            {selected && (
-              <div className="pb-2">{roles.map((role) => renderRoleRow(base, role))}</div>
-            )}
-            {selected && hygienePeriods && onHygieneChange && (
-              <div className="pb-2">
-                <EfaMobileHygienePanel
-                  guardId={guardId}
-                  baseId={base.id}
-                  baseName={base.name}
-                  periods={hygienePeriods}
-                  canWrite={canWrite}
-                  blocked={membershipBlocked || membershipPending}
-                  onMutationStart={onArrivalMutationStart}
-                  onPeriodChange={onHygieneChange}
+                <ChevronDown
+                  aria-hidden="true"
+                  className={cn(
+                    "ml-auto size-4 shrink-0 text-muted-foreground transition-transform",
+                    expanded && "rotate-180",
+                  )}
                 />
+              </button>
+            </h4>
+            {expanded && (
+              <div id={bodyId} className="min-w-0 space-y-2 border-t p-2 sm:p-3">
+                <div className={mobileArrivalEditClasses.cells}>
+                  {roles.map((role) => renderRoleCell(base, role))}
+                </div>
+                {renderRoleActions(base)}
+                {renderRoleErrors(base)}
+                {hygienePeriods && onHygieneChange && (
+                  <div>
+                    <EfaMobileHygienePanel
+                      guardId={guardId}
+                      baseId={base.id}
+                      baseName={base.name}
+                      periods={hygienePeriods}
+                      canWrite={canWrite}
+                      blocked={membershipBlocked || membershipPending}
+                      onMutationStart={onArrivalMutationStart}
+                      onPeriodChange={onHygieneChange}
+                    />
+                  </div>
+                )}
               </div>
             )}
           </article>
@@ -488,8 +920,7 @@ export function EfaMobileArrivalPanel({
           <ul className="space-y-2 pb-3 text-sm">
             {historicalArrivals.map((arrival) => (
               <li key={arrival.id}>
-                {arrival.baseNameSnapshot} · {roles.find((role) => role.id === arrival.role)?.label}{" "}
-                ·{" "}
+                {arrival.baseNameSnapshot} · {roleLabel(arrival.role)} ·{" "}
                 <time dateTime={arrival.arrivedAt}>
                   {new Date(arrival.arrivedAt).toLocaleString()}
                 </time>
@@ -504,6 +935,33 @@ export function EfaMobileArrivalPanel({
           No hay móviles disponibles para esta guardia.
         </p>
       )}
-    </section>
+      {selectionEditable && (
+        <EfaActionConfirmation
+          open={removalTargetKey !== null}
+          onOpenChange={(open) => {
+            if (!open) setRemovalBaseId(null);
+          }}
+          capturedTargetKey={removalTargetKey}
+          currentTargetKey={currentRemovalKey}
+          title="Quitar móvil"
+          description={
+            removalBase
+              ? (getMobileRemovalConfirmation({
+                  guardId,
+                  base: removalBase,
+                  arrivals,
+                  hygienePeriods,
+                }) ?? `¿Quitar Móvil ${removalBase.name} de la guardia?`)
+              : ""
+          }
+          confirmLabel="Quitar móvil"
+          onConfirm={() => {
+            if (!removalBase) return;
+            setRemovalBaseId(null);
+            onBaseSelectionChange?.(removalBase.id, false);
+          }}
+        />
+      )}
+    </div>
   );
 }

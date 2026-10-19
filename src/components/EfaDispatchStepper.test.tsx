@@ -19,6 +19,7 @@ import {
   hasFirstResponseValue,
   isDispatchReviewStep,
   isFollowUpOpen,
+  resolveDispatchRestore,
 } from "./EfaDispatchStepper";
 import { FollowUpOpenButton } from "./EfaDispatchFollowUpModal";
 
@@ -366,5 +367,41 @@ describe("EfaDispatchStepper", () => {
     );
     expect(html).toContain("Destino histórico: Hospital Histórico");
     expect(html).toContain("Cargando el catálogo institucional");
+  });
+});
+
+describe("resolveDispatchRestore", () => {
+  const dispatches = [
+    { id: "dispatch-1", canEdit: true },
+    { id: "dispatch-2", canEdit: false },
+  ];
+
+  it("restores a remembered dispatch that still exists and is editable, with its step", () => {
+    expect(resolveDispatchRestore({ recordId: "dispatch-1", step: 4 }, dispatches, true)).toEqual({
+      record: dispatches[0],
+      step: 4,
+    });
+  });
+
+  it("clamps the remembered step to the last dispatch step", () => {
+    const restore = resolveDispatchRestore({ recordId: "dispatch-1", step: 99 }, dispatches, true);
+    expect(restore?.record.id).toBe("dispatch-1");
+    expect(isDispatchReviewStep(restore?.step ?? -1)).toBe(true);
+    expect(
+      resolveDispatchRestore({ recordId: "dispatch-1", step: -3 }, dispatches, true)?.step,
+    ).toBe(0);
+  });
+
+  it("restores nothing for a missing, non-editable or unsaved record, or without a position", () => {
+    expect(resolveDispatchRestore({ recordId: "gone", step: 2 }, dispatches, true)).toBeNull();
+    expect(
+      resolveDispatchRestore({ recordId: "dispatch-2", step: 2 }, dispatches, true),
+    ).toBeNull();
+    expect(
+      resolveDispatchRestore({ recordId: "dispatch-1", step: 2 }, dispatches, false),
+    ).toBeNull();
+    expect(resolveDispatchRestore({ recordId: null, step: 2 }, dispatches, true)).toBeNull();
+    expect(resolveDispatchRestore(null, dispatches, true)).toBeNull();
+    expect(resolveDispatchRestore(undefined, dispatches, true)).toBeNull();
   });
 });
