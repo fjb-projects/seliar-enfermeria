@@ -10,7 +10,7 @@ export const evaluatorParticipationLevels = [
 export type EvaluatorParticipationLevel = (typeof evaluatorParticipationLevels)[number];
 
 export const evaluatorParticipationLevelLabels: Record<EvaluatorParticipationLevel, string> = {
-  observation_only: "Observación sin intervención",
+  observation_only: "No interviene",
   consultation: "Consulta puntual",
   active_guidance: "Orientación activa",
   direct_leadership: "Conducción directa",
