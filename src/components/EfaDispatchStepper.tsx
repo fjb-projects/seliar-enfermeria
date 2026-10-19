@@ -953,6 +953,22 @@ export function EfaDispatchStepper({
   const selectedIdRef = useRef(selectedId);
   editorRef.current = { selectedId, form, dirty };
   selectedIdRef.current = selectedId;
+  // Read by `save()` and the autosave gate, so a save right after a confirmation sees the queue
+  // as it is now, not as it was rendered while that save ran.
+  const queueEntriesRef = useRef(queueEntries);
+  const storageRetryRef = useRef(storageRetry);
+  queueEntriesRef.current = queueEntries;
+  storageRetryRef.current = storageRetry;
+  const setQueueEntriesTracked = (next: DispatchQueueEntry[]) => {
+    queueEntriesRef.current = next;
+    setQueueEntries(next);
+  };
+  const setStorageRetryTracked = (next: DispatchQueueEntry | null) => {
+    storageRetryRef.current = next;
+    setStorageRetry(next);
+  };
+  const liveQueueBlocks = () =>
+    storageRetryRef.current !== null || queueEntriesRef.current.some(isLiveDispatchQueueEntry);
   const setForm = (value: DispatchForm | ((current: DispatchForm) => DispatchForm)) => {
     const next = typeof value === "function" ? value(editorRef.current.form) : value;
     const currentId = selectedIdRef.current;
@@ -1190,15 +1206,13 @@ export function EfaDispatchStepper({
         payload,
       });
       await (await loadQueue()).persistDispatchOperation(queueStore.current, entry);
-      setStorageRetry(null);
-      setQueueEntries((existing) =>
-        existing.some((item) => item.operationId === entry.operationId)
-          ? existing
-          : [...existing, entry],
-      );
+      setStorageRetryTracked(null);
+      const existing = queueEntriesRef.current;
+      if (!existing.some((item) => item.operationId === entry.operationId))
+        setQueueEntriesTracked([...existing, entry]);
       await runEntry(entry, dispatchErrorSurfaceForKind(kind));
     } catch (reason) {
-      setStorageRetry(entry);
+      setStorageRetryTracked(entry);
       setError(
         `No se pudo guardar la solicitud local. Conservamos la operación ${operationId}; reintenta exactamente la misma solicitud cuando se restablezca el almacenamiento.`,
       );
@@ -1482,7 +1496,7 @@ export function EfaDispatchStepper({
           JSON.stringify([targetOwner, ticketEpisode, entry.operationId]),
         )
       )
-        setQueueEntries(remaining);
+        setQueueEntriesTracked(remaining);
     } catch {
       /* Keep the frozen form and existing queue state. */
     }
@@ -1669,7 +1683,7 @@ export function EfaDispatchStepper({
       selectedQueueRef.current !== entry.operationId
     )
       return;
-    setQueueEntries(remaining);
+    setQueueEntriesTracked(remaining);
     selectedQueueRef.current = null;
     setSelectedQueueId(null);
     setConflictSnapshot(null);
@@ -1821,7 +1835,7 @@ export function EfaDispatchStepper({
         !canWriteRef.current
       )
         return;
-      setQueueEntries(remaining);
+      setQueueEntriesTracked(remaining);
       selectedQueueRef.current = nextOperationId;
       setSelectedQueueId(nextOperationId);
       setConflictSnapshot(null);
@@ -1881,7 +1895,7 @@ export function EfaDispatchStepper({
       !ready ||
       !queueReady ||
       !editor.form.baseId ||
-      hasLiveQueueEntry ||
+      liveQueueBlocks() ||
       (editor.selectedId !== null && (!record || !editor.dirty))
     )
       return false;
@@ -2006,6 +2020,19 @@ export function EfaDispatchStepper({
       queueUsable: ready && queueReady && queueStore.current !== null,
       busy,
     }),
+    // The same conditions from refs, read when a save would fire (a confirmation updates them).
+    getConditions: () =>
+      dispatchAutosaveConditions({
+        canWrite: canWriteRef.current,
+        episodeCanEdit: episodeCanEditRef.current,
+        selected: rowsRef.current.find((row) => row.id === editorRef.current.selectedId) ?? null,
+        currentUserId: owner.current,
+        dirty: editorRef.current.dirty,
+        queueEntries: queueEntriesRef.current,
+        storageRetry: storageRetryRef.current !== null,
+        queueUsable: ready && queueReady && queueStore.current !== null,
+        busy: busyRef.current,
+      }),
     save,
     changeKey: JSON.stringify(form),
     isDirty: () => editorRef.current.dirty,
@@ -2040,7 +2067,7 @@ export function EfaDispatchStepper({
         pristine: !dispatchFormChanged(editor.form, emptyDispatchForm()),
         pending: hasLiveQueueEntry || busyRef.current,
       });
-    if (createDraft) await save();
+    if (createDraft) await autosave.runExclusive(save);
     else await autosave.flush();
     if (!mounted.current || owner.current !== targetOwner || episodeId !== targetEpisode) return;
     setStep(Math.min(Math.max(nextStep, 0), dispatchStepTitles.length - 1));
@@ -2652,7 +2679,7 @@ export function EfaDispatchStepper({
                   !form.baseId ||
                   (selected !== null && !dirty)
                 }
-                onClick={() => void save()}
+                onClick={() => void autosave.runExclusive(save)}
               >
                 {selected ? "Guardar cambios" : "Guardar borrador"}
               </button>
@@ -2921,7 +2948,9 @@ export function EfaDispatchStepper({
                         ?.remove(targetOwner, episodeId, entry.operationId)
                         .then(async () => {
                           if (!mounted.current || owner.current !== targetOwner) return;
-                          setQueueEntries(await queueStore.current!.list(targetOwner, episodeId));
+                          setQueueEntriesTracked(
+                            await queueStore.current!.list(targetOwner, episodeId),
+                          );
                           setMessage(
                             "Se descartó la solicitud rechazada; el registro del servidor no se modificó.",
                           );

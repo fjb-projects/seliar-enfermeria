@@ -796,6 +796,7 @@ export function EfaCommunicationPanel({
     const merge = mergeConfirmedCommunication(snapshotFor(operationId), formRef.current, server);
     if (saveSnapshotRef.current?.operationId === operationId) saveSnapshotRef.current = null;
     if (!merge.keepLocal) {
+      formRef.current = merge.form;
       setTimes({ startedAt: merge.form.startedAt, endedAt: merge.form.endedAt });
       setDirection(merge.form.direction);
       setPriority(merge.form.priority);
@@ -1344,13 +1345,17 @@ export function EfaCommunicationPanel({
    * confirmed this save, `false` when it was refused, failed or stayed queued.
    */
   async function saveCurrent(): Promise<boolean> {
+    // Read from refs: a save right after a confirmation (before the next render) must target the
+    // confirmed version and see the merged dirty state.
+    const target = selectedCallRef.current;
+    const writable = canWriteRef.current;
     if (
-      !canWrite ||
-      (selected
-        ? !canEditCommunication(canWrite, selected)
-        : !canCreateCommunication(canWrite, episodeCanEdit)) ||
+      !writable ||
+      (target
+        ? !canEditCommunication(writable, target)
+        : !canCreateCommunication(writable, episodeCanEdit)) ||
       !callsReady ||
-      (dirty === false && selected) ||
+      (dirtyRef.current === false && target) ||
       pendingRef.current
     )
       return false;
@@ -1359,25 +1364,29 @@ export function EfaCommunicationPanel({
     try {
       const client = await loadCommunicationClient();
       if (!currentContext()) return false;
-      const payloadTimes = client.communicationFormToPayloadTimes(times, originalTimesRef.current);
+      const form = formRef.current;
+      const payloadTimes = client.communicationFormToPayloadTimes(
+        { startedAt: form.startedAt, endedAt: form.endedAt },
+        originalTimesRef.current,
+      );
       const operationId = crypto.randomUUID();
-      saveSnapshotRef.current = { operationId, snapshot: createSaveSnapshot(formValue) };
-      if (selected) {
+      saveSnapshotRef.current = { operationId, snapshot: createSaveSnapshot(form) };
+      if (target) {
         await submitPayload("update", {
-          communicationId: selected.id,
-          expectedVersion: selected.version,
+          communicationId: target.id,
+          expectedVersion: target.version,
           operationId,
-          direction,
+          direction: form.direction,
           ...payloadTimes,
-          priority: priority || null,
+          priority: form.priority || null,
         });
       } else {
         await submitPayload("create", {
           clientCreationKey: operationId,
           episodeId,
-          direction,
+          direction: form.direction,
           ...payloadTimes,
-          priority: priority || null,
+          priority: form.priority || null,
         });
       }
       return lastConfirmedOperationRef.current === operationId;
@@ -1863,6 +1872,21 @@ export function EfaCommunicationPanel({
       queueError,
       busy,
     }),
+    // The same conditions from refs, read when a save would fire (a confirmation updates them).
+    getConditions: () =>
+      communicationAutosaveConditions({
+        canWrite: canWriteRef.current,
+        selected: selectedCallRef.current,
+        currentUserId: ownerRef.current,
+        dirty: dirtyRef.current,
+        hasPendingEntry: Boolean(pendingRef.current),
+        queueEntries: queueEntriesRef.current,
+        queueReady,
+        callsReady,
+        storeReady: Boolean(storeRef.current),
+        queueError,
+        busy: busyRef.current,
+      }),
     save: saveCurrent,
     changeKey: `${direction}|${priority}|${times.startedAt}|${times.endedAt}`,
     isDirty: () => dirtyRef.current,
@@ -1883,7 +1907,7 @@ export function EfaCommunicationPanel({
         editorIsOwner: episodeOwnerUserId === currentUserId,
         directionChosen: directionReviewed,
       });
-    if (createDraft) await saveCurrent();
+    if (createDraft) await autosave.runExclusive(saveCurrent);
     else await autosave.flush();
     if (!currentContext()) return;
     setStep(nextStep);
@@ -2469,7 +2493,7 @@ export function EfaCommunicationPanel({
                 !dirty &&
                 Boolean(priority)
               }
-              onSave={() => void saveCurrent()}
+              onSave={() => void autosave.runExclusive(saveCurrent)}
               onFinalize={() => requestFinalize("finalize")}
               onFinalizeAndContinue={() => requestFinalize("finalize-and-continue")}
             />

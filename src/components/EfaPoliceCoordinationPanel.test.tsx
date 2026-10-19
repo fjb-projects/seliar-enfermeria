@@ -190,6 +190,38 @@ describe("EfaPoliceCoordinationPanel", () => {
     ).toMatchObject({ pendingOperationId: "", coordinationDirty: true, dispatchesDirty: true });
   });
 
+  it("releases the held operation after cleanup even when another coordination is open now", () => {
+    const entry = {
+      ownerUserId: "owner",
+      episodeId: "episode-1",
+      entityId: "coord-1",
+      operationId: "op-a",
+      kind: "update",
+    };
+    const state = {
+      ownerUserId: "owner",
+      episodeId: "episode-1",
+      selectedId: "coord-2",
+      pendingOperationId: "op-a",
+      coordinationDirty: true,
+      dispatchesDirty: false,
+      entries: [entry],
+    };
+    expect(completePoliceQueueOutcome(state, { status: "cleaned", entry })).toEqual({
+      ...state,
+      entries: [],
+      pendingOperationId: "",
+      completedCreate: false,
+    });
+    const createEntry = { ...entry, entityId: "create:key-a", kind: "create" };
+    expect(
+      completePoliceQueueOutcome(
+        { ...state, entries: [createEntry] },
+        { status: "cleaned", entry: createEntry },
+      ),
+    ).toMatchObject({ selectedId: "coord-2", pendingOperationId: "", completedCreate: false });
+  });
+
   it("unlocks only a restored confirmed create after cleanup and does not leave a duplicate draft", () => {
     const createEntry = {
       ownerUserId: "owner",

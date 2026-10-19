@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  confirmDiscardSwitch,
   createRecordSwitchSequence,
   decideRecordSwitch,
   prepareRecordSwitch,
@@ -111,5 +112,53 @@ describe("prepareRecordSwitch", () => {
     });
     sequence.begin();
     await expect(result).resolves.toBe("stale");
+  });
+});
+
+describe("confirmDiscardSwitch", () => {
+  it("waits for the running save to settle and then switches", async () => {
+    const order: string[] = [];
+    const result = await confirmDiscardSwitch({
+      settle: async () => {
+        order.push("settle");
+      },
+      isCurrent: () => true,
+      heldOperationId: () => {
+        order.push("held");
+        return "";
+      },
+    });
+    expect(result).toEqual({ kind: "switch", releaseOperationId: null });
+    expect(order).toEqual(["settle", "held"]);
+  });
+
+  it("switches and releases an operation still held after the wait", async () => {
+    await expect(
+      confirmDiscardSwitch({
+        settle: async () => false,
+        isCurrent: () => true,
+        heldOperationId: () => "op-1",
+      }),
+    ).resolves.toEqual({ kind: "switch", releaseOperationId: "op-1" });
+  });
+
+  it("still switches when waiting failed", async () => {
+    await expect(
+      confirmDiscardSwitch({
+        settle: () => Promise.reject(new Error("boom")),
+        isCurrent: () => true,
+        heldOperationId: () => "",
+      }),
+    ).resolves.toEqual({ kind: "switch", releaseOperationId: null });
+  });
+
+  it("is stale when the editor changed while waiting", async () => {
+    await expect(
+      confirmDiscardSwitch({
+        settle: async () => true,
+        isCurrent: () => false,
+        heldOperationId: () => "op-1",
+      }),
+    ).resolves.toEqual({ kind: "stale" });
   });
 });

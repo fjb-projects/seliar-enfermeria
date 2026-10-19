@@ -537,6 +537,10 @@ export function EfaEpisodePanel({
   const [serverConfirmedOperationId, setServerConfirmedOperationId] = useState<string | null>(null);
   const queueEntriesRef = useRef(queueEntries);
   queueEntriesRef.current = queueEntries;
+  // Follows `busy`; `save()` also sets it synchronously, so the autosave gate sees a finished save
+  // before the next render.
+  const busyRef = useRef(busy);
+  busyRef.current = busy;
   const pendingRef = useRef(pending);
   pendingRef.current = pending;
   const conflictRef = useRef(conflict);
@@ -1546,6 +1550,7 @@ export function EfaEpisodePanel({
     return submissionGate.current
       .run(async () => {
         if (!ownerFenceRef.current?.isCurrent(ticket)) return false;
+        busyRef.current = true;
         setBusy(true);
         setSaveError("");
         try {
@@ -1618,6 +1623,7 @@ export function EfaEpisodePanel({
           }
           return false;
         } finally {
+          busyRef.current = false;
           if (ownerFenceRef.current?.isCurrent(ticket)) setBusy(false);
         }
       })
@@ -1987,6 +1993,20 @@ export function EfaEpisodePanel({
       queueUsable: queueReady && queueAvailable && !queueError && queueStoreRef.current !== null,
       busy,
     }),
+    // The same conditions from refs, read when a save would fire (a confirmation updates them).
+    getConditions: () => {
+      const record = episodesRef.current.find((item) => item.id === selectedIdRef.current) ?? null;
+      return episodeAutosaveConditions({
+        canWrite: canWriteRef.current,
+        selected: record,
+        currentUserId: activeUserRef.current,
+        dirty: record !== null && episodeFormDirty(formRef.current, record),
+        pendingOperation: pendingRef.current,
+        queueEntries: queueEntriesRef.current,
+        queueUsable: queueReady && queueAvailable && !queueError && queueStoreRef.current !== null,
+        busy: busyRef.current,
+      });
+    },
     save,
     changeKey: JSON.stringify(form),
     // Read from refs: a confirmed save updates them before the next render.
@@ -2363,7 +2383,7 @@ export function EfaEpisodePanel({
                 Boolean(conflict) ||
                 Boolean(serverConfirmedOperationId)
               }
-              onClick={() => void save()}
+              onClick={() => void autosave.runExclusive(save)}
             >
               {episodeSaveActionLabel(Boolean(selected), registerFirstCall)}
             </Button>

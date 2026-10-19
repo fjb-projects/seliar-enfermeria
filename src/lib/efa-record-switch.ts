@@ -55,3 +55,30 @@ export async function prepareRecordSwitch(input: {
   if (!input.isCurrent()) return "stale";
   return decideRecordSwitch({ dirtyAfterFlush: input.isDirty() });
 }
+
+/** How long "Descartar y cambiar" waits for a save that is still running. */
+export const DISCARD_SWITCH_SETTLE_MS = 5000;
+
+export type DiscardSwitchDecision =
+  { kind: "stale" } | { kind: "switch"; releaseOperationId: string | null };
+
+/**
+ * After the user confirmed discarding: waits (bounded by `settle`) for a save still running, then
+ * always switches, so the confirmation never does nothing. An operation the form still holds
+ * afterwards (queued offline, paused, or still running past the bound) stays in the device queue,
+ * where it can be restored later, and is returned so the caller stops letting it lock the editor.
+ * This matches the dispatch panel, which switches and lets a queued entry resolve on its own.
+ */
+export async function confirmDiscardSwitch(input: {
+  settle: () => Promise<unknown>;
+  isCurrent: () => boolean;
+  heldOperationId: () => string;
+}): Promise<DiscardSwitchDecision> {
+  try {
+    await input.settle();
+  } catch {
+    // Waiting is best effort; the switch goes ahead anyway.
+  }
+  if (!input.isCurrent()) return { kind: "stale" };
+  return { kind: "switch", releaseOperationId: input.heldOperationId() || null };
+}

@@ -8,6 +8,7 @@ import {
   deepEqualJson,
   deriveAutosaveStatus,
   isDirtyAfterSave,
+  liveAutosaveGate,
   shouldAutosave,
   type AutosaveInput,
 } from "./efa-autosave";
@@ -260,6 +261,101 @@ describe("autosave status", () => {
   });
 });
 
+describe("liveAutosaveGate", () => {
+  const rendered: Omit<AutosaveInput, "online"> = {
+    canWrite: true,
+    recordExists: true,
+    isDraft: true,
+    editorIsOwner: true,
+    dirty: true,
+    pending: false,
+    queueUsable: true,
+    busy: false,
+  };
+
+  it("evaluates the live conditions and connectivity instead of the last render", () => {
+    const live = { ...rendered };
+    let online = true;
+    const gate = liveAutosaveGate(
+      () => ({
+        enabled: true,
+        conditions: { ...rendered, pending: true },
+        getConditions: () => live,
+      }),
+      () => online,
+    );
+    expect(gate.canSave()).toBe(true);
+    live.busy = true;
+    expect(gate.canSave()).toBe(false);
+    live.busy = false;
+    online = false;
+    expect(gate.canSave()).toBe(false);
+  });
+
+  it("falls back to the rendered conditions and honors the master switch", () => {
+    const source = { enabled: true, conditions: { ...rendered, pending: true } };
+    const gate = liveAutosaveGate(
+      () => source,
+      () => true,
+    );
+    expect(gate.canSave()).toBe(false);
+    source.conditions.pending = false;
+    expect(gate.canSave()).toBe(true);
+    source.enabled = false;
+    expect(gate.canSave()).toBe(false);
+  });
+
+  it("reads dirtiness from isDirty, then the live conditions, then the render", () => {
+    const live = { ...rendered, dirty: false };
+    const withLive = liveAutosaveGate(
+      () => ({ enabled: true, conditions: rendered, getConditions: () => live }),
+      () => true,
+    );
+    expect(withLive.isDirty()).toBe(false);
+    const withReader = liveAutosaveGate(
+      () => ({
+        enabled: true,
+        conditions: rendered,
+        getConditions: () => live,
+        isDirty: () => true,
+      }),
+      () => true,
+    );
+    expect(withReader.isDirty()).toBe(true);
+    const renderedOnly = liveAutosaveGate(
+      () => ({ enabled: true, conditions: rendered }),
+      () => true,
+    );
+    expect(renderedOnly.isDirty()).toBe(true);
+  });
+
+  it("lets a flush right after a confirmed save run although the render still says pending", async () => {
+    // The render captured while the first save ran; no render happens between the two flushes.
+    const stale = { ...rendered, pending: true, busy: true };
+    const live = { ...rendered };
+    const units = ["fields", "links"];
+    const save = vi.fn(async () => {
+      live.pending = true;
+      await Promise.resolve();
+      units.shift();
+      live.pending = false;
+      live.dirty = units.length > 0;
+      return true;
+    });
+    const gate = liveAutosaveGate(
+      () => ({ enabled: true, conditions: stale, getConditions: () => live }),
+      () => true,
+    );
+    const controller = createAutosaveController({ delayMs: 1000, save, ...gate });
+    controller.setActive(true);
+    await expect(controller.flush()).resolves.toBe(true);
+    await expect(controller.flush()).resolves.toBe(true);
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(live.dirty).toBe(false);
+    controller.dispose();
+  });
+});
+
 describe("createAutosaveController", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -398,6 +494,89 @@ describe("createAutosaveController", () => {
     unsubscribe();
     controller.markSaved(at);
     expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it("flush awaits a manual save run through the controller and then re-checks dirtiness", async () => {
+    const manual = deferred<boolean>();
+    const save = vi.fn(async () => true);
+    const { controller, state } = setup(save);
+    const manualResult = controller.runExclusive(() => manual.promise);
+    let done = false;
+    const flushed = controller.flush().then((result) => {
+      done = true;
+      return result;
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(done).toBe(false);
+    state.dirty = false;
+    manual.resolve(true);
+    await expect(manualResult).resolves.toBe(true);
+    await expect(flushed).resolves.toBe(true);
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it("flush saves what a manual save left dirty once it settles", async () => {
+    const manual = deferred<boolean>();
+    const save = vi.fn(async () => true);
+    const { controller } = setup(save);
+    void controller.runExclusive(() => manual.promise);
+    const flushed = controller.flush();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(save).not.toHaveBeenCalled();
+    manual.resolve(true);
+    await expect(flushed).resolves.toBe(true);
+    expect(save).toHaveBeenCalledTimes(1);
+  });
+
+  it("never starts an autosave while a manual save is in flight, nor the reverse", async () => {
+    const manual = deferred<boolean>();
+    const auto = deferred<boolean>();
+    const save = vi.fn(() => auto.promise);
+    const { controller } = setup(save);
+    void controller.runExclusive(() => manual.promise);
+    controller.touch();
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(save).not.toHaveBeenCalled();
+    manual.resolve(true);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(save).toHaveBeenCalledTimes(1);
+    const second = vi.fn(async () => true);
+    const secondResult = controller.runExclusive(second);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(second).not.toHaveBeenCalled();
+    auto.resolve(true);
+    await expect(secondResult).resolves.toBe(true);
+    expect(second).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns the manual result, rethrows its error and stays usable", async () => {
+    const save = vi.fn(async () => true);
+    const { controller } = setup(save);
+    await expect(controller.runExclusive(async () => false)).resolves.toBe(false);
+    await expect(controller.runExclusive(() => Promise.reject(new Error("boom")))).rejects.toThrow(
+      "boom",
+    );
+    await expect(controller.flush()).resolves.toBe(true);
+    expect(save).toHaveBeenCalledTimes(1);
+  });
+
+  it("settle waits for the in-flight save without starting another, within a bound", async () => {
+    const pending = deferred<boolean>();
+    const save = vi.fn(() => pending.promise);
+    const { controller, state } = setup(save);
+    controller.touch();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(save).toHaveBeenCalledTimes(1);
+    const timedOut = controller.settle(500);
+    await vi.advanceTimersByTimeAsync(500);
+    await expect(timedOut).resolves.toBe(false);
+    const settled = controller.settle(5000);
+    state.dirty = false;
+    pending.resolve(true);
+    await expect(settled).resolves.toBe(true);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(save).toHaveBeenCalledTimes(1);
+    await expect(controller.settle(10)).resolves.toBe(true);
   });
 
   it("stops scheduling while inactive", async () => {

@@ -241,15 +241,60 @@ export function deriveAutosaveStatus(
 export const AUTOSAVE_ERROR_MESSAGE =
   "No se pudo guardar automáticamente; tus cambios siguen en el formulario.";
 
+/** What a form reports to the autosave gate; read again every time a save could fire. */
+export type AutosaveSource = {
+  /** Master switch for the form. */
+  enabled: boolean;
+  /** Conditions of the last render (also used for the status line). */
+  conditions: Omit<AutosaveInput, "online">;
+  /**
+   * Live conditions (usually built from refs). They take precedence over `conditions` when a
+   * save is about to fire, so a save confirmed since the last render is already reflected.
+   */
+  getConditions?: () => Omit<AutosaveInput, "online">;
+  /** Synchronous dirty reader; takes precedence over the conditions' `dirty`. */
+  isDirty?: () => boolean;
+};
+
+/**
+ * The controller's `canSave` and `isDirty`, evaluated at call time from the latest source and
+ * the live connectivity instead of the decision computed during the last render.
+ */
+export function liveAutosaveGate(read: () => AutosaveSource, isOnline: () => boolean) {
+  const conditions = (source: AutosaveSource) =>
+    source.getConditions ? source.getConditions() : source.conditions;
+  return {
+    canSave: () => {
+      const source = read();
+      return source.enabled && shouldAutosave({ ...conditions(source), online: isOnline() }).ok;
+    },
+    isDirty: () => {
+      const source = read();
+      return source.isDirty ? source.isDirty() : conditions(source).dirty;
+    },
+  };
+}
+
 export type AutosaveController = {
   /** Activity: restart the countdown (no-op while inactive). */
   touch(): void;
   /**
-   * Save now: cancels the countdown, waits for an in-flight save, then saves what is still dirty.
-   * Resolves `true` when nothing is left unsaved or the save succeeded, `false` when the save
-   * failed or was blocked while dirty.
+   * Save now: cancels the countdown, waits for an in-flight save (autosave or one run through
+   * `runExclusive`), then saves what is still dirty. Resolves `true` when nothing is left unsaved
+   * or the save succeeded, `false` when the save failed or was blocked while dirty.
    */
   flush(): Promise<boolean>;
+  /**
+   * Runs a save started outside the autosave (e.g. the manual "Guardar" button) as the single
+   * in-flight save: it waits for a running save first, autosaves wait for it, and `flush()`
+   * awaits it. Resolves or rejects with `save`'s own result.
+   */
+  runExclusive(save: () => Promise<boolean>): Promise<boolean>;
+  /**
+   * Waits for the in-flight save to settle without starting another one and disarms the
+   * countdown. Resolves `false` when it is still running after `timeoutMs`.
+   */
+  settle(timeoutMs: number): Promise<boolean>;
   /** Report a save done outside the controller (e.g. the manual "Guardar" button). */
   markSaved(at?: Date): void;
   /** Mount/unmount switch; inactive controllers never schedule nor save. */
@@ -260,9 +305,10 @@ export type AutosaveController = {
 };
 
 /**
- * Stateful autosave loop: one save in flight at most, re-armed after a successful save while the
- * form is still dirty, and no retry after a failure until the next activity. `canSave` and
- * `isDirty` are read lazily at fire time, so they may come from refs.
+ * Stateful autosave loop: one save in flight at most (autosave or manual through
+ * `runExclusive`), re-armed after a successful save while the form is still dirty, and no retry
+ * after a failure until the next activity. `canSave` and `isDirty` are read lazily at fire time,
+ * so they may come from refs (see `liveAutosaveGate`).
  */
 export function createAutosaveController(
   options: TimerOptions & {
@@ -272,6 +318,8 @@ export function createAutosaveController(
   },
 ): AutosaveController {
   const now = options.now ?? (() => Date.now());
+  const setTimer = options.setTimer ?? defaultSetTimer;
+  const clearTimer = options.clearTimer ?? defaultClearTimer;
   const listeners = new Set<() => void>();
   let state: AutosaveControllerState = { saving: false, lastSavedAt: null, error: null };
   let inFlight: Promise<boolean> | null = null;
@@ -316,15 +364,50 @@ export function createAutosaveController(
     },
   });
 
+  // `inFlight` never rejects, so awaiting it in a loop always ends.
+  const drain = async () => {
+    while (inFlight) await inFlight;
+  };
+
   return {
     touch() {
       if (active) scheduler.touch();
     },
     async flush() {
       scheduler.cancel();
-      if (inFlight) await inFlight;
+      await drain();
       scheduler.cancel();
       return run();
+    },
+    async runExclusive(save) {
+      scheduler.cancel();
+      // Checked and claimed in the same tick, so two callers never both start.
+      while (inFlight) await inFlight;
+      const attempt = Promise.resolve().then(save);
+      const settled = attempt.then(
+        (ok) => ok,
+        () => false,
+      );
+      const tracked = settled.then((ok) => {
+        if (inFlight === tracked) inFlight = null;
+        if (ok && active && options.isDirty()) scheduler.touch();
+        return ok;
+      });
+      inFlight = tracked;
+      await tracked;
+      return attempt;
+    },
+    settle(timeoutMs) {
+      scheduler.cancel();
+      if (!inFlight) return Promise.resolve(true);
+      return new Promise<boolean>((resolve) => {
+        const handle = setTimer(() => resolve(false), timeoutMs);
+        void drain().then(() => {
+          clearTimer(handle);
+          scheduler.cancel();
+          resolve(true);
+        });
+      });
     },
     markSaved(at = new Date(now())) {
       update({ lastSavedAt: at, error: null });
