@@ -42,9 +42,12 @@ import {
 } from "@/lib/efa-autosave";
 import { useEfaAutosave } from "@/lib/use-efa-autosave";
 import {
+  DISCARD_SWITCH_SETTLE_MS,
+  confirmDiscardSwitch,
   createRecordSwitchSequence,
   prepareRecordSwitch,
   recordSwitchConfirmationCopy,
+  type RecordSwitchDecision,
 } from "@/lib/efa-record-switch";
 import { EfaAutosaveStatus } from "@/components/EfaAutosaveStatus";
 
@@ -577,6 +580,70 @@ export function communicationHasUnsavedInput(input: {
   if (input.hasSelected || !input.newCallBaseline) return true;
   return input.reviewed || !deepEqualJson(input.current, input.newCallBaseline);
 }
+
+export type CommunicationSwitchStep =
+  | { kind: "stale" }
+  | { kind: "blocked" }
+  | { kind: "confirm" }
+  | { kind: "switch"; releaseOperationId: string | null };
+
+/**
+ * What a switch request does once the flush ran. A save the call still holds (queued offline,
+ * uncertain, paused) never blocks it: unsaved typing asks first, and leaving releases the held
+ * operation, which stays restorable under "Operaciones locales pendientes". Only another action
+ * still running (lifecycle change, conflict load) keeps the call, as its outcome targets it.
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- Pure helper exported for deterministic tests.
+export function communicationSwitchStep(input: {
+  prepared: RecordSwitchDecision | "stale";
+  busy: boolean;
+  heldOperationId: string;
+}): CommunicationSwitchStep {
+  if (input.prepared === "stale") return { kind: "stale" };
+  if (input.busy) return { kind: "blocked" };
+  if (input.prepared === "confirm") return { kind: "confirm" };
+  return { kind: "switch", releaseOperationId: input.heldOperationId || null };
+}
+
+/**
+ * Which parts of the panel a queued operation still holds. Only the editor showing it
+ * (`ownsEditor`) adopts its outcome into the form; the lock (`holdsLock`, one held operation per
+ * panel) is released by its outcome even when another call is open, so cleaning up an old call's
+ * entry never overwrites or locks the call being edited now.
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- Pure helper exported for deterministic tests.
+export function communicationOperationScope(input: {
+  operationId: string;
+  pendingOperationId: string;
+  selectedOperationId: string;
+}) {
+  const known = input.operationId !== "";
+  return {
+    ownsEditor: known && input.selectedOperationId === input.operationId,
+    holdsLock: known && input.pendingOperationId === input.operationId,
+  };
+}
+
+/**
+ * The queue status that keeps the call in the editor from saving: the operation the panel holds,
+ * or a released one (left behind by "Descartar y cambiar") that still targets this call. Other
+ * calls' entries never block it; saves stay one pending operation per call.
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- Pure helper exported for deterministic tests.
+export function communicationHeldStatus(input: {
+  pendingEntry: Pick<CommunicationQueueEntry, "operationId" | "status"> | null;
+  queueEntries: readonly Pick<CommunicationQueueEntry, "operationId" | "status" | "payload">[];
+  selected: { id: string; clientCreationKey: string } | null;
+}): CommunicationQueueEntry["status"] | null {
+  const { pendingEntry, selected } = input;
+  if (pendingEntry)
+    return (
+      input.queueEntries.find((entry) => entry.operationId === pendingEntry.operationId)?.status ??
+      pendingEntry.status
+    );
+  if (!selected) return null;
+  return input.queueEntries.find((entry) => queueEntryTargetsCall(entry, selected))?.status ?? null;
+}
 export type CommunicationServiceContext = { eventAt: string; address: string | null };
 
 const isValidInstant = (value: string) => Number.isFinite(new Date(value).getTime());
@@ -910,6 +977,35 @@ export function EfaCommunicationPanel({
     );
   }
 
+  /**
+   * Stops an operation from holding the panel: it stays in the device queue (restorable under
+   * "Operaciones locales pendientes") and its outcome no longer reaches the editor.
+   */
+  function releaseHeldOperation(operationId: string | null) {
+    if (!operationId) return;
+    const { ownsEditor, holdsLock } = communicationOperationScope({
+      operationId,
+      pendingOperationId: pendingRef.current?.operationId ?? "",
+      selectedOperationId: selectedOperationRef.current,
+    });
+    if (holdsLock) {
+      pendingRef.current = null;
+      setPendingEntry(null);
+    }
+    if (ownsEditor) {
+      selectedOperationRef.current = "";
+      setSelectedOperationId("");
+      setConflictCurrent(null);
+      setConflictOperationId("");
+    }
+    if (saveSnapshotRef.current?.operationId === operationId) saveSnapshotRef.current = null;
+  }
+
+  /** A released entry (left by "Descartar y cambiar") that still has to reach this call. */
+  function callHeldByQueue(call: { id: string; clientCreationKey: string }) {
+    return queueEntriesRef.current.some((entry) => queueEntryTargetsCall(entry, call));
+  }
+
   async function dispatchEntry(entry: CommunicationQueueEntry) {
     if (
       !currentContext() ||
@@ -999,7 +1095,17 @@ export function EfaCommunicationPanel({
     } catch {
       if (currentContext()) setQueueError("No se pudo actualizar la lista local de operaciones.");
     }
-    const ownsEditor = selectedOperationRef.current === entry.operationId;
+    const { ownsEditor, holdsLock } = communicationOperationScope({
+      operationId: entry.operationId,
+      pendingOperationId: pendingRef.current?.operationId ?? "",
+      selectedOperationId: selectedOperationRef.current,
+    });
+    // Another call is in the editor now: the outcome only releases the lock, never the form.
+    const settled =
+      result.status === "confirmed" ||
+      result.status === "confirmed-cleanup-failed" ||
+      result.status === "cleaned";
+    if (settled && !ownsEditor && holdsLock) releaseHeldOperation(entry.operationId);
     if (result.status === "confirmed" || result.status === "confirmed-cleanup-failed") {
       const saved = (result as { result: EfaCommunicationMutationResult }).result;
       confirmedOutcomeRef.current = {
@@ -1356,7 +1462,9 @@ export function EfaCommunicationPanel({
         : !canCreateCommunication(writable, episodeCanEdit)) ||
       !callsReady ||
       (dirtyRef.current === false && target) ||
-      pendingRef.current
+      pendingRef.current ||
+      // One pending operation per call: the status line shows "Pendiente" meanwhile.
+      (target && callHeldByQueue(target))
     )
       return false;
     const release = submissionGateRef.current.acquire();
@@ -1411,6 +1519,7 @@ export function EfaCommunicationPanel({
       !canEditCommunication(canWrite, selected) ||
       dirty ||
       pendingRef.current ||
+      callHeldByQueue(selected) ||
       busyRef.current ||
       selected.state !== "draft" ||
       !priority
@@ -1449,6 +1558,7 @@ export function EfaCommunicationPanel({
       !(selected.canManageLifecycle ?? selected.canEdit) ||
       dirty ||
       pendingRef.current ||
+      callHeldByQueue(selected) ||
       busyRef.current
     )
       return;
@@ -1514,7 +1624,8 @@ export function EfaCommunicationPanel({
   }
 
   async function selectCall(call: EfaCommunicationView) {
-    if (pendingRef.current || busyRef.current) return;
+    // A held save does not block leaving the call (see requestEditorSwitch); a running action does.
+    if (busyRef.current) return;
     noteCallEditorInteraction();
     // The call already in the editor keeps its typing; it only returns to the first step.
     if (call.id === selectedCallRef.current?.id) {
@@ -1581,26 +1692,22 @@ export function EfaCommunicationPanel({
   }
 
   async function startNew() {
-    if (
-      !canCreateCommunication(canWrite, episodeCanEdit) ||
-      !callsReady ||
-      pendingRef.current ||
-      busyRef.current
-    )
-      return;
+    if (!canCreateCommunication(canWrite, episodeCanEdit) || !callsReady || busyRef.current) return;
     noteCallEditorInteraction();
     await requestEditorSwitch(() => void openNewCall());
   }
 
+  /** Runs only through `requestEditorSwitch`, which already released any held operation. */
   async function openNewCall() {
-    if (pendingRef.current || busyRef.current) return;
     // The prefilled start is editable and "Dejar sin hora" still clears it. It is not marked as
     // reviewed: the step resolves because it holds a value, and existing calls are never touched.
     const prefill = newCallStartedAtPrefill(episode);
     let prefilledTimes: FormTimes = { startedAt: "", endedAt: "" };
+    const heldBefore = pendingRef.current;
     if (prefill) {
       const client = await loadCommunicationClient();
-      if (!currentContext() || pendingRef.current || busyRef.current) return;
+      // An operation restored meanwhile owns the editor now.
+      if (!currentContext() || pendingRef.current !== heldBefore) return;
       prefilledTimes = client.communicationToFormTimes({ startedAt: prefill, endedAt: null });
     }
     setSelected(null);
@@ -1838,13 +1945,17 @@ export function EfaCommunicationPanel({
     heading.focus({ preventScroll: true });
   }, [selected?.id]);
 
-  const canCreateCall =
+  // "Nueva llamada" also leaves a call holding a save: the switch releases it (requestEditorSwitch).
+  const canStartNewCall =
     canCreateCommunication(canWrite, episodeCanEdit) &&
     queueReady &&
     callsReady &&
     Boolean(storeRef.current) &&
-    !pendingEntry &&
     !busy;
+  const canCreateCall = canStartNewCall && !pendingEntry;
+  // The held (or released but still queued) operation of the call in the editor blocks its saves.
+  const heldStatus = communicationHeldStatus({ pendingEntry, queueEntries, selected });
+  const callHeld = heldStatus !== null;
   const canEditSelected = Boolean(selected && canEditCommunication(canWrite, selected));
   // A new call stays editable while its save runs; only permission and readiness gate it.
   const canEditNewCall =
@@ -1917,12 +2028,13 @@ export function EfaCommunicationPanel({
   /**
    * Replaces the call in the editor only after saving the current one. When typing could not be
    * saved (new call, another user's record, offline, pending or a failed save) it asks before
-   * discarding it.
+   * discarding it. A save the call still holds never blocks leaving it: the operation is released
+   * and stays restorable under "Operaciones locales pendientes".
    */
   async function requestEditorSwitch(apply: () => void) {
     const fromId = selectedCallRef.current?.id ?? null;
     const isLatest = switchSequence.begin();
-    const decision = await prepareRecordSwitch({
+    const prepared = await prepareRecordSwitch({
       flush: autosave.flush,
       isDirty: () =>
         communicationHasUnsavedInput({
@@ -1935,14 +2047,36 @@ export function EfaCommunicationPanel({
       isCurrent: () =>
         isLatest() && currentContext() && (selectedCallRef.current?.id ?? null) === fromId,
     });
-    // A save still pending or another action running keeps the current call, as before.
-    const blocked = () => Boolean(pendingRef.current) || busyRef.current;
-    const guardedApply = () => {
-      if (!blocked()) apply();
-    };
-    if (decision === "stale" || blocked()) return;
-    if (decision === "switch") guardedApply();
-    else setSwitchConfirmation({ key: callEditorKey(fromId), apply: guardedApply });
+    const next = communicationSwitchStep({
+      prepared,
+      busy: busyRef.current,
+      heldOperationId: pendingRef.current?.operationId ?? "",
+    });
+    if (next.kind === "switch") {
+      releaseHeldOperation(next.releaseOperationId);
+      apply();
+    } else if (next.kind === "confirm")
+      setSwitchConfirmation({
+        key: callEditorKey(fromId),
+        apply: () => void confirmDiscardAndSwitch(fromId, apply),
+      });
+  }
+  /**
+   * "Descartar y cambiar" always switches: it waits a bounded time for a save still running, then
+   * releases the operation the call still holds (queued offline, paused or still running), which
+   * stays restorable under "Operaciones locales pendientes" and no longer reaches the editor.
+   */
+  async function confirmDiscardAndSwitch(fromId: string | null, apply: () => void) {
+    const isLatest = switchSequence.begin();
+    const decision = await confirmDiscardSwitch({
+      settle: () => autosave.settle(DISCARD_SWITCH_SETTLE_MS),
+      isCurrent: () =>
+        isLatest() && currentContext() && (selectedCallRef.current?.id ?? null) === fromId,
+      heldOperationId: () => pendingRef.current?.operationId ?? "",
+    });
+    if (decision.kind === "stale") return;
+    releaseHeldOperation(decision.releaseOperationId);
+    apply();
   }
   const switchCopy = recordSwitchConfirmationCopy("llamada");
   const finalizeActions = communicationFinalizeActions({
@@ -1970,10 +2104,7 @@ export function EfaCommunicationPanel({
   });
   const saveStatus = communicationSaveStatus({
     autosave: autosave.status,
-    pendingStatus: pendingEntry
-      ? (queueEntries.find((entry) => entry.operationId === pendingEntry.operationId)?.status ??
-        pendingEntry.status)
-      : null,
+    pendingStatus: heldStatus,
     busy,
     dirty,
     savedAt: selected?.updatedAt ?? null,
@@ -2130,7 +2261,7 @@ export function EfaCommunicationPanel({
                         type="button"
                         variant="outline"
                         className="min-h-11"
-                        disabled={busy || Boolean(pendingEntry)}
+                        disabled={busy}
                         onClick={() => void selectCall(call)}
                       >
                         {canWrite && call.canEdit ? "Ver / editar" : "Ver llamada"}
@@ -2202,7 +2333,7 @@ export function EfaCommunicationPanel({
             <Button
               type="button"
               className="min-h-11 w-full sm:w-auto"
-              disabled={!canCreateCall}
+              disabled={!canStartNewCall}
               onClick={() => void startNew()}
             >
               Nueva llamada
@@ -2421,7 +2552,7 @@ export function EfaCommunicationPanel({
                       )}
                       {priority &&
                         !dirty &&
-                        !pendingEntry &&
+                        !callHeld &&
                         !busy &&
                         queueReady &&
                         callsReady &&
@@ -2479,7 +2610,7 @@ export function EfaCommunicationPanel({
                 queueReady &&
                 callsReady &&
                 !busy &&
-                !pendingEntry &&
+                !callHeld &&
                 !(Boolean(selected) && !dirty)
               }
               showFinalize={finalizeActions.finalize}
@@ -2489,7 +2620,7 @@ export function EfaCommunicationPanel({
                 queueReady &&
                 callsReady &&
                 !busy &&
-                !pendingEntry &&
+                !callHeld &&
                 !dirty &&
                 Boolean(priority)
               }
@@ -2506,7 +2637,7 @@ export function EfaCommunicationPanel({
                       type="button"
                       variant="outline"
                       className="min-h-11"
-                      disabled={!canWrite || !callsReady || busy || Boolean(pendingEntry) || dirty}
+                      disabled={!canWrite || !callsReady || busy || callHeld || dirty}
                       onClick={() =>
                         setConfirmingLifecycle(communicationLifecycleAction(selected.state))
                       }
