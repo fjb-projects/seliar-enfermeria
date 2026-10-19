@@ -180,7 +180,8 @@ describe("EfaGuardPanel", () => {
     expect(activeGuard).not.toMatch(/<details[^>]*\bopen(?:="")?/);
     // A single region named "Móviles": the guard panel's section, labelled by its heading.
     expect(html).not.toContain('aria-label="Móviles"');
-    expect((activeGuard.match(/<section[^>]*aria-labelledby=/g) ?? []).length).toBe(1);
+    // "Móviles" and "Cronología de la guardia", each labelled by its heading.
+    expect((activeGuard.match(/<section[^>]*aria-labelledby=/g) ?? []).length).toBe(2);
   });
 
   it("lists the catalog as toggle chips and renders only the selected mobiles", () => {
@@ -232,7 +233,8 @@ describe("EfaGuardPanel", () => {
     expect(activeGuard).not.toContain("Guardar bases");
     expect((html.match(/Registrar atenciones/g) ?? []).length).toBe(1);
     expect(html).not.toContain('aria-label="Móviles"');
-    expect((activeGuard.match(/<section[^>]*aria-labelledby=/g) ?? []).length).toBe(1);
+    // "Móviles" and "Cronología de la guardia", each labelled by its heading.
+    expect((activeGuard.match(/<section[^>]*aria-labelledby=/g) ?? []).length).toBe(2);
     expect(activeGuard).not.toContain("<details");
   });
 
@@ -492,6 +494,18 @@ describe("EfaGuardPanel", () => {
       expect(button).toMatch(/<svg[^>]*aria-hidden="true"/);
       // The sheet mounts the form only while open.
       expect(html).not.toContain("Cargando catálogo e historial");
+    });
+
+    it("shows the guard chronology after the mobiles and before the end of the guard", () => {
+      for (const canWrite of [true, false]) {
+        const html = render([ownOpenGuard], canWrite);
+        const chronology = html.indexOf("Cronología de la guardia");
+        expect(chronology).toBeGreaterThan(html.indexOf("Móviles"));
+        expect(chronology).toBeLessThan(html.indexOf("Terminar guardia"));
+        // The data loads on the client, so the server render shows the loading state.
+        expect(html).toContain("Cargando la cronología…");
+      }
+      expect(render([], true)).not.toContain("Cronología de la guardia");
     });
 
     it("hides the action from read-only users and users without an open own guard", () => {

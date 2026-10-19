@@ -59,6 +59,7 @@ export function EfaGuardConductSheet({
             isAdmin={isAdmin}
             compact
             lockGuardContext
+            prefillObservedAtNow
             {...(onSaved ? { onSaved } : {})}
           />
         )}

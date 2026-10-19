@@ -10,6 +10,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { EfaObservationPanel } from "@/components/EfaObservationPanel";
 import { EfaGuardConductAction } from "@/components/EfaGuardConductSheet";
+import { EfaGuardTimeline, efaGuardTimelineQueryKey } from "@/components/EfaGuardTimeline";
 import type { StaffingCause, StaffingRole, StaffingView } from "@/lib/efa-staffing.server";
 import {
   arriveEfaStaffing,
@@ -723,6 +724,12 @@ export function EfaGuardPanel({
   const [guardConductRevision, setGuardConductRevision] = useState(0);
   const [endingGuardTarget, setEndingGuardTarget] = useState<string | null>(null);
 
+  function refreshGuardTimeline(guardId: string) {
+    void queryClient.invalidateQueries({
+      queryKey: efaGuardTimelineQueryKey(currentUserId, guardId),
+    });
+  }
+
   async function refresh() {
     const [nextGuards, nextBases] = await Promise.all([
       listGuards(),
@@ -982,7 +989,10 @@ export function EfaGuardPanel({
                   guardId={openOwnGuard.id}
                   currentUserId={currentUserId}
                   isAdmin={isAdmin}
-                  onSaved={() => setGuardConductRevision((revision) => revision + 1)}
+                  onSaved={() => {
+                    setGuardConductRevision((revision) => revision + 1);
+                    refreshGuardTimeline(openOwnGuard.id);
+                  }}
                 />
               )}
               <section aria-labelledby={mobilesHeadingId} className="min-w-0 space-y-3 pt-2">
@@ -1053,6 +1063,11 @@ export function EfaGuardPanel({
                   />
                 </div>
               </section>
+              <EfaGuardTimeline
+                guardId={openOwnGuard.id}
+                currentUserId={currentUserId}
+                canWrite={canWrite}
+              />
               <div className="space-y-2 border-t pt-4">
                 <p className="text-sm text-muted-foreground">
                   Al terminar, la guardia no admite nuevos registros.
@@ -1171,6 +1186,9 @@ export function EfaGuardPanel({
                           currentUserId={currentUserId}
                           canWrite={canWrite && guard.ownerUserId === currentUserId}
                           isAdmin={isAdmin}
+                          {...(guard.id === openOwnGuard?.id
+                            ? { onSaved: () => refreshGuardTimeline(guard.id) }
+                            : {})}
                         />
                       </section>
                     )}

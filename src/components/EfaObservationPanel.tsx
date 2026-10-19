@@ -278,6 +278,20 @@ export function captureObservationNow(now: () => Date = () => new Date()) {
   return now().toISOString();
 }
 
+// eslint-disable-next-line react-refresh/only-export-components -- Shared by the locked guard sheet and its deterministic tests.
+export function observationFormDefaults({
+  prefillObservedAtNow,
+  now,
+}: {
+  prefillObservedAtNow: boolean;
+  now?: () => Date;
+}): ObservationForm {
+  return {
+    ...emptyForm(),
+    observedAt: prefillObservedAtNow ? localDateTimeValue(captureObservationNow(now)) : "",
+  };
+}
+
 // eslint-disable-next-line react-refresh/only-export-components -- Shared by create gating and its deterministic tests.
 export function observationCanCreate(input: {
   canWrite: boolean;
@@ -493,6 +507,7 @@ export function EfaObservationPanel({
   isAdmin,
   compact = false,
   lockGuardContext = false,
+  prefillObservedAtNow = false,
   onSaved,
 }: {
   root: ObservationRoot;
@@ -503,6 +518,8 @@ export function EfaObservationPanel({
   compact?: boolean;
   /** Fixes the context to the guard itself: no context selector and no service picker. */
   lockGuardContext?: boolean;
+  /** Starts each new conduct with the current time; only honored under the guard lock. */
+  prefillObservedAtNow?: boolean;
   /** Called after the server confirms a created or corrected record. */
   onSaved?: () => void;
 }) {
@@ -536,11 +553,15 @@ export function EfaObservationPanel({
     root.episodeId ? "episode" : "guard",
   );
   const contextType = observationEffectiveContextKind(contextLocked, selectedContextType);
+  // Inside a service the time stays empty until "Ahora"; the guard sheet starts at the open time.
+  const prefillNow = prefillObservedAtNow && contextLocked;
   const [contextEpisodeId, setContextEpisodeId] = useState(root.episodeId ?? "");
   const [leafId, setLeafId] = useState("");
   const [coordinationId, setCoordinationId] = useState("");
   const [groupFilter, setGroupFilter] = useState<ObservationCatalogItem["group"] | "all">("all");
-  const [form, setForm] = useState<ObservationForm>(emptyForm);
+  const [form, setForm] = useState<ObservationForm>(() =>
+    observationFormDefaults({ prefillObservedAtNow: prefillNow }),
+  );
   const [editing, setEditing] = useState<ObservationView | null>(null);
   const [participationForm, setParticipationForm] = useState<ParticipationForm>(
     emptyParticipationForm,
@@ -923,7 +944,10 @@ export function EfaObservationPanel({
   function startNewObservation() {
     if (!canCreateHere || pendingOperationId || busy || !currentContext) return;
     setEditing(null);
-    setForm({ ...emptyForm(), otherGroup: groupForContext[contextType] });
+    setForm({
+      ...observationFormDefaults({ prefillObservedAtNow: prefillNow }),
+      otherGroup: groupForContext[contextType],
+    });
     setHistoryFor("");
     setMessage("");
   }
@@ -978,7 +1002,10 @@ export function EfaObservationPanel({
 
   function resetAfterConfirmedCreate() {
     setEditing(null);
-    setForm({ ...emptyForm(), otherGroup: groupForContext[contextType] });
+    setForm({
+      ...observationFormDefaults({ prefillObservedAtNow: prefillNow }),
+      otherGroup: groupForContext[contextType],
+    });
   }
 
   const sendEntry = async (entry: ObservationQueueEntry) => {

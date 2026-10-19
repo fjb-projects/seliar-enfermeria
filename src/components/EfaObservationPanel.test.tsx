@@ -8,6 +8,7 @@ import {
   observationCanCreate,
   observationContextSelectionFromPayload,
   observationEffectiveContextKind,
+  observationFormDefaults,
   observationFrozenOperationMatches,
   observationSelectionFitsLock,
   observationShowsContextPickers,
@@ -126,6 +127,15 @@ describe("EfaObservationPanel", () => {
     expect(captureObservationNow(() => new Date("2026-10-07T12:34:56.789Z"))).toBe(
       "2026-10-07T12:34:56.789Z",
     );
+  });
+
+  it("prefills the observed time with the opening instant only for the locked guard sheet", () => {
+    const now = () => new Date("2026-10-19T12:34:56.789Z");
+    const locked = observationFormDefaults({ prefillObservedAtNow: true, now });
+    // datetime-local carries the browser's local time, so it round-trips to the same instant.
+    expect(new Date(locked.observedAt).toISOString()).toBe("2026-10-19T12:34:56.789Z");
+    expect(locked).toMatchObject({ catalogItemKey: "", classification: "adequate", comment: "" });
+    expect(observationFormDefaults({ prefillObservedAtNow: false, now }).observedAt).toBe("");
   });
 
   it("keeps equivalent root scopes stable and distinguishes meaningful scope changes", () => {
