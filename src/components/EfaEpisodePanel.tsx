@@ -48,6 +48,13 @@ import {
   selectGuardWorkspaceEpisodes,
   type EfaEpisodeWorkspaceSection,
 } from "@/components/EfaEpisodeWorkspace";
+import {
+  clearEpisodePosition,
+  getEpisodePositionStorage,
+  readEpisodePosition,
+  resolveWorkspaceSection,
+  saveEpisodeSection,
+} from "@/lib/efa-episode-position";
 
 const loadEpisodeClientHelpers = createClientOnlyFn(() => import("@/lib/efa-episodes.client"));
 const loadEpisodeQueue = createClientOnlyFn(() => import("@/lib/efa-episodes.queue"));
@@ -527,7 +534,15 @@ export function EfaEpisodePanel({
     setMessage("");
   }
 
-  function openWorkspace(episodeId: string, section: EfaEpisodeWorkspaceSection) {
+  function openWorkspace(episodeId: string, section?: EfaEpisodeWorkspaceSection) {
+    const positionStorage = getEpisodePositionStorage();
+    const targetSection = resolveWorkspaceSection(
+      section,
+      section === undefined
+        ? readEpisodePosition(positionStorage, currentUserId, episodeId)?.section
+        : null,
+      "communications",
+    );
     const selection = planEpisodeWorkspaceSelection(
       {
         episodeId: workspaceEpisodeIdRef.current,
@@ -536,7 +551,7 @@ export function EfaEpisodePanel({
         requiresDiscardConfirmation: false,
       },
       episodeId,
-      section,
+      targetSection,
     );
     if (selection.requiresDiscardConfirmation) {
       if (
@@ -553,6 +568,9 @@ export function EfaEpisodePanel({
     visitedWorkspaceSectionsRef.current = selection.visited;
     workspaceEpisodeIdRef.current = selection.episodeId;
     activeWorkspaceSectionRef.current = selection.section;
+    if (selection.episodeId !== null) {
+      saveEpisodeSection(positionStorage, currentUserId, selection.episodeId, selection.section);
+    }
     return true;
   }
 
@@ -739,6 +757,19 @@ export function EfaEpisodePanel({
           episodesRef.current = adopted;
           setEpisodes(adopted);
         },
+      );
+    }
+    if (
+      operation.kind === "close" &&
+      (outcome.status === "confirmed" ||
+        outcome.status === "confirmed-cleanup-failed" ||
+        outcome.status === "cleaned" ||
+        outcome.status === "cleanup-failed")
+    ) {
+      clearEpisodePosition(
+        getEpisodePositionStorage(),
+        ticket.ownerUserId,
+        (operation.payload as PendingEpisodeClose["payload"]).episodeId,
       );
     }
     try {
@@ -1413,6 +1444,9 @@ export function EfaEpisodePanel({
           : await reactivateEpisodeFn({ data: input })
       ) as EpisodeMutationResult;
       lifecycleOperationRef.current = null;
+      if (action === "cancel") {
+        clearEpisodePosition(getEpisodePositionStorage(), currentUserId, result.episode.id);
+      }
       setEpisodes((current) =>
         current.map((item) =>
           item.id === result.episode.id && result.episode.version >= item.version
@@ -2090,7 +2124,7 @@ export function EfaEpisodePanel({
                       variant="outline"
                       className="min-h-11 max-w-full border-sky-200 bg-sky-50 px-2.5 text-sm text-sky-950 hover:bg-sky-100 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100 dark:hover:bg-sky-950/60 sm:px-3"
                       aria-label={`Abrir área de trabajo de ${accessibleDisplayName(episode)}`}
-                      onClick={() => openWorkspace(episode.id, "communications")}
+                      onClick={() => openWorkspace(episode.id)}
                     >
                       <PanelsTopLeft aria-hidden="true" className="size-4" />
                       Abrir área
