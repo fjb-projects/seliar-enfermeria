@@ -454,6 +454,58 @@ describe("EfaGuardPanel", () => {
     expect(html).not.toContain("Registrar atenciones");
   });
 
+  describe("guard-level conduct entry", () => {
+    const helper =
+      "Sin servicio asociado: problemas u oportunidades de mejora que observes en la guardia.";
+    const ownOpenGuard: GuardView = {
+      id: "own-open-guard",
+      ownerUserId: "current-user",
+      startedAt: "2026-10-07T08:00:00.000Z",
+      endedAt: null,
+      declaredAtCentral: true,
+      version: 1,
+      bases: [],
+      baseEvents: [],
+    };
+    const render = (guards: GuardView[], canWrite: boolean) =>
+      renderToStaticMarkup(
+        <EfaGuardPanel
+          initialGuards={guards}
+          activeBases={[]}
+          initialStaffing={{}}
+          currentUserId="current-user"
+          isAdmin={false}
+          canWrite={canWrite}
+        />,
+      );
+
+    it("offers a secondary 'Registrar conducta' action under 'Registrar atenciones' for a writer", () => {
+      const html = render([ownOpenGuard], true);
+      const conduct = html.indexOf(">Registrar conducta<");
+      expect(conduct).toBeGreaterThan(html.indexOf("Registrar atenciones"));
+      expect(conduct).toBeLessThan(html.indexOf("Móviles"));
+      expect(html).toContain(helper);
+      const button =
+        html.match(/<button[^>]*>(?:(?!<\/button>)[\s\S])*Registrar conducta<\/button>/)?.[0] ?? "";
+      expect(button).toMatch(/aria-describedby="[^"]+"/);
+      expect(button).not.toContain("bg-indigo-400");
+      expect(button).toMatch(/<svg[^>]*aria-hidden="true"/);
+      // The sheet mounts the form only while open.
+      expect(html).not.toContain("Cargando catálogo e historial");
+    });
+
+    it("hides the action from read-only users and users without an open own guard", () => {
+      expect(render([ownOpenGuard], false)).not.toContain(">Registrar conducta<");
+      expect(render([], true)).not.toContain(">Registrar conducta<");
+      expect(
+        render([{ ...ownOpenGuard, id: "other-guard", ownerUserId: "other-user" }], true),
+      ).not.toContain(">Registrar conducta<");
+      expect(
+        render([{ ...ownOpenGuard, endedAt: "2026-10-07T12:00:00.000Z" }], true),
+      ).not.toContain(helper);
+    });
+  });
+
   describe("start block as a shift time clock", () => {
     const renderStart = (canWrite: boolean) =>
       renderToStaticMarkup(

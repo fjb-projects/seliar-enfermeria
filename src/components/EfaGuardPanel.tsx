@@ -9,6 +9,7 @@ import {
 } from "@/components/EfaActionConfirmation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { EfaObservationPanel } from "@/components/EfaObservationPanel";
+import { EfaGuardConductAction } from "@/components/EfaGuardConductSheet";
 import type { StaffingCause, StaffingRole, StaffingView } from "@/lib/efa-staffing.server";
 import {
   arriveEfaStaffing,
@@ -718,6 +719,8 @@ export function EfaGuardPanel({
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [observationGuardId, setObservationGuardId] = useState<string | null>(null);
+  // Bumped when the conduct sheet saves, so the open guard's history list reloads.
+  const [guardConductRevision, setGuardConductRevision] = useState(0);
   const [endingGuardTarget, setEndingGuardTarget] = useState<string | null>(null);
 
   async function refresh() {
@@ -973,6 +976,15 @@ export function EfaGuardPanel({
                   </Link>
                 </Button>
               </div>
+              {canWrite && (
+                <EfaGuardConductAction
+                  appearance="button"
+                  guardId={openOwnGuard.id}
+                  currentUserId={currentUserId}
+                  isAdmin={isAdmin}
+                  onSaved={() => setGuardConductRevision((revision) => revision + 1)}
+                />
+              )}
               <section aria-labelledby={mobilesHeadingId} className="min-w-0 space-y-3 pt-2">
                 <div className="space-y-1">
                   <h3
@@ -1137,7 +1149,10 @@ export function EfaGuardPanel({
                       Ver conductas observadas
                     </Button>
                     {observationGuardId === guard.id && (
-                      <section key={`${currentUserId}:${guard.id}`} className="space-y-3">
+                      <section
+                        key={`${currentUserId}:${guard.id}:${guard.id === openOwnGuard?.id ? guardConductRevision : 0}`}
+                        className="space-y-3"
+                      >
                         <Button
                           type="button"
                           variant="outline"

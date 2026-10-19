@@ -14,6 +14,7 @@ import { EfaCommunicationPanel } from "@/components/EfaCommunicationStepper";
 import { EfaDispatchStepper } from "@/components/EfaDispatchStepper";
 import { EfaPoliceCoordinationPanel } from "@/components/EfaPoliceCoordinationPanel";
 import { EfaObservationPanel } from "@/components/EfaObservationPanel";
+import { EfaGuardConductAction } from "@/components/EfaGuardConductSheet";
 import { EfaEpisodeSummary } from "@/components/EfaEpisodeSummary";
 import { readSession } from "@/lib/auth.functions";
 import { formatTimeMinutes } from "@/lib/efa-labels";
@@ -2230,15 +2231,26 @@ export function EfaEpisodePanel({
           de guardias anteriores.
         </p>
       )}
-      {selected && canWrite && openOwnGuard && (
-        <Button
-          variant="outline"
-          className="min-h-11"
-          onClick={beginCreate}
-          disabled={Boolean(pending) || Boolean(conflict)}
-        >
-          Nuevo servicio
-        </Button>
+      {canWrite && openOwnGuard && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+          {selected && (
+            <Button
+              variant="outline"
+              className="min-h-11"
+              onClick={beginCreate}
+              disabled={Boolean(pending) || Boolean(conflict)}
+            >
+              Nuevo servicio
+            </Button>
+          )}
+          <EfaGuardConductAction
+            appearance="link"
+            label="Registrar conducta sin servicio"
+            guardId={openOwnGuard.id}
+            currentUserId={currentUserId}
+            isAdmin={isAdmin}
+          />
+        </div>
       )}
       <EfaActionConfirmation
         open={switchConfirmation !== null}

@@ -285,6 +285,34 @@ describe("EfaEpisodePanel", () => {
     expect(episodeSaveActionLabel(true, true)).toBe("Guardar cambios");
   });
 
+  it("offers 'Registrar conducta sin servicio' only to writers with an open own guard", () => {
+    const render = (
+      openOwnGuard: { id: string; startedAt: string; endedAt: null } | null,
+      canWrite: boolean,
+      initialEpisodes: EpisodeView[] = [],
+    ) =>
+      renderToStaticMarkup(
+        <EfaEpisodePanel
+          initialEpisodes={initialEpisodes}
+          initialNotices={[]}
+          openOwnGuard={openOwnGuard}
+          currentUserId="owner"
+          canWrite={canWrite}
+          isAdmin={false}
+        />,
+      );
+    const guard = { id: "guard-1", startedAt: "2026-10-06T09:00:00.000Z", endedAt: null };
+    const html = render(guard, true);
+    const button =
+      html.match(
+        /<button[^>]*>(?:(?!<\/button>)[\s\S])*Registrar conducta sin servicio<\/button>/,
+      )?.[0] ?? "";
+    expect(button).toContain("underline-offset-4");
+    expect(html).not.toContain("Cargando catálogo e historial");
+    expect(render(guard, false)).not.toContain("Registrar conducta sin servicio");
+    expect(render(null, true)).not.toContain("Registrar conducta sin servicio");
+  });
+
   it("drops the notice card and leads with a compact open-guard status line", () => {
     const html = renderToStaticMarkup(
       <EfaEpisodePanel

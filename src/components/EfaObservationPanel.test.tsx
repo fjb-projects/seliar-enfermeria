@@ -7,7 +7,10 @@ import {
   dispatchObservationRebasedEntry,
   observationCanCreate,
   observationContextSelectionFromPayload,
+  observationEffectiveContextKind,
   observationFrozenOperationMatches,
+  observationSelectionFitsLock,
+  observationShowsContextPickers,
   observationFeedbackNeedsGlobalFallback,
   observationQueueEntryCanContinue,
   observationRootScopeKey,
@@ -72,6 +75,51 @@ describe("EfaObservationPanel", () => {
       coordinationId: "coord-1",
       policeEventId: "event-1",
     });
+  });
+
+  it("fixes a locked guard context: no context pickers and only guard-level records", () => {
+    const root = { guardId: "guard-1" };
+    expect(observationShowsContextPickers({ lockGuardContext: true, root })).toBe(false);
+    expect(observationShowsContextPickers({ lockGuardContext: false, root })).toBe(true);
+    expect(
+      observationShowsContextPickers({
+        lockGuardContext: false,
+        root: { guardId: "guard-1", episodeId: "episode-1" },
+      }),
+    ).toBe(false);
+
+    expect(observationEffectiveContextKind(true, "episode")).toBe("guard");
+    expect(observationEffectiveContextKind(false, "episode")).toBe("episode");
+    expect(observationEffectiveContextKind(true, "dispatch")).toBe("guard");
+    // A locked panel always posts the guard-level context.
+    expect(buildObservationContext(root, { kind: "guard" })).toEqual({
+      contextType: "guard",
+      guardId: "guard-1",
+    });
+
+    expect(observationSelectionFitsLock(true, { kind: "guard" })).toBe(true);
+    expect(observationSelectionFitsLock(true, { kind: "episode", episodeId: "episode-1" })).toBe(
+      false,
+    );
+    expect(observationSelectionFitsLock(false, { kind: "episode", episodeId: "episode-1" })).toBe(
+      true,
+    );
+    expect(observationSelectionFitsLock(true, null)).toBe(false);
+  });
+
+  it("renders a locked guard panel without the context selector or the service picker", () => {
+    const html = renderToStaticMarkup(
+      <EfaObservationPanel
+        root={{ guardId: "guard-1", ownerUserId: "user-1", guardEndedAt: null }}
+        title="Registrar conducta"
+        currentUserId="user-1"
+        canWrite
+        isAdmin={false}
+        lockGuardContext
+      />,
+    );
+    expect(html).not.toContain("Tipo de contexto");
+    expect(html).not.toContain("Episodio de esta guardia");
   });
 
   it("captures observed time at the quick-action click instant", () => {

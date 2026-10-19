@@ -234,6 +234,8 @@ const isoFromLocalDateTime = (value: string) => {
   return Number.isFinite(date.getTime()) ? date.toISOString() : null;
 };
 const nextId = () => crypto.randomUUID();
+const lockedContextQueueMessage =
+  "Esta operación pendiente pertenece a un servicio; continuala desde «Ver conductas observadas» en Mis guardias.";
 
 // eslint-disable-next-line react-refresh/only-export-components -- Builds only valid typed contexts for the O1 server contract.
 export function buildObservationContext(root: ObservationRoot, selection: ContextSelection) {
@@ -403,6 +405,27 @@ export function observationQueueContextAllows(input: {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components -- Shared by the locked guard context and its deterministic tests.
+export function observationShowsContextPickers(input: {
+  lockGuardContext: boolean;
+  root: ObservationRoot;
+}) {
+  return !input.lockGuardContext && !input.root.episodeId;
+}
+
+// eslint-disable-next-line react-refresh/only-export-components -- Shared by the locked guard context and its deterministic tests.
+export function observationEffectiveContextKind(lockGuardContext: boolean, kind: ContextKind) {
+  return lockGuardContext ? ("guard" as const) : kind;
+}
+
+// eslint-disable-next-line react-refresh/only-export-components -- Shared by queue restoration under a locked guard context and its tests.
+export function observationSelectionFitsLock(
+  lockGuardContext: boolean,
+  selection: ContextSelection | null,
+) {
+  return selection !== null && (!lockGuardContext || selection.kind === "guard");
+}
+
 function serializeLocalContext(context: ReturnType<typeof buildObservationContext>) {
   return JSON.stringify(context);
 }
@@ -469,6 +492,8 @@ export function EfaObservationPanel({
   canWrite,
   isAdmin,
   compact = false,
+  lockGuardContext = false,
+  onSaved,
 }: {
   root: ObservationRoot;
   title: string;
@@ -476,6 +501,10 @@ export function EfaObservationPanel({
   canWrite: boolean;
   isAdmin: boolean;
   compact?: boolean;
+  /** Fixes the context to the guard itself: no context selector and no service picker. */
+  lockGuardContext?: boolean;
+  /** Called after the server confirms a created or corrected record. */
+  onSaved?: () => void;
 }) {
   const catalogFn = useServerFn(getEfaObservationCatalog);
   const listGuardFn = useServerFn(listEfaObservationsForGuard);
@@ -501,7 +530,12 @@ export function EfaObservationPanel({
   const [dispatches, setDispatches] = useState<Array<Record<string, unknown>>>([]);
   const [coordinations, setCoordinations] = useState<Array<Record<string, unknown>>>([]);
   const [events, setEvents] = useState<Array<Record<string, unknown>>>([]);
-  const [contextType, setContextType] = useState<ContextKind>(root.episodeId ? "episode" : "guard");
+  // The guard lock only applies to guard roots; an episode root already fixes its service.
+  const contextLocked = lockGuardContext && !root.episodeId;
+  const [selectedContextType, setContextType] = useState<ContextKind>(
+    root.episodeId ? "episode" : "guard",
+  );
+  const contextType = observationEffectiveContextKind(contextLocked, selectedContextType);
   const [contextEpisodeId, setContextEpisodeId] = useState(root.episodeId ?? "");
   const [leafId, setLeafId] = useState("");
   const [coordinationId, setCoordinationId] = useState("");
@@ -535,6 +569,8 @@ export function EfaObservationPanel({
   const [messageSurface, setMessageSurface] = useState<ObservationErrorSurface>("global");
   const mounted = useRef(false);
   const contextRef = useRef({ currentUserId, root, canWrite: false });
+  const onSavedRef = useRef(onSaved);
+  onSavedRef.current = onSaved;
   const queueStoreRef = useRef<import("@/lib/efa-observations.queue").ObservationQueueStore | null>(
     null,
   );
@@ -585,7 +621,7 @@ export function EfaObservationPanel({
     setMessage(text);
     setMessageSurface(area);
   };
-  const activeEpisodeId = root.episodeId ?? contextEpisodeId;
+  const activeEpisodeId = contextLocked ? "" : (root.episodeId ?? contextEpisodeId);
   const effectiveCanWrite = canWrite && currentEfaAccess;
   const isRootOwner = root.ownerUserId === currentUserId;
   const guardIsOpen = root.guardEndedAt == null;
@@ -1159,6 +1195,7 @@ export function EfaObservationPanel({
             ? rows.map((row) => (row.id === saved.id ? saved : row))
             : [saved, ...rows],
         );
+        onSavedRef.current?.();
         if (pendingRef.current === entry.operationId) {
           setPendingOperationId("");
           setSelectedQueueOperationId("");
@@ -1423,6 +1460,14 @@ export function EfaObservationPanel({
         : null;
     if (
       entry.kind === "create" &&
+      createSelection &&
+      !observationSelectionFitsLock(contextLocked, createSelection)
+    ) {
+      reportError(lockedContextQueueMessage, "queue");
+      return;
+    }
+    if (
+      entry.kind === "create" &&
       (!createSelection ||
         (createSelection.kind !== "guard" &&
           root.episodeId &&
@@ -1542,6 +1587,14 @@ export function EfaObservationPanel({
             return;
           }
           const selection = contextForObservation(current);
+          if (!observationSelectionFitsLock(contextLocked, selection)) {
+            setPendingOperationId("");
+            setSelectedQueueOperationId("");
+            pendingRef.current = "";
+            selectedQueueRef.current = "";
+            reportError(lockedContextQueueMessage, "queue");
+            return;
+          }
           const restoredContextKey = serializeLocalContext(buildObservationContext(root, selection));
           if (
             (isParticipationEntry(entry) &&
@@ -1998,7 +2051,7 @@ export function EfaObservationPanel({
   ) : null;
   const contextControls = (
     <>
-      {!root.episodeId && (
+      {observationShowsContextPickers({ lockGuardContext: contextLocked, root }) && (
         <div className="min-w-0 space-y-2">
           <Label htmlFor={`observation-episode-${root.guardId}`}>
             Episodio de esta guardia (opcional)
