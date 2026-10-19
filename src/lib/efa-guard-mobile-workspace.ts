@@ -199,7 +199,7 @@ export function createEfaGuardMobileWorkspace<
         if (!current()) return false;
         unresolved = true;
         errors[intent.baseId] =
-          "El móvil se guardó, pero no se pudieron sincronizar sus ingresos. Reintenta sincronización.";
+          "El móvil se guardó, pero no se pudieron sincronizar sus ingresos. Reintentá la sincronización.";
         return false;
       }
     } catch {
@@ -210,7 +210,7 @@ export function createEfaGuardMobileWorkspace<
       if (!reconciled && current()) {
         unresolved = true;
         errors[intent.baseId] =
-          "No se pudo confirmar ni sincronizar el móvil. Reintenta sincronización.";
+          "No se pudo confirmar ni sincronizar el móvil. Reintentá la sincronización.";
         return false;
       }
       if (hasMembership(confirmedGuard.bases, baseIds)) {
@@ -241,7 +241,7 @@ export function createEfaGuardMobileWorkspace<
 
   function requestBaseSelection(baseId: string, selected: boolean) {
     if (!canChangeBases()) {
-      errors[baseId] = "Espera a que termine la sincronización o la operación del móvil.";
+      errors[baseId] = "Esperá a que termine la sincronización o la operación del móvil.";
       publish();
       return Promise.resolve(false);
     }

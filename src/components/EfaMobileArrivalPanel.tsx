@@ -381,7 +381,7 @@ export function EfaMobileArrivalPanel({
     if (onArrivalMutationStart && !releaseAdmission) {
       reportError(
         key,
-        "Espera a que termine la sincronización de móviles antes de cambiar ingresos.",
+        "Esperá a que termine la sincronización de móviles antes de cambiar ingresos.",
       );
       return false;
     }
@@ -401,7 +401,7 @@ export function EfaMobileArrivalPanel({
       setErrors((current) => ({ ...current, [key]: "" }));
       return true;
     } catch {
-      reportError(key, "No se pudo guardar el cambio. Reintenta esta acción.");
+      reportError(key, "No se pudo guardar el cambio. Reintentá esta acción.");
       return false;
     } finally {
       inFlight.current.delete(key);
