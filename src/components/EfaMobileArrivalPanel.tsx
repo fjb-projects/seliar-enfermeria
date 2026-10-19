@@ -1,6 +1,6 @@
 import { useId, useRef, useState, type ComponentType } from "react";
 import { useServerFn } from "@tanstack/react-start";
-import { Check, Loader2, Plus, Stethoscope, Syringe } from "lucide-react";
+import { Check, ChevronDown, Loader2, Plus, Stethoscope, Syringe } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EfaActionConfirmation } from "@/components/EfaActionConfirmation";
 import type { GuardBase } from "@/components/EfaGuardPanel";
@@ -264,9 +264,18 @@ export function getMobileRemovalConfirmation({
 
 const mobileChipClasses = {
   base: "inline-flex min-h-11 max-w-full items-center gap-2 rounded-full border px-4 py-2 text-left text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60",
-  selected: "border-primary bg-primary text-primary-foreground",
   unselected:
     "border-dashed border-muted-foreground/50 text-muted-foreground enabled:hover:bg-accent enabled:hover:text-accent-foreground",
+  // A selected mobile is a filled pill holding its toggle plus one quick check-in per role.
+  group:
+    "inline-flex max-w-full min-w-0 items-center gap-1.5 rounded-full border border-primary bg-primary pr-1.5 text-primary-foreground",
+  toggle:
+    "inline-flex min-h-11 min-w-0 items-center gap-2 rounded-full py-2 pr-2 pl-4 text-left text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 enabled:hover:bg-primary-foreground/10 disabled:cursor-not-allowed disabled:opacity-60",
+  // 32px circles with a gap: compact, still above the 24px minimum of WCAG 2.5.8.
+  role: "inline-flex size-8 shrink-0 items-center justify-center rounded-full",
+  roleOff:
+    "text-primary-foreground/50 ring-1 ring-primary-foreground/40 transition-colors ring-inset focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 enabled:hover:bg-primary-foreground/15 enabled:hover:text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50",
+  roleOn: "bg-[var(--brand-orange)] text-white",
 } as const;
 
 export function EfaMobileArrivalPanel({
@@ -285,6 +294,7 @@ export function EfaMobileArrivalPanel({
   onArrivalsChange,
   hygienePeriods,
   onHygieneChange,
+  defaultExpandedBaseIds,
 }: {
   guardId: string;
   bases: GuardBase[];
@@ -302,6 +312,8 @@ export function EfaMobileArrivalPanel({
   /** When both hygiene props are given, each selected mobile card shows its hygiene periods. */
   hygienePeriods?: MobileHygieneView[];
   onHygieneChange?: (period: MobileHygieneView) => void;
+  /** Mobile cards that start expanded; every other card starts collapsed to its summary row. */
+  defaultExpandedBaseIds?: string[];
 }) {
   const createArrival = useServerFn(createEfaMobileArrival);
   const updateArrival = useServerFn(updateEfaMobileArrival);
@@ -316,6 +328,9 @@ export function EfaMobileArrivalPanel({
   // One open actions row per mobile, keyed by mobile and holding the arrival it acts on. A new
   // arrival has a new id, so a deleted-then-registered role starts collapsed.
   const [openActions, setOpenActions] = useState<Record<string, string | null>>({});
+  const [expandedBaseIds, setExpandedBaseIds] = useState<ReadonlySet<string>>(
+    () => new Set(defaultExpandedBaseIds),
+  );
   const actionsIdPrefix = useId();
 
   const selectedBaseIds = new Set(bases.map((base) => base.id));
@@ -464,6 +479,87 @@ export function EfaMobileArrivalPanel({
     // An edit in progress belongs to the actions row being closed or replaced on this mobile.
     if (arrivals.some((arrival) => arrival.id === editingId && arrival.baseId === baseId))
       setEditingId(null);
+  }
+
+  function toggleCard(baseId: string) {
+    const collapsing = expandedBaseIds.has(baseId);
+    setExpandedBaseIds((current) => {
+      const next = new Set(current);
+      if (next.has(baseId)) next.delete(baseId);
+      else next.add(baseId);
+      return next;
+    });
+    if (!collapsing) return;
+    // Collapsing hides the actions row and its edit form, so close them like the cell toggle does.
+    setOpenActions((current) => ({ ...current, [baseId]: null }));
+    if (arrivals.some((arrival) => arrival.id === editingId && arrival.baseId === baseId))
+      setEditingId(null);
+  }
+
+  // Quick check-in inside a selected chip: an empty role is a small button that registers the
+  // arrival now (same call and rules as the "+ Ingreso" cell); a registered role is painted and
+  // static, and is edited from the card.
+  function renderRoleChip(base: GuardBase, role: (typeof roles)[number]) {
+    const arrival = activeArrival(base.id, role.id);
+    const Icon = role.icon;
+    if (arrival)
+      return (
+        <span
+          key={role.id}
+          role="img"
+          aria-label={`${role.label} ingresó a las ${formatArrivalTime(arrival.arrivedAt)}`}
+          className={cn(mobileChipClasses.role, mobileChipClasses.roleOn)}
+        >
+          <Icon aria-hidden="true" className="size-4" />
+        </span>
+      );
+
+    const createBusy = busyKeys.has(`${base.id}:${role.id}:create`);
+    const rowBlocked = membershipBlocked || pendingBaseSet.has(base.id);
+    return (
+      <button
+        key={role.id}
+        type="button"
+        aria-label={`Registrar ingreso de ${role.label} en ${base.name}`}
+        aria-busy={createBusy || undefined}
+        disabled={createBusy || rowBlocked || !canWrite}
+        onClick={() => register(base.id, role.id)}
+        className={cn(mobileChipClasses.role, mobileChipClasses.roleOff)}
+      >
+        {createBusy ? (
+          <Loader2 aria-hidden="true" className="size-4 motion-safe:animate-spin" />
+        ) : (
+          <Icon aria-hidden="true" className="size-4" />
+        )}
+      </button>
+    );
+  }
+
+  // One role in the collapsed card's summary row: its icon and arrival time, or a dash.
+  function renderRoleSummary(base: GuardBase, role: (typeof roles)[number]) {
+    const arrival = activeArrival(base.id, role.id);
+    const Icon = role.icon;
+    return (
+      <span key={role.id} className="inline-flex items-center gap-1 text-muted-foreground">
+        <Icon
+          aria-hidden="true"
+          className={cn("size-4 shrink-0", arrival && "text-[var(--brand-orange)]")}
+        />
+        <span className="sr-only">{`${role.label}: `}</span>
+        {arrival ? (
+          <time dateTime={arrival.arrivedAt} className="text-xs text-foreground tabular-nums">
+            {formatArrivalTime(arrival.arrivedAt)}
+          </time>
+        ) : (
+          <>
+            <span aria-hidden="true" className="text-xs tabular-nums">
+              —
+            </span>
+            <span className="sr-only">sin ingreso</span>
+          </>
+        )}
+      </span>
+    );
   }
 
   function renderArrivalTime(arrival: MobileArrivalView) {
@@ -656,7 +752,7 @@ export function EfaMobileArrivalPanel({
             const selected = requested.has(base.id);
             const membershipPending = pendingBaseSet.has(base.id);
             const Icon = membershipPending ? Loader2 : selected ? Check : Plus;
-            return (
+            const toggle = (
               <button
                 key={base.id}
                 type="button"
@@ -666,10 +762,11 @@ export function EfaMobileArrivalPanel({
                   baseSelectionBlocked || membershipPending || (!base.isActive && !selected)
                 }
                 onClick={() => toggleBase(base, selected)}
-                className={cn(
-                  mobileChipClasses.base,
-                  selected ? mobileChipClasses.selected : mobileChipClasses.unselected,
-                )}
+                className={
+                  selected
+                    ? mobileChipClasses.toggle
+                    : cn(mobileChipClasses.base, mobileChipClasses.unselected)
+                }
               >
                 <Icon
                   aria-hidden="true"
@@ -682,6 +779,18 @@ export function EfaMobileArrivalPanel({
                   !base.isActive && <span className="text-xs font-normal">No disponible</span>
                 )}
               </button>
+            );
+            if (!selected) return toggle;
+            return (
+              <div
+                key={base.id}
+                role="group"
+                aria-label={base.name}
+                className={mobileChipClasses.group}
+              >
+                {toggle}
+                {roles.map((role) => renderRoleChip(base, role))}
+              </div>
             );
           })}
         </div>
@@ -706,6 +815,25 @@ export function EfaMobileArrivalPanel({
             </p>
           ),
       )}
+      {/* A check-in tapped from a chip can fail while its card is collapsed: name it here. */}
+      {requestedBases.flatMap((base) =>
+        expandedBaseIds.has(base.id)
+          ? []
+          : roles.map((role) => {
+              const message = errors[`${base.id}:${role.id}:create`];
+              return (
+                message && (
+                  <p
+                    key={`${base.id}:${role.id}`}
+                    role="alert"
+                    className="text-sm text-destructive"
+                  >
+                    {`${base.name} · ${role.label}: ${message}`}
+                  </p>
+                )
+              );
+            }),
+      )}
       {selectionEditable && sortedBases.length > 0 && requestedBases.length === 0 && (
         <p className="text-sm text-muted-foreground">Elegir móviles es opcional.</p>
       )}
@@ -717,42 +845,68 @@ export function EfaMobileArrivalPanel({
           arrivals,
           hygienePeriods,
         });
+        const expanded = expandedBaseIds.has(base.id);
+        const bodyId = `${actionsIdPrefix}-card-${base.id}`;
+        // Collapsed to one summary row by default; the body (cells, actions, hygiene) renders
+        // only while expanded.
         return (
           <article
             key={base.id}
             aria-label={`Móvil ${base.name}`}
-            className="min-w-0 space-y-2 rounded-md border p-2 sm:p-3"
+            className="min-w-0 rounded-md border"
           >
-            <div className="flex min-h-11 min-w-0 flex-wrap items-center justify-between gap-2">
-              <h4 className="min-w-0 font-display text-lg font-semibold break-words">
-                {base.name}
-              </h4>
-              <span
-                className={cn(
-                  "rounded-full px-2 py-0.5 text-xs font-medium",
-                  crewStateClasses[crewState.tone],
-                )}
+            <h4 className="min-w-0">
+              <button
+                type="button"
+                aria-expanded={expanded}
+                aria-controls={expanded ? bodyId : undefined}
+                onClick={() => toggleCard(base.id)}
+                className="flex min-h-11 w-full min-w-0 flex-wrap items-center gap-x-3 gap-y-1 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:px-3"
               >
-                {crewState.label}
-              </span>
-            </div>
-            <div className={mobileArrivalEditClasses.cells}>
-              {roles.map((role) => renderRoleCell(base, role))}
-            </div>
-            {renderRoleActions(base)}
-            {renderRoleErrors(base)}
-            {hygienePeriods && onHygieneChange && (
-              <div>
-                <EfaMobileHygienePanel
-                  guardId={guardId}
-                  baseId={base.id}
-                  baseName={base.name}
-                  periods={hygienePeriods}
-                  canWrite={canWrite}
-                  blocked={membershipBlocked || membershipPending}
-                  onMutationStart={onArrivalMutationStart}
-                  onPeriodChange={onHygieneChange}
+                <span className="min-w-0 font-display text-sm font-semibold break-words">
+                  {base.name}
+                </span>
+                <span
+                  className={cn(
+                    "rounded-full px-2 py-0.5 text-xs font-medium",
+                    crewStateClasses[crewState.tone],
+                  )}
+                >
+                  {crewState.label}
+                </span>
+                <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  {roles.map((role) => renderRoleSummary(base, role))}
+                </span>
+                <ChevronDown
+                  aria-hidden="true"
+                  className={cn(
+                    "ml-auto size-4 shrink-0 text-muted-foreground transition-transform",
+                    expanded && "rotate-180",
+                  )}
                 />
+              </button>
+            </h4>
+            {expanded && (
+              <div id={bodyId} className="min-w-0 space-y-2 border-t p-2 sm:p-3">
+                <div className={mobileArrivalEditClasses.cells}>
+                  {roles.map((role) => renderRoleCell(base, role))}
+                </div>
+                {renderRoleActions(base)}
+                {renderRoleErrors(base)}
+                {hygienePeriods && onHygieneChange && (
+                  <div>
+                    <EfaMobileHygienePanel
+                      guardId={guardId}
+                      baseId={base.id}
+                      baseName={base.name}
+                      periods={hygienePeriods}
+                      canWrite={canWrite}
+                      blocked={membershipBlocked || membershipPending}
+                      onMutationStart={onArrivalMutationStart}
+                      onPeriodChange={onHygieneChange}
+                    />
+                  </div>
+                )}
               </div>
             )}
           </article>

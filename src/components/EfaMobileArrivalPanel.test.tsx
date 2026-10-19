@@ -40,15 +40,16 @@ describe("EfaMobileArrivalPanel", () => {
         bases={[base]}
         arrivals={[]}
         canWrite
+        onBaseSelectionChange={vi.fn()}
         onArrivalsChange={vi.fn()}
       />,
     );
 
     expect(html).toContain("Central");
     expect(html.match(/aria-label="Registrar ingreso de /g)).toHaveLength(3);
-    expect(html).toContain("Enfermería");
-    expect(html).toContain("Conducción");
-    expect(html).toContain("Medicina");
+    expect(html).toContain("Registrar ingreso de Enfermería en Central");
+    expect(html).toContain("Registrar ingreso de Conducción en Central");
+    expect(html).toContain("Registrar ingreso de Medicina en Central");
     expect(html).toContain("min-h-11");
   });
 
@@ -59,6 +60,7 @@ describe("EfaMobileArrivalPanel", () => {
         bases={[base]}
         arrivals={[]}
         canWrite
+        defaultExpandedBaseIds={[base.id]}
         onArrivalsChange={vi.fn()}
       />,
     );
@@ -92,16 +94,20 @@ describe("EfaMobileArrivalPanel", () => {
       canEdit: true,
       ...overrides,
     });
-    const renderCard = (arrivals: MobileArrivalView[], canWrite = true) =>
+    const renderCard = (arrivals: MobileArrivalView[], canWrite = true, expanded = true) =>
       renderToStaticMarkup(
         <EfaMobileArrivalPanel
           guardId="guard-a"
           bases={[mobile2]}
           arrivals={arrivals}
           canWrite={canWrite}
+          {...(expanded ? { defaultExpandedBaseIds: [mobile2.id] } : {})}
           onArrivalsChange={vi.fn()}
         />,
       );
+    const toggle = (html: string) =>
+      /<button[^>]*aria-expanded="(?:true|false)"[^>]*>[\s\S]*?<\/button>/.exec(card(html))?.[0] ??
+      "";
     const card = (html: string) =>
       /<article[^>]*aria-label="Móvil Móvil 2"[\s\S]*?<\/article>/.exec(html)?.[0] ?? "";
     const cells = (html: string) =>
@@ -115,12 +121,66 @@ describe("EfaMobileArrivalPanel", () => {
       const html = card(renderCard([]));
 
       expect(html).toMatch(
-        /<h4[^>]*class="[^"]*\bfont-display\b[^"]*\btext-lg\b[^"]*"[^>]*>Móvil 2<\/h4>/,
+        /<span[^>]*class="[^"]*\bfont-display\b[^"]*\btext-sm\b[^"]*\bfont-semibold\b[^"]*"[^>]*>Móvil 2<\/span>/,
       );
       expect(html).toMatch(
         /<span[^>]*class="[^"]*\brounded-full\b[^"]*"[^>]*>Sin tripulación<\/span>/,
       );
-      expect(html.indexOf("Móvil 2</h4>")).toBeLessThan(html.indexOf("Sin tripulación"));
+      expect(html.indexOf("Móvil 2</span>")).toBeLessThan(html.indexOf("Sin tripulación"));
+    });
+
+    it("collapses the card by default to one summary row without cells or hygiene", () => {
+      const html = renderToStaticMarkup(
+        <EfaMobileArrivalPanel
+          guardId="guard-a"
+          bases={[mobile2]}
+          arrivals={[arrivalFor("nurse")]}
+          hygienePeriods={[]}
+          onHygieneChange={vi.fn()}
+          canWrite
+          onArrivalsChange={vi.fn()}
+        />,
+      );
+      const summary = toggle(html);
+
+      expect(card(html)).toBeTruthy();
+      expect(summary).toContain('aria-expanded="false"');
+      expect(summary).toContain("Móvil 2");
+      expect(summary).toContain("Falta Conducción");
+      expect(summary).toMatch(/<svg[^>]*lucide-syringe/);
+      expect(summary).toMatch(/<svg[^>]*data-icon="steering-wheel"/);
+      expect(summary).toMatch(/<svg[^>]*lucide-stethoscope/);
+      expect(summary).toMatch(/<svg[^>]*lucide-chevron-down/);
+      expect(summary).toMatch(
+        new RegExp(
+          `<time[^>]*class="[^"]*\\btext-xs\\b[^"]*\\btabular-nums\\b[^"]*"[^>]*>${shortTime}</time>`,
+        ),
+      );
+      expect(summary.match(/>—</g)).toHaveLength(2);
+      // The body is not rendered while collapsed: no role cells, no actions, no hygiene.
+      expect(card(html)).not.toContain("data-role=");
+      expect(card(html)).not.toContain("+ Ingreso");
+      expect(card(html)).not.toContain("Higiene y reposición");
+      expect(html).not.toContain('aria-label="Registrar ingreso de ');
+    });
+
+    it("expands the card to show the cells it controls", () => {
+      const html = renderCard([]);
+      const summary = toggle(html);
+      const controls = /aria-controls="([^"]+)"/.exec(summary)?.[1];
+
+      expect(summary).toContain('aria-expanded="true"');
+      expect(card(html)).toContain(`id="${controls}"`);
+      expect(cells(html)).toHaveLength(3);
+    });
+
+    it("uses the same collapsed card for read-only users", () => {
+      const html = renderCard([arrivalFor("driver")], false, false);
+      const summary = toggle(html);
+
+      expect(summary).toContain('aria-expanded="false"');
+      expect(summary).toContain(`>${shortTime}</time>`);
+      expect(card(html)).not.toContain("data-role=");
     });
 
     it("shows the operational state when nurse and driver are on board", () => {
@@ -195,7 +255,8 @@ describe("EfaMobileArrivalPanel", () => {
       const html = renderCard([arrivalFor("driver")], false);
       const [nurse, driver, doctor] = cells(html);
 
-      expect(card(html)).not.toContain("<button");
+      // Only the card's disclosure toggle is a button.
+      expect(card(html).match(/<button/g)).toHaveLength(1);
       expect(nurse?.cell).toContain("Sin ingreso");
       expect(driver?.cell).toContain(`>${shortTime}</time>`);
       expect(doctor?.cell).toContain("Sin ingreso");
@@ -312,10 +373,36 @@ describe("EfaMobileArrivalPanel", () => {
       { id: "mobile-2", name: "Móvil 2", isActive: true },
       { id: "mobile-1", name: "Móvil 1", isActive: true },
     ];
-    const chipGroup = (html: string) =>
-      /<div[^>]*role="group"[^>]*aria-label="Móviles de la guardia"[^>]*>[\s\S]*?<\/div>/.exec(
-        html,
+    // From the chip group to the first card (or the end): the group nests one pill per selection.
+    const chipGroup = (html: string) => {
+      const start = html.search(/<div[^>]*role="group"[^>]*aria-label="Móviles de la guardia"/);
+      if (start < 0) return "";
+      const end = html.indexOf("<article", start);
+      return html.slice(start, end < 0 ? undefined : end);
+    };
+    const pill = (html: string, name: string) =>
+      new RegExp(`<div[^>]*role="group"[^>]*aria-label="${name}"[^>]*>[\\s\\S]*?</div>`).exec(
+        chipGroup(html),
       )?.[0] ?? "";
+    const roleButtons = (html: string) =>
+      [...html.matchAll(/<button[^>]*aria-label="(Registrar ingreso de [^"]+)"[^>]*>/g)].map(
+        ([tag, label = ""]) => ({ tag, label }),
+      );
+    const arrival = (
+      role: MobileArrivalView["role"],
+      overrides: Partial<MobileArrivalView> = {},
+    ): MobileArrivalView => ({
+      id: `arrival-${role}`,
+      guardId: "guard-a",
+      baseId: "mobile-2",
+      baseNameSnapshot: "Móvil 2",
+      role,
+      arrivedAt: "2026-10-07T11:10:00.000Z",
+      deletedAt: null,
+      version: 1,
+      canEdit: true,
+      ...overrides,
+    });
     const chips = (html: string) =>
       [
         ...chipGroup(html).matchAll(
@@ -359,7 +446,7 @@ describe("EfaMobileArrivalPanel", () => {
       const icon = (content = "", name: string) =>
         new RegExp(`<svg[^>]*\\blucide-${name}\\b[^>]*>`).exec(content)?.[0] ?? "";
 
-      expect(selected?.tag).toContain("bg-primary");
+      expect(pill(renderChips(), "Móvil 2")).toMatch(/^<div[^>]*class="[^"]*\bbg-primary\b/);
       expect(icon(selected?.content, "check")).toContain('aria-hidden="true"');
       expect(unselected?.tag).toContain("border-dashed");
       expect(icon(unselected?.content, "plus")).toContain('aria-hidden="true"');
@@ -371,12 +458,89 @@ describe("EfaMobileArrivalPanel", () => {
       expect(html).toMatch(/<article[^>]*aria-label="Móvil Móvil 2"/);
       expect(html).not.toContain('aria-label="Móvil Móvil 1"');
       expect(html).not.toContain('aria-label="Móvil Móvil 10"');
-      expect(html).toMatch(
-        /<article[^>]*aria-label="Móvil Móvil 2"[^>]*>(?:<div[^>]*>)?<h4[^>]*>Móvil 2<\/h4>/,
-      );
+      expect(html).toMatch(/<article[^>]*aria-label="Móvil Móvil 2"[^>]*><h4[^>]*><button/);
       expect(html.match(/aria-label="Registrar ingreso de /g)).toHaveLength(3);
       expect(html).toMatch(/<button[^>]*aria-label="Registrar ingreso de Enfermería en Móvil 2"/);
       expect(html.indexOf("Móviles de la guardia")).toBeLessThan(html.indexOf("<article"));
+    });
+
+    it("grows a selected chip into a labelled group with the toggle and three role buttons", () => {
+      const group = pill(renderChips(), "Móvil 2");
+      const buttons = [...group.matchAll(/<button[^>]*>/g)].map(([tag]) => tag);
+
+      expect(group).toBeTruthy();
+      expect(group).toMatch(/^<div[^>]*class="[^"]*\brounded-full\b/);
+      expect(buttons).toHaveLength(4);
+      expect(buttons[0]).toContain('aria-pressed="true"');
+      expect(roleButtons(group).map(({ label }) => label)).toEqual([
+        "Registrar ingreso de Enfermería en Móvil 2",
+        "Registrar ingreso de Conducción en Móvil 2",
+        "Registrar ingreso de Medicina en Móvil 2",
+      ]);
+      for (const { tag } of roleButtons(group)) {
+        expect(tag).toContain('type="button"');
+        expect(tag).toMatch(/class="[^"]*\bsize-8\b/);
+        expect(tag).not.toContain("aria-pressed");
+      }
+      // Role icons in role order, never a button inside a button.
+      const icons = [
+        ...group.matchAll(/lucide-syringe|data-icon="steering-wheel"|lucide-stethoscope/g),
+      ];
+      expect(icons.map(([match]) => match)).toEqual([
+        "lucide-syringe",
+        'data-icon="steering-wheel"',
+        "lucide-stethoscope",
+      ]);
+      expect(group).not.toMatch(/<button(?:(?!<\/button>)[\s\S])*<button/);
+    });
+
+    it("paints a registered role and stops offering it as a button", () => {
+      const html = renderChips({ arrivals: [arrival("nurse")] });
+      const group = pill(html, "Móvil 2");
+      const time = new Date("2026-10-07T11:10:00.000Z").toLocaleTimeString("es-AR", {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+
+      expect(roleButtons(group).map(({ label }) => label)).toEqual([
+        "Registrar ingreso de Conducción en Móvil 2",
+        "Registrar ingreso de Medicina en Móvil 2",
+      ]);
+      expect(group).toMatch(
+        new RegExp(
+          `<span[^>]*role="img"[^>]*aria-label="Enfermería ingresó a las ${time}"[^>]*class="[^"]*bg-\\[var\\(--brand-orange\\)\\]`,
+        ),
+      );
+      expect(html.match(/aria-label="Registrar ingreso de /g)).toHaveLength(2);
+    });
+
+    it("blocks the role buttons while the mobile's membership is pending", () => {
+      const group = pill(renderChips({ membershipPendingBaseIds: ["mobile-2"] }), "Móvil 2");
+
+      expect(roleButtons(group)).toHaveLength(3);
+      expect(roleButtons(group).every(({ tag }) => tag.includes('disabled=""'))).toBe(true);
+    });
+
+    it("counts one role button per empty role on each selected mobile", () => {
+      const html = renderChips({
+        bases: catalog.filter((mobile) => mobile.id !== "mobile-10"),
+        requestedBaseIds: ["mobile-1", "mobile-2"],
+        arrivals: [arrival("driver"), arrival("doctor")],
+      });
+
+      expect(html.match(/aria-label="Registrar ingreso de /g)).toHaveLength(4);
+      expect(roleButtons(pill(html, "Móvil 1"))).toHaveLength(3);
+      expect(roleButtons(pill(html, "Móvil 2"))).toHaveLength(1);
+    });
+
+    it("keeps unselected chips as single buttons without role buttons", () => {
+      const html = renderChips();
+      const group = chipGroup(html);
+
+      expect(group).not.toContain('aria-label="Móvil 1"');
+      expect(group).not.toContain('aria-label="Móvil 10"');
+      expect(group).not.toContain("Registrar ingreso de Enfermería en Móvil 1");
+      expect(group).not.toContain("Registrar ingreso de Enfermería en Móvil 10");
     });
 
     it("keeps a pending chip busy and disabled and names the mobile in membership errors", () => {
@@ -432,6 +596,8 @@ describe("EfaMobileArrivalPanel", () => {
       );
       expect(html).not.toContain("Móvil 10");
       expect(html).not.toContain("Móvil 1<");
+      expect(html).not.toContain('aria-label="Registrar ingreso de ');
+      expect(html).not.toContain('role="img"');
     });
   });
 
@@ -526,19 +692,21 @@ describe("EfaMobileArrivalPanel", () => {
     expect(mobileArrivalEditClasses.input).toContain("min-h-11");
   });
 
-  it("shows all selected role controls without a second disclosure click", () => {
+  it("shows all selected role controls in the chips without opening a card", () => {
     const html = renderToStaticMarkup(
       <EfaMobileArrivalPanel
         guardId="guard-a"
         bases={[base, { id: "base-b", name: "Norte", isActive: true }]}
         arrivals={[]}
         canWrite
+        onBaseSelectionChange={vi.fn()}
         onArrivalsChange={vi.fn()}
       />,
     );
 
     expect(html).toContain("Enfermería");
     expect(html.match(/aria-label="Registrar ingreso de /g)).toHaveLength(6);
+    expect(html.match(/aria-expanded="false"/g)).toHaveLength(2);
     expect(html).not.toContain("<details");
   });
 
@@ -591,6 +759,7 @@ describe("EfaMobileArrivalPanel", () => {
         bases={[base]}
         arrivals={[arrival]}
         canWrite
+        defaultExpandedBaseIds={[base.id]}
         onArrivalsChange={vi.fn()}
       />,
     );
@@ -680,6 +849,7 @@ describe("EfaMobileArrivalPanel", () => {
           hygienePeriods={[hygiene]}
           onHygieneChange={vi.fn()}
           canWrite
+          defaultExpandedBaseIds={[base.id, "base-b"]}
           onArrivalsChange={vi.fn()}
         />,
       );
@@ -706,6 +876,7 @@ describe("EfaMobileArrivalPanel", () => {
           hygienePeriods={[{ ...hygiene, availableAt: "2026-10-14T14:30:00.000Z", canEdit: false }]}
           onHygieneChange={vi.fn()}
           canWrite={false}
+          defaultExpandedBaseIds={[base.id]}
           onArrivalsChange={vi.fn()}
         />,
       );
@@ -723,10 +894,50 @@ describe("EfaMobileArrivalPanel", () => {
           bases={[base]}
           arrivals={[]}
           canWrite
+          defaultExpandedBaseIds={[base.id]}
           onArrivalsChange={vi.fn()}
         />,
       );
       expect(html).not.toContain("Higiene y reposición");
+    });
+
+    it("shows a period left open at close as not informed and read-only once expanded", () => {
+      const html = renderToStaticMarkup(
+        <EfaMobileArrivalPanel
+          guardId="guard-a"
+          bases={[base]}
+          arrivals={[]}
+          hygienePeriods={[{ ...hygiene, notInformed: true, canEdit: false }]}
+          onHygieneChange={vi.fn()}
+          canWrite={false}
+          defaultExpandedBaseIds={[base.id]}
+          onArrivalsChange={vi.fn()}
+        />,
+      );
+      const central = article(html, "Central");
+
+      expect(central).toContain("No informado");
+      expect(central).not.toContain("Solicitó higiene y reposición");
+      expect(central).not.toContain("Disponible (handy)");
+    });
+
+    it("hides the block while the card is collapsed", () => {
+      const html = renderToStaticMarkup(
+        <EfaMobileArrivalPanel
+          guardId="guard-a"
+          bases={[base]}
+          arrivals={[]}
+          hygienePeriods={[hygiene]}
+          onHygieneChange={vi.fn()}
+          canWrite
+          onArrivalsChange={vi.fn()}
+        />,
+      );
+      const central = article(html, "Central");
+
+      expect(central).toContain("En higiene desde 11:00");
+      expect(central).not.toContain("Higiene y reposición");
+      expect(central).not.toContain("Solicitó higiene y reposición");
     });
   });
 });

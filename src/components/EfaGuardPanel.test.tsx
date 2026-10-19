@@ -544,10 +544,8 @@ describe("EfaGuardPanel", () => {
 
   describe("open guard as a live status board", () => {
     const startedAt = "2026-10-07T08:00:00.000Z";
-    const startLabel = new Date(startedAt).toLocaleTimeString(undefined, {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+    // 24 h Buenos Aires time, like every other time in the area.
+    const startLabel = "05:00";
     const renderOpen = (canWrite = true) =>
       renderToStaticMarkup(
         <EfaGuardPanel
@@ -597,8 +595,39 @@ describe("EfaGuardPanel", () => {
 
       expect(time).toContain("font-display");
       expect(time).toContain("text-3xl");
-      expect(time).toContain("sm:text-4xl");
+      expect(time).toContain("leading-none");
+      expect(time).not.toContain("sm:text-4xl");
       expect(time).not.toContain("text-5xl");
+    });
+
+    it("formats the start time in 24 h Buenos Aires time without AM or PM", () => {
+      const html = openBlock(renderOpen());
+
+      expect(html).toContain(`Guardia en curso desde 05:00`);
+      expect(html).not.toMatch(/\b\d{1,2}:\d{2}\s?(?:AM|PM|a\.\s?m\.|p\.\s?m\.)/i);
+    });
+
+    it("puts the status and the episode action in one wrapping row", () => {
+      const html = openBlock(renderOpen());
+      const rowStart = html.search(
+        /<div class="[^"]*\bflex\b[^"]*\bflex-wrap\b[^"]*\bitems-center\b[^"]*\bjustify-between\b[^"]*">/,
+      );
+      const row = html.slice(rowStart, html.search(/<section[^>]*aria-labelledby=/));
+      const button = row.match(/<a[^>]*>Registrar atenciones<\/a>/)?.[0] ?? "";
+
+      expect(rowStart).toBeGreaterThan(-1);
+      expect(row).toMatch(/class="[^"]*\bgap-x-4\b[^"]*\bgap-y-2\b/);
+      expect(row).toContain("En curso");
+      expect(row).toContain(">desde<");
+      expect(row).toContain(`>${startLabel}<`);
+      expect(row).toContain("-- min");
+      expect(button).toContain("w-full");
+      expect(button).toContain("sm:w-auto");
+      expect(row.indexOf("-- min")).toBeLessThan(row.indexOf("Registrar atenciones"));
+      // Time and elapsed sit inline on the same baseline instead of stacking.
+      expect(row).toMatch(
+        /<p[^>]*class="[^"]*\bitems-baseline\b[^"]*"[^>]*>[\s\S]*?05:00[\s\S]*?-- min[\s\S]*?<\/p>/,
+      );
     });
 
     it("drops the nested open-guard box so the card is the only surface", () => {
@@ -832,24 +861,24 @@ describe("EfaGuardPanel hygiene and restocking", () => {
       </QueryClientProvider>,
     );
 
-  it("offers both actions and the period list inside the mobile card of the open guard", () => {
+  it("keeps the hygiene block inside the collapsed card and shows its state on the card", () => {
     const html = render([guard({})], [hygiene()]);
+    const card = /<article[^>]*aria-label="Móvil Central"[\s\S]*?<\/article>/.exec(html)?.[0] ?? "";
 
-    expect(html.match(/Solicitó higiene y reposición/g)).toHaveLength(1);
-    expect(html).toContain("Disponible (handy)");
-    expect(html).toContain("En higiene y reposición");
-    expect(html.indexOf('aria-label="Móvil Central"')).toBeLessThan(
-      html.indexOf("Solicitó higiene y reposición"),
-    );
+    expect(card).toContain('aria-expanded="false"');
+    expect(card).toContain("En higiene desde 07:00");
+    // Hygiene actions and periods live in the card body, hidden until it is expanded.
+    expect(html).not.toContain("Solicitó higiene y reposición");
+    expect(html).not.toContain("Disponible (handy)");
   });
 
-  it("shows a period left open at close as not informed and read-only in the closed guard", () => {
+  it("does not report a period left open at close as an open hygiene state", () => {
     const html = render(
       [guard({ endedAt: "2026-10-07T12:00:00.000Z", version: 3 })],
       [hygiene({ notInformed: true, canEdit: false })],
     );
 
-    expect(html).toContain("No informado");
+    expect(html).not.toContain("En higiene desde");
     expect(html).not.toContain("Solicitó higiene y reposición");
     expect(html).not.toContain("Disponible (handy)");
   });

@@ -26,7 +26,7 @@ import {
 } from "@/lib/efa-guards.functions";
 import { previewEfaStaffingPlan } from "@/lib/efa-staffing-plan.functions";
 import { getOperationalDateRange } from "@/lib/efa-staffing-plan.date";
-import { formatDateTimeMinutes } from "@/lib/efa-labels";
+import { formatDateTimeMinutes, formatTimeMinutes } from "@/lib/efa-labels";
 import type { DatedSlot } from "@/lib/efa-staffing-plan.server";
 import { listEfaMobileArrivalsForGuard } from "@/lib/efa-mobile-arrivals.functions";
 import { listEfaMobileHygieneForGuard } from "@/lib/efa-mobile-hygiene.functions";
@@ -163,35 +163,44 @@ function formatElapsed(ms: number) {
   return hours > 0 ? `${hours} h ${minutes} min` : `${minutes} min`;
 }
 
-// Status-board header for the open guard. The start time renders on the server as before; the
-// elapsed time needs the client clock, so it keeps a same-height placeholder until then. The
-// visual pieces are hidden from assistive tech in favor of one unambiguous sentence.
+// Status-board header for the open guard, read as one line: "En curso · desde 08:05 · 1 h 16 min".
+// The start time is fixed 24 h Buenos Aires time, so server and client agree; the elapsed time
+// needs the client clock and keeps a placeholder until then. The visual pieces are hidden from
+// assistive tech in favor of one unambiguous sentence.
 function GuardLiveStatus({ startedAt }: { startedAt: string | Date }) {
   const now = useMinuteNow();
   const start = new Date(startedAt);
-  const startLabel = start.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  const startLabel = formatTimeMinutes(start);
   return (
-    <div className="space-y-1">
+    <div className="min-w-0">
       <p className="sr-only">{`Guardia en curso desde ${startLabel}`}</p>
-      <div aria-hidden="true" className="flex items-center gap-2">
-        <span className="size-2.5 rounded-full bg-[var(--brand-orange)] motion-safe:animate-pulse" />
-        <span className="text-xs font-medium tracking-wide uppercase">En curso</span>
-      </div>
-      <p aria-hidden="true" className="flex items-baseline gap-2">
-        <span className="text-sm text-muted-foreground">desde</span>
-        <span className="font-display text-3xl leading-none font-semibold tabular-nums sm:text-4xl">
+      <p className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+        <span
+          aria-hidden="true"
+          className="text-xs font-medium tracking-wide whitespace-nowrap uppercase"
+        >
+          <span className="mr-2 inline-block size-2.5 rounded-full bg-[var(--brand-orange)] align-middle motion-safe:animate-pulse" />
+          En curso
+        </span>
+        <span aria-hidden="true" className="text-sm text-muted-foreground">
+          desde
+        </span>
+        <span
+          aria-hidden="true"
+          className="font-display text-3xl leading-none font-semibold tabular-nums"
+        >
           {startLabel}
         </span>
-      </p>
-      <p className="min-h-5 text-sm text-muted-foreground tabular-nums">
-        {now ? (
-          <>
-            <span className="sr-only">Duración: </span>
-            {formatElapsed(now.getTime() - start.getTime())}
-          </>
-        ) : (
-          <span aria-hidden="true">-- min</span>
-        )}
+        <span className="text-sm whitespace-nowrap text-muted-foreground tabular-nums">
+          {now ? (
+            <>
+              <span className="sr-only">Duración: </span>
+              {formatElapsed(now.getTime() - start.getTime())}
+            </>
+          ) : (
+            <span aria-hidden="true">-- min</span>
+          )}
+        </span>
       </p>
     </div>
   );
@@ -954,12 +963,16 @@ export function EfaGuardPanel({
             // Same single surface as the start block: status first, the frequent action next,
             // the mobiles in the middle and the irreversible close at the end.
             <div className="min-w-0 space-y-3">
-              <GuardLiveStatus startedAt={openOwnGuard.startedAt} />
-              <Button asChild className="min-h-11 w-full sm:w-auto">
-                <Link to="/episodios-efa">
-                  {canWrite ? "Registrar atenciones" : "Consultar atenciones de la guardia abierta"}
-                </Link>
-              </Button>
+              <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+                <GuardLiveStatus startedAt={openOwnGuard.startedAt} />
+                <Button asChild className="min-h-11 w-full sm:w-auto">
+                  <Link to="/episodios-efa">
+                    {canWrite
+                      ? "Registrar atenciones"
+                      : "Consultar atenciones de la guardia abierta"}
+                  </Link>
+                </Button>
+              </div>
               <section aria-labelledby={mobilesHeadingId} className="min-w-0 space-y-3 pt-2">
                 <div className="space-y-1">
                   <h3
