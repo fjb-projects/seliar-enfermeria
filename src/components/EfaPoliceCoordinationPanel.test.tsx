@@ -1,13 +1,20 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
+import { shouldAutosave } from "@/lib/efa-autosave";
 import {
   capturePoliceNow,
   completePoliceQueueOutcome,
   acknowledgePoliceCoordinationSave,
   EfaPoliceCoordinationPanel,
   mergePoliceMutationResult,
+  nextPoliceAutosaveUnit,
+  policeAutosaveConditions,
+  policeCoordinationFieldsEditable,
+  policeEditorPendingStatus,
   policeEventRequiresDispatch,
   policeQueueContextAllows,
+  policeSaveStatus,
+  rebasePoliceConflictPayload,
   resolvePoliceCreateCleanup,
   restorePoliceEventDraft,
 } from "./EfaPoliceCoordinationPanel";
@@ -337,5 +344,242 @@ describe("EfaPoliceCoordinationPanel", () => {
     expect(html).toContain("Apoyo policial");
     expect(html).toContain("Solo lectura");
     expect(html).not.toContain("Nueva coordinación");
+  });
+});
+
+describe("police coordination autosave", () => {
+  const coordination = {
+    ownerUserId: "owner",
+    canEdit: true,
+    state: "draft" as const,
+  };
+  const baseConditions = {
+    writeAllowed: true,
+    coordination: coordination as typeof coordination | null,
+    currentUserId: "owner",
+    dirty: true,
+    pendingOperationId: "",
+    unpersisted: false,
+    queueEntries: [] as { status: "pending" | "confirmed-cleanup-failed" | "uncertain" }[],
+    queueUsable: true,
+    busy: false,
+  };
+  const decide = (overrides: Partial<typeof baseConditions> = {}, online = true) =>
+    shouldAutosave({ ...policeAutosaveConditions({ ...baseConditions, ...overrides }), online });
+
+  it("autosaves a dirty coordination owned by the editor when nothing blocks it", () => {
+    expect(decide()).toEqual({ ok: true });
+  });
+
+  it("reports each blocking reason for the coordination autosave", () => {
+    expect(decide({ coordination: null })).toEqual({ ok: false, reason: "no_record" });
+    expect(decide({ currentUserId: "admin" })).toEqual({ ok: false, reason: "not_owner" });
+    expect(decide({ writeAllowed: false })).toEqual({ ok: false, reason: "cannot_write" });
+    expect(decide({ coordination: { ...coordination, canEdit: false } })).toEqual({
+      ok: false,
+      reason: "cannot_write",
+    });
+    expect(decide({ coordination: { ...coordination, state: "finalized" as never } })).toEqual({
+      ok: false,
+      reason: "not_draft",
+    });
+    expect(decide({ dirty: false })).toEqual({ ok: false, reason: "not_dirty" });
+    expect(decide({}, false)).toEqual({ ok: false, reason: "offline" });
+    expect(decide({ queueUsable: false })).toEqual({ ok: false, reason: "queue_unavailable" });
+    expect(decide({ pendingOperationId: "op-1" })).toEqual({ ok: false, reason: "pending" });
+    expect(decide({ unpersisted: true })).toEqual({ ok: false, reason: "pending" });
+    expect(decide({ queueEntries: [{ status: "uncertain" }] })).toEqual({
+      ok: false,
+      reason: "pending",
+    });
+    expect(decide({ busy: true })).toEqual({ ok: false, reason: "busy" });
+  });
+
+  it("ignores a confirmed entry that only waits for local cleanup", () => {
+    expect(decide({ queueEntries: [{ status: "confirmed-cleanup-failed" }] })).toEqual({
+      ok: true,
+    });
+  });
+
+  it("saves the coordination fields before the links and never autosaves an event", () => {
+    expect(
+      nextPoliceAutosaveUnit({ coordinationDirty: true, dispatchesDirty: true, eventDirty: true }),
+    ).toBe("coordination");
+    expect(
+      nextPoliceAutosaveUnit({ coordinationDirty: false, dispatchesDirty: true, eventDirty: true }),
+    ).toBe("links");
+    expect(
+      nextPoliceAutosaveUnit({
+        coordinationDirty: false,
+        dispatchesDirty: false,
+        eventDirty: true,
+      }),
+    ).toBeNull();
+  });
+
+  it("keeps links checked during a coordination update dirty and clears the saved fields", () => {
+    const form = {
+      initiator: "central" as const,
+      initiatingDispatchId: "",
+      placeType: "incident" as const,
+      meetingReference: "",
+      notes: "sent",
+    };
+    expect(
+      acknowledgePoliceCoordinationSave(
+        { coordination: true, dispatches: true },
+        {
+          kind: "update",
+          payload: { ...form, initiatingDispatchId: null, meetingReference: null },
+        },
+        { form, dispatchIds: ["dispatch-1"] },
+      ),
+    ).toEqual({ coordination: false, dispatches: true });
+    expect(
+      acknowledgePoliceCoordinationSave(
+        { coordination: true, dispatches: true },
+        { kind: "dispatches", payload: { dispatchIds: ["dispatch-1"] } },
+        { form: { ...form, notes: "typed while saving" }, dispatchIds: ["dispatch-1", "d-2"] },
+      ),
+    ).toEqual({ coordination: true, dispatches: true });
+  });
+
+  it("rebases a conflicted save on the current form and links instead of the frozen payload", () => {
+    const form = {
+      initiator: "ambulance" as const,
+      initiatingDispatchId: "dispatch-1",
+      placeType: "meeting_point" as const,
+      meetingReference: "",
+      notes: "typed after the conflict",
+    };
+    const remote = { version: 7, events: [] };
+    expect(
+      rebasePoliceConflictPayload(
+        {
+          kind: "update",
+          payload: {
+            coordinationId: "coord-1",
+            expectedVersion: 5,
+            operationId: "old",
+            notes: "x",
+          },
+        },
+        remote,
+        { form, dispatchIds: ["dispatch-1"] },
+        "new-op",
+      ),
+    ).toEqual({
+      coordinationId: "coord-1",
+      expectedVersion: 7,
+      operationId: "new-op",
+      initiator: "ambulance",
+      initiatingDispatchId: "dispatch-1",
+      placeType: "meeting_point",
+      meetingReference: null,
+      notes: "typed after the conflict",
+    });
+    expect(
+      rebasePoliceConflictPayload(
+        {
+          kind: "dispatches",
+          payload: { coordinationId: "coord-1", expectedVersion: 5, dispatchIds: ["old"] },
+        },
+        remote,
+        { form, dispatchIds: ["dispatch-1", "dispatch-2"] },
+        "new-op",
+      ),
+    ).toMatchObject({ expectedVersion: 7, dispatchIds: ["dispatch-1", "dispatch-2"] });
+  });
+
+  it("rebases a conflicted event correction on the remote event versions only", () => {
+    const remote = { version: 7, events: [{ id: "event-1", version: 3 }] };
+    const previous = {
+      kind: "event-update" as const,
+      payload: { eventId: "event-1", expectedVersion: 1, note: "frozen" },
+    };
+    const current = { form: { notes: "unrelated" } as never, dispatchIds: [] };
+    expect(rebasePoliceConflictPayload(previous, remote, current, "new-op")).toEqual({
+      eventId: "event-1",
+      expectedVersion: 3,
+      expectedCoordinationVersion: 7,
+      operationId: "new-op",
+      note: "frozen",
+    });
+    expect(
+      rebasePoliceConflictPayload(previous, { ...remote, events: [] }, current, "new-op"),
+    ).toBeNull();
+  });
+
+  it("keeps the fields of an existing coordination editable while a save is pending", () => {
+    const base = { canWrite: true, hasRecord: true, pending: true, busy: true };
+    expect(policeCoordinationFieldsEditable(base)).toBe(true);
+    expect(policeCoordinationFieldsEditable({ ...base, canWrite: false })).toBe(false);
+    expect(policeCoordinationFieldsEditable({ ...base, hasRecord: false })).toBe(false);
+    expect(
+      policeCoordinationFieldsEditable({ ...base, hasRecord: false, pending: false, busy: false }),
+    ).toBe(true);
+  });
+
+  it("finds the live coordination or links save of the selected coordination", () => {
+    const entry = (entityId: string, kind: string, status: string) => ({ entityId, kind, status });
+    expect(policeEditorPendingStatus([entry("coord-1", "update", "uncertain")], "coord-1")).toBe(
+      "uncertain",
+    );
+    expect(policeEditorPendingStatus([entry("coord-1", "dispatches", "pending")], "coord-1")).toBe(
+      "pending",
+    );
+    expect(
+      policeEditorPendingStatus([entry("coord-1", "event-create", "pending")], "coord-1"),
+    ).toBeNull();
+    expect(
+      policeEditorPendingStatus(
+        [entry("coord-1", "update", "confirmed-cleanup-failed")],
+        "coord-1",
+      ),
+    ).toBeNull();
+    expect(
+      policeEditorPendingStatus([entry("coord-2", "update", "pending")], "coord-1"),
+    ).toBeNull();
+  });
+
+  it("derives the coordination status line", () => {
+    const savedAt = "2026-10-19T15:04:00.000Z";
+    const base = {
+      autosave: { kind: "idle" as const },
+      pendingStatus: null,
+      busy: false,
+      dirty: false,
+      savedAt,
+    };
+    expect(policeSaveStatus(base)).toEqual({ kind: "saved", at: new Date(savedAt) });
+    expect(policeSaveStatus({ ...base, pendingStatus: "pending", busy: true })).toEqual({
+      kind: "saving",
+    });
+    expect(policeSaveStatus({ ...base, pendingStatus: "pending" })).toEqual({
+      kind: "blocked",
+      reason: "pending",
+    });
+    expect(
+      policeSaveStatus({ ...base, pendingStatus: "uncertain", autosave: { kind: "offline" } }),
+    ).toEqual({ kind: "offline" });
+    expect(policeSaveStatus({ ...base, dirty: true })).toEqual({ kind: "dirty" });
+    expect(policeSaveStatus({ ...base, autosave: { kind: "saving" } })).toEqual({
+      kind: "saving",
+    });
+    expect(policeSaveStatus({ ...base, savedAt: null })).toEqual({ kind: "idle" });
+  });
+
+  it("keeps the create form without an autosave status line", () => {
+    const html = renderToStaticMarkup(
+      <EfaPoliceCoordinationPanel
+        episodeId="episode-1"
+        episodeLabel="Episodio de prueba"
+        currentUserId="owner"
+        canWrite={true}
+        episodeCanEdit={true}
+      />,
+    );
+    expect(html).toContain("Guardar coordinación");
+    expect(html).not.toContain('role="status"');
   });
 });
