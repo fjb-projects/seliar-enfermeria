@@ -3,11 +3,17 @@ import { describe, expect, it } from "vitest";
 import { EfaAutosaveStatus } from "./EfaAutosaveStatus";
 
 describe("EfaAutosaveStatus", () => {
-  it("renders nothing while idle", () => {
-    expect(renderToStaticMarkup(<EfaAutosaveStatus status={{ kind: "idle" }} />)).toBe("");
-    expect(
-      renderToStaticMarkup(<EfaAutosaveStatus status={{ kind: "blocked", reason: "not_dirty" }} />),
-    ).toBe("");
+  it("keeps an empty live region while idle so later changes are announced", () => {
+    for (const status of [
+      { kind: "idle" } as const,
+      { kind: "blocked", reason: "not_dirty" } as const,
+    ]) {
+      const html = renderToStaticMarkup(<EfaAutosaveStatus status={status} />);
+      expect(html).toContain('role="status"');
+      expect(html).toContain('aria-live="polite"');
+      expect(html).not.toContain("<svg");
+      expect(html.replace(/<[^>]+>/g, "")).toBe("");
+    }
   });
 
   it("announces the label politely with a hidden icon", () => {

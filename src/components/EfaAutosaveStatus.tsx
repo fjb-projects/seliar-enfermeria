@@ -19,10 +19,12 @@ function StatusIcon({ status }: { status: AutosaveStatus }) {
   }
 }
 
-/** Autosave status line shown next to a form; renders nothing when there is nothing to say. */
+/**
+ * Autosave status line shown next to a form. The live region stays mounted (empty) when there is
+ * nothing to say, because some screen readers ignore a live region inserted after page load.
+ */
 export function EfaAutosaveStatus({ status }: { status: AutosaveStatus }) {
   const label = autosaveStatusLabel(status);
-  if (!label) return null;
   return (
     <span
       role="status"
@@ -32,7 +34,7 @@ export function EfaAutosaveStatus({ status }: { status: AutosaveStatus }) {
         status.kind === "error" && "text-destructive",
       )}
     >
-      <StatusIcon status={status} />
+      {label && <StatusIcon status={status} />}
       {label}
     </span>
   );
