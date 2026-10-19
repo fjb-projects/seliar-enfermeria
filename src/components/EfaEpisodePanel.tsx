@@ -2268,6 +2268,7 @@ export function EfaEpisodePanel({
                         episodeId={episode.id}
                         episodeLabel={accessibleDisplayName(episode)}
                         currentUserId={currentUserId}
+                        episodeOwnerUserId={episode.ownerUserId}
                         canWrite={canWrite}
                         episodeCanEdit={episode.canEdit}
                         initialPosition={workspaceSectionPositions.dispatches ?? null}

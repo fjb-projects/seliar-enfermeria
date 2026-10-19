@@ -15,8 +15,17 @@ import {
   isDispatchReviewStep,
   isFollowUpOpen,
   resolveDispatchRestore,
+  dispatchAutosaveConditions,
+  dispatchEditorAccess,
+  dispatchEditorDirty,
+  dispatchEditorPendingStatus,
+  dispatchSaveStatus,
+  mergeConfirmedDispatch,
+  shouldCreateDispatchDraftOnNext,
 } from "./EfaDispatchStepper";
 import { FollowUpOpenButton } from "./EfaDispatchFollowUpModal";
+import { emptyDispatchForm, type DispatchForm } from "@/lib/efa-dispatches.client";
+import { createSaveSnapshot, shouldAutosave, type AutosaveStatus } from "@/lib/efa-autosave";
 
 vi.mock("@tanstack/react-start", () => ({
   createClientOnlyFn: (fn: () => unknown) => fn,
@@ -307,5 +316,230 @@ describe("resolveDispatchRestore", () => {
     expect(resolveDispatchRestore({ recordId: null, step: 2 }, dispatches, true)).toBeNull();
     expect(resolveDispatchRestore(null, dispatches, true)).toBeNull();
     expect(resolveDispatchRestore(undefined, dispatches, true)).toBeNull();
+  });
+});
+
+describe("dispatch autosave helpers", () => {
+  const withBase = (patch: Partial<DispatchForm> = {}): DispatchForm => ({
+    ...emptyDispatchForm(),
+    baseId: "base-1",
+    ...patch,
+  });
+
+  it("tracks a new dispatch as dirty once it differs from the pristine form", () => {
+    expect(dispatchEditorDirty({ selectedId: null, form: emptyDispatchForm(), record: null })).toBe(
+      false,
+    );
+    expect(dispatchEditorDirty({ selectedId: null, form: withBase(), record: null })).toBe(true);
+    expect(
+      dispatchEditorDirty({
+        selectedId: null,
+        form: { ...emptyDispatchForm(), note: "Móvil demorado" },
+        record: null,
+      }),
+    ).toBe(true);
+  });
+
+  it("tracks an existing dispatch against its saved record", () => {
+    const record = withBase({ note: "Saved" });
+    expect(
+      dispatchEditorDirty({ selectedId: "d1", form: withBase({ note: "Saved" }), record }),
+    ).toBe(false);
+    expect(
+      dispatchEditorDirty({ selectedId: "d1", form: withBase({ note: "Edited" }), record }),
+    ).toBe(true);
+    // A selection whose record is not loaded yet is not reported as dirty.
+    expect(dispatchEditorDirty({ selectedId: "d1", form: withBase(), record: null })).toBe(false);
+  });
+
+  const conditionsInput = {
+    canWrite: true,
+    episodeCanEdit: true,
+    selected: { state: "draft" as const, ownerUserId: "owner", canEdit: true } as {
+      state: "draft" | "finalized" | "cancelled";
+      ownerUserId: string;
+      canEdit: boolean;
+    } | null,
+    currentUserId: "owner",
+    dirty: true,
+    queueEntries: [] as Array<{ status: "pending" | "uncertain" | "confirmed-cleanup-failed" }>,
+    storageRetry: false,
+    queueUsable: true,
+    busy: false,
+  };
+  const decide = (patch: Partial<typeof conditionsInput>) =>
+    shouldAutosave({
+      ...dispatchAutosaveConditions({ ...conditionsInput, ...patch }),
+      online: true,
+    });
+
+  it("allows autosave for a dirty draft owned by the editor with an idle queue", () => {
+    expect(decide({})).toEqual({ ok: true });
+  });
+
+  it("reports why a dispatch cannot autosave", () => {
+    expect(decide({ canWrite: false })).toEqual({ ok: false, reason: "cannot_write" });
+    expect(decide({ episodeCanEdit: false })).toEqual({ ok: false, reason: "cannot_write" });
+    expect(decide({ selected: { state: "draft", ownerUserId: "owner", canEdit: false } })).toEqual({
+      ok: false,
+      reason: "cannot_write",
+    });
+    expect(decide({ selected: null })).toEqual({ ok: false, reason: "no_record" });
+    // Finalized dispatches stay editable for corrections but are not drafts.
+    expect(
+      decide({ selected: { state: "finalized", ownerUserId: "owner", canEdit: true } }),
+    ).toEqual({ ok: false, reason: "not_draft" });
+    expect(
+      decide({ selected: { state: "draft", ownerUserId: "someone-else", canEdit: true } }),
+    ).toEqual({ ok: false, reason: "not_owner" });
+    expect(decide({ dirty: false })).toEqual({ ok: false, reason: "not_dirty" });
+    expect(decide({ queueUsable: false })).toEqual({ ok: false, reason: "queue_unavailable" });
+    expect(decide({ queueEntries: [{ status: "pending" }] })).toEqual({
+      ok: false,
+      reason: "pending",
+    });
+    expect(decide({ queueEntries: [{ status: "uncertain" }] })).toEqual({
+      ok: false,
+      reason: "pending",
+    });
+    expect(decide({ storageRetry: true })).toEqual({ ok: false, reason: "pending" });
+    expect(decide({ busy: true })).toEqual({ ok: false, reason: "busy" });
+  });
+
+  it("ignores a confirmed entry that only needs local cleanup", () => {
+    expect(decide({ queueEntries: [{ status: "confirmed-cleanup-failed" }] })).toEqual({
+      ok: true,
+    });
+  });
+
+  const nextInput = {
+    hasRecord: false,
+    canCreate: true,
+    editorIsOwner: true,
+    baseChosen: true,
+    pristine: false,
+    pending: false,
+  };
+
+  it("creates the draft on Siguiente for a new dispatch with a base", () => {
+    expect(shouldCreateDispatchDraftOnNext(nextInput)).toBe(true);
+  });
+
+  it("does not create the draft on Siguiente when a precondition fails", () => {
+    expect(shouldCreateDispatchDraftOnNext({ ...nextInput, baseChosen: false })).toBe(false);
+    expect(shouldCreateDispatchDraftOnNext({ ...nextInput, pristine: true })).toBe(false);
+    expect(shouldCreateDispatchDraftOnNext({ ...nextInput, editorIsOwner: false })).toBe(false);
+    expect(shouldCreateDispatchDraftOnNext({ ...nextInput, pending: true })).toBe(false);
+    expect(shouldCreateDispatchDraftOnNext({ ...nextInput, hasRecord: true })).toBe(false);
+    expect(shouldCreateDispatchDraftOnNext({ ...nextInput, canCreate: false })).toBe(false);
+  });
+
+  it("adopts the server values when nothing was typed after the snapshot", () => {
+    const sent = withBase({ note: "Sent" });
+    const server = withBase({ note: "Sent", priority: "red" });
+    expect(
+      mergeConfirmedDispatch(createSaveSnapshot(sent), withBase({ note: "Sent" }), server),
+    ).toEqual({ keepLocal: false, form: server, dirty: false });
+  });
+
+  it("keeps values typed after the snapshot and stays dirty", () => {
+    const sent = withBase({ note: "Sent" });
+    const current = withBase({ note: "Sent and more" });
+    expect(mergeConfirmedDispatch(createSaveSnapshot(sent), current, withBase())).toEqual({
+      keepLocal: true,
+      form: current,
+      dirty: true,
+    });
+  });
+
+  it("adopts the server values when the save has no snapshot", () => {
+    const server = withBase({ note: "Server" });
+    expect(mergeConfirmedDispatch(null, withBase({ note: "Local" }), server).form).toBe(server);
+  });
+
+  it("finds the queued save that belongs to the editor", () => {
+    const entries = [
+      { kind: "create" as const, status: "pending" as const, payload: { clientCreationKey: "k" } },
+      { kind: "update" as const, status: "uncertain" as const, payload: { dispatchId: "d1" } },
+      {
+        kind: "update" as const,
+        status: "confirmed-cleanup-failed" as const,
+        payload: { dispatchId: "d2" },
+      },
+      {
+        kind: "contact-attempt" as const,
+        status: "pending" as const,
+        payload: { dispatchId: "d3" },
+      },
+    ];
+    expect(dispatchEditorPendingStatus(entries, null)).toBe("pending");
+    expect(dispatchEditorPendingStatus(entries, "d1")).toBe("uncertain");
+    expect(dispatchEditorPendingStatus(entries, "d2")).toBeNull();
+    expect(dispatchEditorPendingStatus(entries, "d3")).toBeNull();
+    expect(dispatchEditorPendingStatus([], null)).toBeNull();
+  });
+
+  it("derives the dispatch status line", () => {
+    const savedAt = "2026-10-19T14:05:00.000Z";
+    const base = {
+      autosave: { kind: "idle" } as AutosaveStatus,
+      pendingStatus: null,
+      busy: false,
+      dirty: false,
+      savedAt: savedAt as string | null,
+    };
+    expect(dispatchSaveStatus({ ...base, pendingStatus: "pending", busy: true })).toEqual({
+      kind: "saving",
+    });
+    expect(dispatchSaveStatus({ ...base, pendingStatus: "pending" })).toEqual({
+      kind: "blocked",
+      reason: "pending",
+    });
+    expect(
+      dispatchSaveStatus({ ...base, pendingStatus: "uncertain", autosave: { kind: "offline" } }),
+    ).toEqual({ kind: "offline" });
+    expect(dispatchSaveStatus({ ...base, autosave: { kind: "saving" } })).toEqual({
+      kind: "saving",
+    });
+    expect(dispatchSaveStatus({ ...base, dirty: true })).toEqual({ kind: "dirty" });
+    expect(dispatchSaveStatus(base)).toEqual({ kind: "saved", at: new Date(savedAt) });
+    expect(dispatchSaveStatus({ ...base, savedAt: null })).toEqual({ kind: "idle" });
+  });
+
+  it("keeps fields editable with a queued entry while the actions stay disabled", () => {
+    expect(dispatchEditorAccess({ editable: true, queueLocked: true, busy: false })).toEqual({
+      fieldsEditable: true,
+      actionsEnabled: false,
+    });
+    expect(dispatchEditorAccess({ editable: true, queueLocked: false, busy: true })).toEqual({
+      fieldsEditable: true,
+      actionsEnabled: false,
+    });
+    expect(dispatchEditorAccess({ editable: true, queueLocked: false, busy: false })).toEqual({
+      fieldsEditable: true,
+      actionsEnabled: true,
+    });
+    expect(dispatchEditorAccess({ editable: false, queueLocked: false, busy: false })).toEqual({
+      fieldsEditable: false,
+      actionsEnabled: false,
+    });
+  });
+
+  it("renders one autosave status region next to the dispatch actions", () => {
+    const html = renderToStaticMarkup(
+      <EfaDispatchStepper
+        episodeId="episode"
+        episodeLabel="Turno 1"
+        currentUserId="owner"
+        episodeOwnerUserId="owner"
+        canWrite={true}
+        episodeCanEdit={true}
+      />,
+    );
+    expect(html).not.toMatch(/<fieldset[^>]*disabled/);
+    expect(html.match(/aria-live="polite" class="inline-flex/g)).toHaveLength(1);
+    expect(html.indexOf('aria-live="polite" class="inline-flex')).toBeLessThan(
+      html.indexOf("Guardar borrador"),
+    );
   });
 });
