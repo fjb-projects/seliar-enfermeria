@@ -19,6 +19,7 @@ import {
   communicationFinalizeConfirmation,
   shouldContinueToDispatches,
   EfaCommunicationStepper,
+  resolveCommunicationRestore,
 } from "./EfaCommunicationStepper";
 
 describe("EfaCommunicationStepper", () => {
@@ -408,5 +409,37 @@ describe("EfaCommunicationStepper", () => {
     await Promise.resolve();
     release?.();
     expect(gate.acquire()).toBeTypeOf("function");
+  });
+});
+
+describe("resolveCommunicationRestore", () => {
+  const calls = [
+    { id: "call-1", canEdit: true },
+    { id: "call-2", canEdit: false },
+  ];
+
+  it("restores a remembered call that still exists and is editable, with its step", () => {
+    expect(resolveCommunicationRestore({ recordId: "call-1", step: 2 }, calls, true)).toEqual({
+      record: calls[0],
+      step: 2,
+    });
+  });
+
+  it("clamps the remembered step to the last call step", () => {
+    expect(resolveCommunicationRestore({ recordId: "call-1", step: 99 }, calls, true)?.step).toBe(
+      communicationSteps.length - 1,
+    );
+    expect(resolveCommunicationRestore({ recordId: "call-1", step: -1 }, calls, true)?.step).toBe(
+      0,
+    );
+  });
+
+  it("restores nothing for a missing, non-editable or unsaved call, or without a position", () => {
+    expect(resolveCommunicationRestore({ recordId: "gone", step: 1 }, calls, true)).toBeNull();
+    expect(resolveCommunicationRestore({ recordId: "call-2", step: 1 }, calls, true)).toBeNull();
+    expect(resolveCommunicationRestore({ recordId: "call-1", step: 1 }, calls, false)).toBeNull();
+    expect(resolveCommunicationRestore({ recordId: null, step: 1 }, calls, true)).toBeNull();
+    expect(resolveCommunicationRestore(null, calls, true)).toBeNull();
+    expect(resolveCommunicationRestore(undefined, calls, true)).toBeNull();
   });
 });

@@ -54,6 +54,8 @@ import {
   readEpisodePosition,
   resolveWorkspaceSection,
   saveEpisodeSection,
+  saveEpisodeSectionPosition,
+  type EfaEpisodePosition,
 } from "@/lib/efa-episode-position";
 
 const loadEpisodeClientHelpers = createClientOnlyFn(() => import("@/lib/efa-episodes.client"));
@@ -297,6 +299,10 @@ export function EfaEpisodePanel({
   const [visitedWorkspaceSections, setVisitedWorkspaceSections] = useState<
     Set<EfaEpisodeWorkspaceSection>
   >(() => new Set());
+  // Per-section positions remembered for the open work area, read once when it opens.
+  const [workspaceSectionPositions, setWorkspaceSectionPositions] = useState<
+    EfaEpisodePosition["sections"]
+  >({});
   const [pending, setPending] = useState<PendingEpisodeOperation | null>(null);
   const [conflict, setConflict] = useState<ActiveEpisodeConflict | null>(null);
   const [busy, setBusy] = useState(false);
@@ -536,11 +542,14 @@ export function EfaEpisodePanel({
 
   function openWorkspace(episodeId: string, section?: EfaEpisodeWorkspaceSection) {
     const positionStorage = getEpisodePositionStorage();
+    const openingEpisode = workspaceEpisodeIdRef.current !== episodeId;
+    const remembered =
+      section === undefined || openingEpisode
+        ? readEpisodePosition(positionStorage, currentUserId, episodeId)
+        : null;
     const targetSection = resolveWorkspaceSection(
       section,
-      section === undefined
-        ? readEpisodePosition(positionStorage, currentUserId, episodeId)?.section
-        : null,
+      section === undefined ? remembered?.section : null,
       "communications",
     );
     const selection = planEpisodeWorkspaceSelection(
@@ -562,6 +571,8 @@ export function EfaEpisodePanel({
         return false;
     }
     advanceEpisodeNavigationRevision();
+    // The steppers restore their record once when they mount, so a new open needs a fresh read.
+    if (openingEpisode) setWorkspaceSectionPositions(remembered?.sections ?? {});
     setVisitedWorkspaceSections(selection.visited);
     setWorkspaceEpisodeId(selection.episodeId);
     setActiveWorkspaceSection(selection.section);
@@ -2227,6 +2238,16 @@ export function EfaEpisodePanel({
                               }
                             : null
                         }
+                        initialPosition={workspaceSectionPositions.communications ?? null}
+                        onPositionChange={(position) =>
+                          saveEpisodeSectionPosition(
+                            getEpisodePositionStorage(),
+                            currentUserId,
+                            episode.id,
+                            "communications",
+                            position,
+                          )
+                        }
                         onContinueToDispatches={() => {
                           openWorkspace(episode.id, "dispatches");
                         }}
@@ -2252,6 +2273,16 @@ export function EfaEpisodePanel({
                         currentUserId={currentUserId}
                         canWrite={canWrite}
                         episodeCanEdit={episode.canEdit}
+                        initialPosition={workspaceSectionPositions.dispatches ?? null}
+                        onPositionChange={(position) =>
+                          saveEpisodeSectionPosition(
+                            getEpisodePositionStorage(),
+                            currentUserId,
+                            episode.id,
+                            "dispatches",
+                            position,
+                          )
+                        }
                       />
                     </div>
                   )}
