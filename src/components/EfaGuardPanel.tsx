@@ -113,9 +113,9 @@ const clockDateFormat = new Intl.DateTimeFormat("es-AR", {
   month: "long",
 });
 
-// Punch-clock face for the start block. The server render has no trustworthy local time, so it
-// shows a fixed-width placeholder and the client fills it in, ticking on each minute boundary.
-function GuardStartClock() {
+// Current time refreshed on each minute boundary. The server render has no trustworthy local
+// time, so it returns null there (and on the first client render) until the effect fills it in.
+function useMinuteNow(): Date | null {
   const [now, setNow] = useState<Date | null>(null);
   useEffect(() => {
     let interval: ReturnType<typeof setInterval> | undefined;
@@ -132,6 +132,12 @@ function GuardStartClock() {
       if (interval) clearInterval(interval);
     };
   }, []);
+  return now;
+}
+
+// Punch-clock face for the start block: a fixed-width placeholder until the client knows the time.
+function GuardStartClock() {
+  const now = useMinuteNow();
   return (
     <div>
       <p className="font-display text-6xl leading-none font-semibold tabular-nums sm:text-7xl">
@@ -139,6 +145,47 @@ function GuardStartClock() {
       </p>
       <p className="mt-2 min-h-5 text-sm text-muted-foreground first-letter:uppercase">
         {now ? clockDateFormat.format(now) : ""}
+      </p>
+    </div>
+  );
+}
+
+function formatElapsed(ms: number) {
+  const totalMinutes = Math.max(0, Math.floor(ms / 60_000));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return hours > 0 ? `${hours} h ${minutes} min` : `${minutes} min`;
+}
+
+// Status-board header for the open guard. The start time renders on the server as before; the
+// elapsed time needs the client clock, so it keeps a same-height placeholder until then. The
+// visual pieces are hidden from assistive tech in favor of one unambiguous sentence.
+function GuardLiveStatus({ startedAt }: { startedAt: string | Date }) {
+  const now = useMinuteNow();
+  const start = new Date(startedAt);
+  const startLabel = start.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  return (
+    <div className="space-y-1">
+      <p className="sr-only">{`Guardia en curso desde ${startLabel}`}</p>
+      <div aria-hidden="true" className="flex items-center gap-2">
+        <span className="size-2.5 rounded-full bg-[var(--brand-orange)] motion-safe:animate-pulse" />
+        <span className="text-xs font-medium tracking-wide uppercase">En curso</span>
+      </div>
+      <p aria-hidden="true" className="flex items-baseline gap-2">
+        <span className="text-sm text-muted-foreground">desde</span>
+        <span className="font-display text-4xl leading-none font-semibold tabular-nums sm:text-5xl">
+          {startLabel}
+        </span>
+      </p>
+      <p className="min-h-5 text-sm text-muted-foreground tabular-nums">
+        {now ? (
+          <>
+            <span className="sr-only">Duración: </span>
+            {formatElapsed(now.getTime() - start.getTime())}
+          </>
+        ) : (
+          <span aria-hidden="true">-- min</span>
+        )}
       </p>
     </div>
   );
@@ -920,14 +967,15 @@ export function EfaGuardPanel({
             </div>
           )}
           {openOwnGuard && (
-            <div className="min-w-0 space-y-3 rounded-lg border p-2 sm:p-3">
-              <p className="text-sm text-muted-foreground">
-                Guardia en curso · Inicio:{" "}
-                {new Date(openOwnGuard.startedAt).toLocaleTimeString(undefined, {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </p>
+            // Same single surface as the start block: status first, the frequent action next,
+            // the mobiles in the middle and the irreversible close at the end.
+            <div className="min-w-0 space-y-3">
+              <GuardLiveStatus startedAt={openOwnGuard.startedAt} />
+              <Button asChild className="min-h-11 w-full sm:w-auto">
+                <Link to="/episodios-efa">
+                  {canWrite ? "Registrar atenciones" : "Consultar atenciones de la guardia abierta"}
+                </Link>
+              </Button>
               <section
                 aria-label="Móviles activos"
                 className="min-w-0 space-y-2 rounded-md bg-muted/50 p-3"
@@ -1037,19 +1085,20 @@ export function EfaGuardPanel({
                   />
                 </div>
               </details>
-              <Button asChild className="min-h-11 w-full sm:w-auto">
-                <Link to="/episodios-efa">
-                  {canWrite ? "Registrar atenciones" : "Consultar atenciones de la guardia abierta"}
-                </Link>
-              </Button>
-              <Button
-                variant="outline"
-                className="min-h-11 w-full border-destructive text-white font-semibold bg-red-800 hover:bg-destructive/10 sm:w-auto"
-                disabled={busy || !canWrite || !activeWorkspaceState?.canClose}
-                onClick={() => setEndingGuardTarget(guardEndTargetKey)}
-              >
-                Terminar guardia
-              </Button>
+              <div className="space-y-2 border-t pt-4">
+                <p className="text-sm text-muted-foreground">
+                  Al terminar, la guardia no admite nuevos registros.
+                </p>
+                {/* Ghost base: the repo's outline variant carries its own fill. */}
+                <Button
+                  variant="ghost"
+                  className="min-h-11 w-full border border-destructive font-semibold text-destructive hover:bg-destructive/10 hover:text-destructive sm:w-auto"
+                  disabled={busy || !canWrite || !activeWorkspaceState?.canClose}
+                  onClick={() => setEndingGuardTarget(guardEndTargetKey)}
+                >
+                  Terminar guardia
+                </Button>
+              </div>
               <EfaActionConfirmation
                 open={endingGuardTarget !== null}
                 onOpenChange={(open) => {

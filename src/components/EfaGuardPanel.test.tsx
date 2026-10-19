@@ -168,7 +168,7 @@ describe("EfaGuardPanel", () => {
 
     expect(activeGuard).toContain("Gestionar móviles");
     expect(activeGuard).not.toContain("Guardar bases");
-    expect(activeGuard).toContain("Guardia en curso · Inicio:");
+    expect(activeGuard).toContain("Guardia en curso desde ");
     expect(activeGuard).not.toContain("El inicio y el cierre son manuales");
     expect(activeGuard).not.toContain("Después de iniciar la guardia");
     expect(activeGuard).not.toContain("Presencia declarada en Central");
@@ -460,6 +460,95 @@ describe("EfaGuardPanel", () => {
       expect(html).toContain("La presencia es declarada: no usa GPS ni verifica ubicación.");
       expect(html).not.toContain("Iniciar guardia");
       expect(html).not.toContain("Declaro que estoy en la Central");
+    });
+  });
+
+  describe("open guard as a live status board", () => {
+    const startedAt = "2026-10-07T08:00:00.000Z";
+    const startLabel = new Date(startedAt).toLocaleTimeString(undefined, {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    const renderOpen = (canWrite = true) =>
+      renderToStaticMarkup(
+        <EfaGuardPanel
+          initialGuards={[
+            {
+              id: "open-guard",
+              ownerUserId: "current-user",
+              startedAt,
+              endedAt: null,
+              declaredAtCentral: true,
+              version: 1,
+              bases: [],
+              baseEvents: [],
+            },
+          ]}
+          activeBases={[]}
+          initialStaffing={{}}
+          currentUserId="current-user"
+          isAdmin={false}
+          canWrite={canWrite}
+        />,
+      );
+    const openBlock = (html: string) => html.slice(0, html.indexOf("Mis guardias"));
+
+    it("leads with a live status header: pulse dot, eyebrow, display start time and elapsed placeholder", () => {
+      const html = openBlock(renderOpen());
+
+      expect(html).toContain("En curso");
+      expect(html).toMatch(
+        /class="[^"]*bg-\[var\(--brand-orange\)\][^"]*motion-safe:animate-pulse/,
+      );
+      expect(html).toMatch(
+        new RegExp(`<[^>]*class="[^"]*\\bfont-display\\b[^"]*"[^>]*>${startLabel}<`),
+      );
+      expect(html).toContain(">desde<");
+      expect(html).toContain("-- min");
+      expect(html).toContain(`Guardia en curso desde ${startLabel}`);
+      expect(html).not.toContain("Guardia en curso · Inicio:");
+      expect(html.indexOf("En curso")).toBeLessThan(html.indexOf("Móviles activos"));
+    });
+
+    it("drops the nested open-guard box so the card is the only surface", () => {
+      const html = openBlock(renderOpen());
+
+      expect(html).not.toContain("rounded-lg border p-2 sm:p-3");
+    });
+
+    it("puts the episode action first and the end action last behind a note", () => {
+      const html = openBlock(renderOpen());
+      const register = html.indexOf("Registrar atenciones");
+      const manager = html.indexOf("Gestionar móviles");
+      const note = html.indexOf("Al terminar, la guardia no admite nuevos registros.");
+      const end = html.search(/<button[^>]*>Terminar guardia/);
+
+      expect(register).toBeGreaterThan(-1);
+      expect(register).toBeLessThan(html.indexOf("Móviles activos"));
+      expect(register).toBeLessThan(manager);
+      expect(note).toBeGreaterThan(manager);
+      expect(end).toBeGreaterThan(manager);
+      expect(html).toMatch(/class="[^"]*\bborder-t\b[^"]*\bpt-4\b/);
+    });
+
+    it("styles the end action as a readable destructive outline", () => {
+      const html = openBlock(renderOpen());
+      const endButton = html.match(/<button[^>]*>Terminar guardia/)?.[0] ?? "";
+
+      expect(endButton).toContain("text-destructive");
+      expect(endButton).toContain("border-destructive");
+      expect(endButton).toContain("hover:bg-destructive/10");
+      expect(endButton).not.toContain("bg-red-800");
+      expect(endButton).not.toContain("text-white");
+      expect(endButton).not.toContain("bg-indigo-400");
+    });
+
+    it("keeps the consult label first for read-only users", () => {
+      const html = openBlock(renderOpen(false));
+
+      expect(html.indexOf("Consultar atenciones de la guardia abierta")).toBeLessThan(
+        html.indexOf("Gestionar móviles"),
+      );
     });
   });
 
