@@ -6,12 +6,17 @@ import {
   captureActionTimestamp,
   dispatchErrorSurfaceForKind,
   dispatchStepState,
+  dispatchStatusChange,
+  dispatchTimeChange,
+  DispatchTimeFields,
   DispatchStepNavigation,
+  DispatchFirstResponseBlock,
   DispatchFollowUpBlock,
   DispatchInstitutionField,
   EfaDispatchStepper,
   FirstResponseRoleSelect,
   followUpHistoryLine,
+  hasFirstResponseValue,
   isDispatchReviewStep,
   isFollowUpOpen,
   resolveDispatchRestore,
@@ -58,15 +63,15 @@ vi.mock("@/lib/efa-institutions.functions", () => ({
 describe("EfaDispatchStepper", () => {
   it("keeps all dispatch steps available behind compact current-step navigation", () => {
     const html = renderToStaticMarkup(
-      <DispatchStepNavigation step={5} onStepChange={() => undefined} />,
+      <DispatchStepNavigation step={4} onStepChange={() => undefined} />,
     );
 
-    expect(html).toContain("Paso 6 de 11: Llegada a destino");
+    expect(html).toContain("Paso 5 de 10: Llegada a destino");
     expect(html).toContain("Ver pasos");
     expect(html).toContain('tabindex="-1"');
-    expect(html.match(/aria-label="Ir al paso/g)).toHaveLength(11);
+    expect(html.match(/aria-label="Ir al paso/g)).toHaveLength(10);
     expect(html.match(/aria-current="step"/g)).toHaveLength(1);
-    expect(html).toContain('aria-label="Ir al paso 6: Llegada a destino" aria-current="step"');
+    expect(html).toContain('aria-label="Ir al paso 5: Llegada a destino" aria-current="step"');
   });
 
   it("renders an optional action in the same row as the step indicator and Ver pasos", () => {
@@ -79,7 +84,7 @@ describe("EfaDispatchStepper", () => {
     );
     const row = html.match(/^<div class="[^"]*flex-wrap[^"]*">/);
     expect(row).not.toBeNull();
-    expect(html.indexOf("Paso 1 de 11")).toBeLessThan(
+    expect(html.indexOf("Paso 1 de 10")).toBeLessThan(
       html.indexOf("Comunicaciones de seguimiento"),
     );
     expect(html.indexOf("Comunicaciones de seguimiento")).toBeLessThan(html.indexOf("Ver pasos"));
@@ -99,28 +104,119 @@ describe("EfaDispatchStepper", () => {
 
   it("colors steps by progress with text and icon cues beyond color", () => {
     const html = renderToStaticMarkup(
-      <DispatchStepNavigation step={5} onStepChange={() => undefined} />,
+      <DispatchStepNavigation step={4} onStepChange={() => undefined} />,
     );
-    expect(html.match(/data-step-state="complete"/g)).toHaveLength(5);
+    expect(html.match(/data-step-state="complete"/g)).toHaveLength(4);
     expect(html.match(/data-step-state="current"/g)).toHaveLength(1);
     expect(html.match(/data-step-state="pending"/g)).toHaveLength(5);
     // Completed steps carry a check icon and text; the current step carries text.
-    expect(html.match(/lucide-check/g)).toHaveLength(5);
-    expect(html.match(/>Completado</g)).toHaveLength(5);
+    expect(html.match(/lucide-check/g)).toHaveLength(4);
+    expect(html.match(/>Completado</g)).toHaveLength(4);
     expect(html.match(/>Actual</g)).toHaveLength(1);
-    expect(html).toContain('aria-label="Ir al paso 1: Base y vínculo (completado)"');
-    // The "Paso N de 11" indicator uses the strong primary color.
-    expect(html).toMatch(/<p[^>]*bg-primary[^>]*>Paso 6 de 11: Llegada a destino/);
+    expect(html).toContain('aria-label="Ir al paso 1: Despacho (completado)"');
+    // The "Paso N de 10" indicator uses the strong primary color.
+    expect(html).toMatch(/<p[^>]*bg-primary[^>]*>Paso 5 de 10: Llegada a destino/);
     // Completed steps use soft green, pending steps stay neutral.
     expect(html).toMatch(/data-step-state="complete"[^>]*bg-emerald-50/);
     expect(html).toMatch(/data-step-state="pending"[^>]*bg-background/);
   });
 
-  it("allows dispatch finalization only from review", () => {
-    expect(Array.from({ length: 10 }, (_, step) => isDispatchReviewStep(step))).toEqual(
-      Array(10).fill(false),
+  it("merges base, dispatch time, linked call and optional first response into the first step", () => {
+    const html = renderToStaticMarkup(
+      <EfaDispatchStepper
+        episodeId="episode"
+        episodeLabel="Turno 1"
+        currentUserId="owner"
+        canWrite={true}
+        episodeCanEdit={true}
+      />,
     );
-    expect(isDispatchReviewStep(10)).toBe(true);
+
+    expect(html).toContain("Paso 1 de 10: Despacho");
+    expect(html).not.toContain("Base y vínculo");
+    expect(html.match(/aria-label="Ir al paso/g)).toHaveLength(10);
+    const base = html.indexOf("Base / móvil");
+    const time = html.indexOf("Hora de despacho");
+    const call = html.indexOf("Llamada vinculada");
+    const firstResponse = html.indexOf("Primera respuesta (opcional)");
+    expect(base).toBeGreaterThan(-1);
+    expect(base).toBeLessThan(time);
+    expect(time).toBeLessThan(call);
+    expect(call).toBeLessThan(firstResponse);
+    expect(html).toContain("Usar ahora para despacho");
+    expect(html).toContain("La prioridad se copia al crear");
+  });
+
+  it("keeps the first response collapsed unless there is already data to show", () => {
+    const props = {
+      role: "",
+      at: "",
+      onRoleChange: () => undefined,
+      onAtChange: () => undefined,
+      onNow: () => undefined,
+    };
+    const closed = renderToStaticMarkup(<DispatchFirstResponseBlock {...props} />);
+    expect(closed).toContain("Primera respuesta (opcional)");
+    expect(closed).toContain("Hora de primera respuesta");
+    expect(closed).not.toMatch(/<details[^>]*\bopen(?:="")?[^>]*>/);
+    const withRole = renderToStaticMarkup(<DispatchFirstResponseBlock {...props} role="driver" />);
+    expect(withRole).toMatch(/<details[^>]*\bopen(?:="")?[^>]*>/);
+    const withTime = renderToStaticMarkup(
+      <DispatchFirstResponseBlock {...props} at="2026-10-14T10:00:00.000" />,
+    );
+    expect(withTime).toMatch(/<details[^>]*\bopen(?:="")?[^>]*>/);
+  });
+
+  it("detects stored first response data without making it required", () => {
+    expect(hasFirstResponseValue({ firstResponseRole: "", firstResponseAt: "" })).toBe(false);
+    expect(hasFirstResponseValue({ firstResponseRole: "nurse", firstResponseAt: "" })).toBe(true);
+    expect(
+      hasFirstResponseValue({ firstResponseRole: "", firstResponseAt: "2026-10-14T10:00:00.000" }),
+    ).toBe(true);
+  });
+
+  it("renders the shared time group with its own labels", () => {
+    const form = {
+      t0At: "",
+      t0Status: "not_observed",
+    } as Parameters<typeof DispatchTimeFields>[0]["form"];
+    const html = renderToStaticMarkup(
+      <DispatchTimeFields
+        timeKey="t0At"
+        timeLabel="Hora de despacho"
+        nowLabel="despacho"
+        form={form}
+        onChange={() => undefined}
+        onNow={() => undefined}
+      />,
+    );
+    expect(html).toContain("Hora de despacho");
+    expect(html).toContain('aria-label="Usar ahora para despacho"');
+    expect(html).toContain("Estado");
+  });
+
+  it("marks a time as observed iff it has a value and clears it for other statuses", () => {
+    const base = { t1At: "", t1Status: "not_observed" } as Parameters<typeof dispatchTimeChange>[0];
+    const filled = dispatchTimeChange(base, "t1At", "2026-10-14T10:00:00.000");
+    expect(filled.t1At).toBe("2026-10-14T10:00:00.000");
+    expect(filled.t1Status).toBe("observed");
+    const cleared = dispatchTimeChange(filled, "t1At", "");
+    expect(cleared.t1Status).toBe("not_observed");
+    const informed = dispatchTimeChange({ ...base, t1Status: "not_informed" }, "t1At", "");
+    expect(informed.t1Status).toBe("not_informed");
+    const statusChanged = dispatchStatusChange(filled, "t1At", "not_applicable");
+    expect(statusChanged.t1At).toBe("");
+    expect(statusChanged.t1Status).toBe("not_applicable");
+    const kept = dispatchStatusChange(filled, "t1At", "observed");
+    expect(kept.t1At).toBe("2026-10-14T10:00:00.000");
+  });
+
+  it("allows dispatch finalization only from review", () => {
+    expect(Array.from({ length: 9 }, (_, step) => isDispatchReviewStep(step))).toEqual(
+      Array(9).fill(false),
+    );
+    expect(isDispatchReviewStep(9)).toBe(true);
+    expect(isDispatchReviewStep(10)).toBe(false);
   });
 
   it("keeps the terminal action out of the initial dispatch step", () => {
