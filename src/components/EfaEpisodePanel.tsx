@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { History, LockKeyhole, PanelsTopLeft, Pencil, X } from "lucide-react";
-import { Link } from "@tanstack/react-router";
 import { createClientOnlyFn, useServerFn } from "@tanstack/react-start";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,6 +16,7 @@ import { EfaPoliceCoordinationPanel } from "@/components/EfaPoliceCoordinationPa
 import { EfaObservationPanel } from "@/components/EfaObservationPanel";
 import { EfaEpisodeSummary } from "@/components/EfaEpisodeSummary";
 import { readSession } from "@/lib/auth.functions";
+import { formatTimeMinutes } from "@/lib/efa-labels";
 import {
   createEfaEpisode,
   closeEfaEpisode,
@@ -255,6 +255,36 @@ const SERVICE_INTRO_NOTICE_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
 
 function serviceIntroNoticeStorageKey(userId: string) {
   return `efa-service-intro:${SERVICE_INTRO_NOTICE_VERSION}:${encodeURIComponent(userId)}`;
+}
+
+// One compact line that scopes the list to the open own guard, in the live style of
+// /guardia-efa (pulsing brand dot, small uppercase eyebrow) but sized as body text.
+function GuardScopeStatus({ startedAt }: { startedAt: string | Date | null }) {
+  if (!startedAt) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        Sin guardia abierta: no hay servicios para mostrar.
+      </p>
+    );
+  }
+  return (
+    <p className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm">
+      <span className="text-xs font-medium tracking-wide whitespace-nowrap uppercase">
+        <span
+          aria-hidden="true"
+          className="mr-2 inline-block size-2 rounded-full bg-[var(--brand-orange)] align-middle motion-safe:animate-pulse"
+        />
+        Guardia abierta
+      </span>
+      <span className="text-muted-foreground">
+        desde{" "}
+        <span className="font-medium text-foreground tabular-nums">
+          {formatTimeMinutes(startedAt)}
+        </span>{" "}
+        · solo servicios de esta guardia
+      </span>
+    </p>
+  );
 }
 
 export function EfaEpisodePanel({
@@ -1703,207 +1733,173 @@ export function EfaEpisodePanel({
       className="min-w-0 space-y-3 sm:space-y-4"
       onClickCapture={advanceEpisodeNavigationRevision}
     >
-      <Card>
-        <CardHeader className="px-3 py-3 sm:px-6 sm:py-6">
-          <CardTitle>Servicios de la guardia</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3 px-3 pb-3 pt-0 sm:px-6 sm:pb-6">
-          {serviceIntroNoticeVisible ? (
-            <aside
-              aria-label="Información sobre los servicios y el guardado"
-              className="flex items-start gap-2 rounded-lg border border-sky-200 bg-sky-50 p-3 text-sky-950"
-            >
-              <p className="min-w-0 flex-1 text-sm">
-                Los servicios activos aparecen primero. Solo se conservan las operaciones enviadas;
-                el texto que aún no enviaste puede perderse.
-              </p>
-              <Button
-                type="button"
-                variant="ghost"
-                className="min-h-11 min-w-11 shrink-0 px-2 text-sky-950 hover:bg-sky-100"
-                aria-label="Cerrar aviso"
-                title="Cerrar aviso"
-                onClick={dismissServiceIntroNotice}
-              >
-                <X aria-hidden="true" className="size-4" />
-              </Button>
-            </aside>
-          ) : (
-            <details className="rounded-md border border-sky-200 bg-sky-50/60 px-3 text-sm text-sky-950">
-              <summary className="min-h-11 cursor-pointer py-3 font-medium">
-                Información sobre la lista y los datos no enviados
-              </summary>
-              <p className="pb-3">
-                Los servicios activos aparecen primero. Solo se conservan las operaciones enviadas;
-                el texto que aún no enviaste puede perderse.
-              </p>
-            </details>
-          )}
-          {serviceIntroNoticeFeedback && (
-            <p role="status" className="text-sm text-muted-foreground">
-              {serviceIntroNoticeFeedback}
-            </p>
-          )}
-          {!canWrite && (
-            <p className="rounded-md bg-muted p-3 text-sm">
-              Solo lectura: se requiere acceso EFA vigente para editar.
-            </p>
-          )}
-          <div className="flex min-w-0 flex-col gap-2 rounded-md border p-2 sm:flex-row sm:items-center sm:justify-between sm:p-3">
-            <p className="text-sm">
-              {openOwnGuard
-                ? `Guardia propia abierta desde ${formatEpisodeDate(openOwnGuard.startedAt)}.`
-                : "Sin guardia propia abierta."}{" "}
-              Solo se muestran servicios de la guardia abierta; no es el historial completo.
-            </p>
-            <Button asChild variant="outline" className="min-h-11 w-full sm:w-auto">
-              <Link to="/guardia-efa">Volver a mi guardia EFA</Link>
-            </Button>
-          </div>
-          {!queueReady && (
-            <p role="status" className="rounded-md border p-3 text-sm">
-              Preparando el almacenamiento local antes de habilitar guardados…
-            </p>
-          )}
-          {!queueAvailable && queueReady && (
-            <p role="alert" className="rounded-md border border-destructive/50 p-3 text-sm">
-              La cola local no está disponible. No se enviará ninguna operación hasta poder
-              conservarla primero en este dispositivo.
-            </p>
-          )}
-          <p className="rounded-md bg-muted p-1 text-xs text-muted-foreground">
-            Las operaciones enviadas y sus datos privados, incluida la dirección, se guardan en
-            IndexedDB legible por este origen.
+      <GuardScopeStatus startedAt={openOwnGuard?.startedAt ?? null} />
+      {serviceIntroNoticeVisible && (
+        <aside
+          aria-label="Información sobre los servicios y el guardado"
+          className="flex items-start gap-2 rounded-lg border border-sky-200 bg-sky-50 p-3 text-sky-950"
+        >
+          <p className="min-w-0 flex-1 text-sm">
+            Los servicios activos aparecen primero. Solo se conservan las operaciones enviadas; el
+            texto que aún no enviaste puede perderse.
           </p>
-          {queueError && (
-            <p role="alert" className="text-sm text-destructive">
-              {queueError}
-            </p>
-          )}
-          {queueEntries.length > 0 && (
-            <details className="rounded-md border p-3 text-sm">
-              <summary className="min-h-11 cursor-pointer py-2 font-medium">
-                Operaciones conservadas en este dispositivo ({queueEntries.length})
-              </summary>
-              <div className="space-y-2 pt-2">
-                <Label htmlFor="episode-pending-operation">Seleccionar operación</Label>
-                <select
-                  id="episode-pending-operation"
-                  className="min-h-11 w-full rounded-md border bg-background px-3"
-                  value={selectedQueueOperationId.current ?? ""}
-                  onChange={(event) => selectQueuedOperation(event.target.value)}
-                  disabled={busy}
-                >
-                  <option value="">Selecciona una operación</option>
-                  {queueEntries.map((entry) => (
-                    <option
-                      key={`${entry.ownerUserId}:${entry.operationId}`}
-                      value={entry.operationId}
-                    >
-                      {queueOperationLabel(entry)} · {entry.createdAt} ·{" "}
-                      {queueStatusLabel(entry.status)}
-                    </option>
-                  ))}
-                </select>
-                {queueEntries.map((entry) => (
-                  <div
-                    key={`${entry.ownerUserId}:${entry.operationId}`}
-                    className="flex flex-col gap-2 border-t pt-2 sm:flex-row sm:items-center sm:justify-between"
-                  >
-                    <span>
-                      {queueOperationLabel(entry)} · {queueStatusLabel(entry.status)}
-                    </span>
-                    {entry.status !== "pending" && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="min-h-11"
-                        disabled={busy}
-                        onClick={() => void discardPausedOperation(entry)}
-                      >
-                        Descartar esta operación pausada
-                      </Button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </details>
-          )}
-          {error && (
-            <p role="alert" className="text-sm text-destructive">
-              {error}
-            </p>
-          )}
-          {message && (
-            <p role="status" className="text-sm text-green-700">
-              {message}
-            </p>
-          )}
-          {refreshWarning && (
-            <p role="status" className="text-sm text-amber-800">
-              {refreshWarning}
-            </p>
-          )}
-          {pending && (
-            <div className="rounded-md border border-amber-500/50 bg-amber-50 p-3 text-sm">
-              Operación pendiente de confirmación. Los campos están congelados para conservar la
-              misma identidad y el mismo contenido.
-              {pendingQueueEntry?.status !== "pending" &&
-                serverConfirmedOperationId !== pending.operationId && (
-                  <span className="mt-1 block">
-                    Estado pausado: requiere resolver el conflicto o el permiso antes de cualquier
-                    reintento.
-                  </span>
-                )}
-              <Button
-                className="mt-3 min-h-11 w-full sm:w-auto"
-                disabled={
-                  busy ||
-                  !canWrite ||
-                  !queueReady ||
-                  (serverConfirmedOperationId !== pending.operationId && !queueAvailable) ||
-                  (serverConfirmedOperationId !== pending.operationId &&
-                    pendingQueueEntry !== null &&
-                    pendingQueueEntry?.status !== "pending")
-                }
-                onClick={() => void retryPending()}
-              >
-                {serverConfirmedOperationId === pending.operationId
-                  ? "Limpiar cola local ya confirmada"
-                  : pendingQueueEntry
-                    ? "Reintentar misma operación"
-                    : "Guardar operación localmente y reintentar"}
-              </Button>
-            </div>
-          )}
-          {conflict && (
-            <Button
-              variant="outline"
-              className="min-h-11"
+          <Button
+            type="button"
+            variant="ghost"
+            className="min-h-11 min-w-11 shrink-0 px-2 text-sky-950 hover:bg-sky-100"
+            aria-label="Cerrar aviso"
+            title="Cerrar aviso"
+            onClick={dismissServiceIntroNotice}
+          >
+            <X aria-hidden="true" className="size-4" />
+          </Button>
+        </aside>
+      )}
+      {serviceIntroNoticeFeedback && (
+        <p role="status" className="text-sm text-muted-foreground">
+          {serviceIntroNoticeFeedback}
+        </p>
+      )}
+      {!canWrite && (
+        <p className="rounded-md bg-muted p-3 text-sm">
+          Solo lectura: se requiere acceso EFA vigente para editar.
+        </p>
+      )}
+      {!queueReady && (
+        <p role="status" className="rounded-md border p-3 text-sm">
+          Preparando el almacenamiento local antes de habilitar guardados…
+        </p>
+      )}
+      {!queueAvailable && queueReady && (
+        <p role="alert" className="rounded-md border border-destructive/50 p-3 text-sm">
+          La cola local no está disponible. No se enviará ninguna operación hasta poder conservarla
+          primero en este dispositivo.
+        </p>
+      )}
+      {queueError && (
+        <p role="alert" className="text-sm text-destructive">
+          {queueError}
+        </p>
+      )}
+      {queueEntries.length > 0 && (
+        <details className="rounded-md border p-3 text-sm">
+          <summary className="min-h-11 cursor-pointer py-2 font-medium">
+            Operaciones conservadas en este dispositivo ({queueEntries.length})
+          </summary>
+          <div className="space-y-2 pt-2">
+            <Label htmlFor="episode-pending-operation">Seleccionar operación</Label>
+            <select
+              id="episode-pending-operation"
+              className="min-h-11 w-full rounded-md border bg-background px-3"
+              value={selectedQueueOperationId.current ?? ""}
+              onChange={(event) => selectQueuedOperation(event.target.value)}
               disabled={busy}
-              onClick={() => void loadServerVersion()}
             >
-              Cargar versión actual del servidor
-            </Button>
-          )}
-          {canWrite && !selected && !openOwnGuard && !pending && (
-            <p className="rounded-md border p-3 text-sm">
-              Para registrar un servicio, abre primero tu guardia EFA. Esta vista no muestra
-              servicios de guardias anteriores.
-            </p>
-          )}
-          {selected && canWrite && openOwnGuard && (
-            <Button
-              variant="outline"
-              className="min-h-11"
-              onClick={beginCreate}
-              disabled={Boolean(pending) || Boolean(conflict)}
-            >
-              Nuevo servicio
-            </Button>
-          )}
-        </CardContent>
-      </Card>
+              <option value="">Selecciona una operación</option>
+              {queueEntries.map((entry) => (
+                <option key={`${entry.ownerUserId}:${entry.operationId}`} value={entry.operationId}>
+                  {queueOperationLabel(entry)} · {entry.createdAt} ·{" "}
+                  {queueStatusLabel(entry.status)}
+                </option>
+              ))}
+            </select>
+            {queueEntries.map((entry) => (
+              <div
+                key={`${entry.ownerUserId}:${entry.operationId}`}
+                className="flex flex-col gap-2 border-t pt-2 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <span>
+                  {queueOperationLabel(entry)} · {queueStatusLabel(entry.status)}
+                </span>
+                {entry.status !== "pending" && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="min-h-11"
+                    disabled={busy}
+                    onClick={() => void discardPausedOperation(entry)}
+                  >
+                    Descartar esta operación pausada
+                  </Button>
+                )}
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+      {error && (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      )}
+      {message && (
+        <p role="status" className="text-sm text-green-700">
+          {message}
+        </p>
+      )}
+      {refreshWarning && (
+        <p role="status" className="text-sm text-amber-800">
+          {refreshWarning}
+        </p>
+      )}
+      {pending && (
+        <div className="rounded-md border border-amber-500/50 bg-amber-50 p-3 text-sm">
+          Operación pendiente de confirmación. Los campos están congelados para conservar la misma
+          identidad y el mismo contenido.
+          {pendingQueueEntry?.status !== "pending" &&
+            serverConfirmedOperationId !== pending.operationId && (
+              <span className="mt-1 block">
+                Estado pausado: requiere resolver el conflicto o el permiso antes de cualquier
+                reintento.
+              </span>
+            )}
+          <Button
+            className="mt-3 min-h-11 w-full sm:w-auto"
+            disabled={
+              busy ||
+              !canWrite ||
+              !queueReady ||
+              (serverConfirmedOperationId !== pending.operationId && !queueAvailable) ||
+              (serverConfirmedOperationId !== pending.operationId &&
+                pendingQueueEntry !== null &&
+                pendingQueueEntry?.status !== "pending")
+            }
+            onClick={() => void retryPending()}
+          >
+            {serverConfirmedOperationId === pending.operationId
+              ? "Limpiar cola local ya confirmada"
+              : pendingQueueEntry
+                ? "Reintentar misma operación"
+                : "Guardar operación localmente y reintentar"}
+          </Button>
+        </div>
+      )}
+      {conflict && (
+        <Button
+          variant="outline"
+          className="min-h-11"
+          disabled={busy}
+          onClick={() => void loadServerVersion()}
+        >
+          Cargar versión actual del servidor
+        </Button>
+      )}
+      {canWrite && !selected && !openOwnGuard && !pending && (
+        <p className="rounded-md border p-3 text-sm">
+          Para registrar un servicio, abre primero tu guardia EFA. Esta vista no muestra servicios
+          de guardias anteriores.
+        </p>
+      )}
+      {selected && canWrite && openOwnGuard && (
+        <Button
+          variant="outline"
+          className="min-h-11"
+          onClick={beginCreate}
+          disabled={Boolean(pending) || Boolean(conflict)}
+        >
+          Nuevo servicio
+        </Button>
+      )}
 
       {canWrite && (selected || openOwnGuard) && (
         <Card>
@@ -2366,6 +2362,10 @@ export function EfaEpisodePanel({
           ))}
         </CardContent>
       </Card>
+
+      <p className="text-xs text-muted-foreground">
+        Las operaciones enviadas, incluida la dirección, quedan guardadas en este dispositivo.
+      </p>
     </div>
   );
 }

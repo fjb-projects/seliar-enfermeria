@@ -76,4 +76,10 @@ describe("SeliarMobileNav open guard controls", () => {
     expect(html).not.toContain("Guardia en curso");
     expect(html).toContain("<span>Logout</span>");
   });
+
+  it("names the guard page 'Mi guardia' before the panel summary loads", () => {
+    const html = renderNav(false);
+    expect(html).toMatch(/href="\/guardia-efa"[^>]*>[\s\S]*?<\/svg>(<span>)?Mi guardia</);
+    expect(html).not.toContain("Consulta EFA");
+  });
 });

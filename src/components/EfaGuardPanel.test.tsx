@@ -496,13 +496,14 @@ describe("EfaGuardPanel", () => {
       const html = startBlock(renderStart(true));
       const button = html.indexOf("Iniciar guardia");
 
-      expect(html).toContain("Guardia EFA");
+      expect(html).toMatch(/>Mi guardia</);
+      expect(html).not.toMatch(/>Guardia EFA</);
       expect(button).toBeGreaterThan(-1);
       expect(button).toBeLessThan(
         html.indexOf("El inicio y el cierre son manuales. La presencia es declarada"),
       );
       expect(button).toBeLessThan(html.indexOf("Ver episodios de atención"));
-      expect(html.indexOf("Guardia EFA")).toBeLessThan(html.indexOf("Ver episodios de atención"));
+      expect(html.indexOf(">Mi guardia<")).toBeLessThan(html.indexOf("Ver episodios de atención"));
       expect(html).toContain("no usa GPS ni verifica ubicación");
       expect(html).toContain('href="/episodios-efa"');
     });

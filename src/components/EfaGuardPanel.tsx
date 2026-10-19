@@ -898,7 +898,7 @@ export function EfaGuardPanel({
     <div className="min-w-0 space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle>Guardia EFA</CardTitle>
+          <CardTitle>Mi guardia</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4 px-3 pt-0 sm:px-6">
           {error && (
