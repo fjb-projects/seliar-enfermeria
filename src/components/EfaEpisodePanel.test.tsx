@@ -10,6 +10,7 @@ import {
   episodeAutosaveConditions,
   episodeEditorPendingStatus,
   episodeFieldsEditable,
+  episodeFormDirty,
   episodeFormTitle,
   episodeSaveStatus,
   mergeConfirmedEpisode,
@@ -741,5 +742,30 @@ describe("episode header autosave", () => {
     expect(html).toContain("Nuevo servicio");
     expect(html).not.toContain('aria-live="polite"');
     expect(html).not.toContain("Los campos están congelados");
+  });
+});
+
+describe("episodeFormDirty", () => {
+  const empty = { eventAt: "", motive: "", address: "", interventionNumber: "" };
+
+  it("treats any typed value on the new-service form as unsaved", () => {
+    expect(episodeFormDirty(empty, null)).toBe(false);
+    expect(episodeFormDirty({ ...empty, motive: "Caída" }, null)).toBe(true);
+  });
+
+  it("compares an edited service against its saved values", () => {
+    const record = {
+      eventAt: "2026-10-06T09:30:00.000Z",
+      motive: "Caída",
+      address: null,
+      interventionNumber: null,
+    };
+    const date = new Date(record.eventAt);
+    const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
+      .toISOString()
+      .slice(0, 16);
+    const saved = { eventAt: local, motive: "Caída", address: "", interventionNumber: "" };
+    expect(episodeFormDirty(saved, record)).toBe(false);
+    expect(episodeFormDirty({ ...saved, address: "Calle 1" }, record)).toBe(true);
   });
 });

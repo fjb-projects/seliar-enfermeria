@@ -12,6 +12,7 @@ import {
   policeCoordinationFieldsEditable,
   policeEditorPendingStatus,
   policeEventRequiresDispatch,
+  policeHasUnsavedChanges,
   policeQueueContextAllows,
   policeSaveStatus,
   rebasePoliceConflictPayload,
@@ -581,5 +582,19 @@ describe("police coordination autosave", () => {
     );
     expect(html).toContain("Guardar coordinación");
     expect(html).not.toContain('role="status"');
+  });
+});
+
+describe("policeHasUnsavedChanges", () => {
+  const clean = { coordinationDirty: false, dispatchesDirty: false, eventDirty: false };
+
+  it("is clean when nothing changed", () => {
+    expect(policeHasUnsavedChanges(clean)).toBe(false);
+  });
+
+  it("counts fields, links and an edited event as unsaved", () => {
+    expect(policeHasUnsavedChanges({ ...clean, coordinationDirty: true })).toBe(true);
+    expect(policeHasUnsavedChanges({ ...clean, dispatchesDirty: true })).toBe(true);
+    expect(policeHasUnsavedChanges({ ...clean, eventDirty: true })).toBe(true);
   });
 });

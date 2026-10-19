@@ -34,12 +34,18 @@ import type { EfaEpisodeSectionPosition } from "@/lib/efa-episode-position";
 import { directionLabel, formatDateTimeMinutes, priorityLabel } from "@/lib/efa-labels";
 import {
   createSaveSnapshot,
+  deepEqualJson,
   isDirtyAfterSave,
   type AutosaveInput,
   type AutosaveStatus,
   type SaveSnapshot,
 } from "@/lib/efa-autosave";
 import { useEfaAutosave } from "@/lib/use-efa-autosave";
+import {
+  createRecordSwitchSequence,
+  prepareRecordSwitch,
+  recordSwitchConfirmationCopy,
+} from "@/lib/efa-record-switch";
 import { EfaAutosaveStatus } from "@/components/EfaAutosaveStatus";
 
 const loadCommunicationClient = createClientOnlyFn(() => import("@/lib/efa-communications.client"));
@@ -552,6 +558,25 @@ export function communicationFieldsEditable(input: {
 }) {
   return input.hasSelected ? input.canEditSelected : input.canEditNewCall;
 }
+
+/**
+ * Whether switching away would lose typing. A new call is `dirty` as soon as "Nueva llamada"
+ * opens it, so it only counts once a value differs from how it opened or a choice was made.
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- Pure helper exported for deterministic tests.
+export function communicationHasUnsavedInput(input: {
+  dirty: boolean;
+  hasSelected: boolean;
+  current: CommunicationFormValue;
+  /** The values "Nueva llamada" opened with; `null` when unknown. */
+  newCallBaseline: CommunicationFormValue | null;
+  /** The call type or a time was chosen explicitly. */
+  reviewed: boolean;
+}) {
+  if (!input.dirty) return false;
+  if (input.hasSelected || !input.newCallBaseline) return true;
+  return input.reviewed || !deepEqualJson(input.current, input.newCallBaseline);
+}
 export type CommunicationServiceContext = { eventAt: string; address: string | null };
 
 const isValidInstant = (value: string) => Number.isFinite(new Date(value).getTime());
@@ -660,6 +685,13 @@ export function EfaCommunicationPanel({
   const [finalizeIntent, setFinalizeIntent] = useState<FinalizeIntent>("finalize");
   const [refreshWarning, setRefreshWarning] = useState("");
   const [dirty, setDirty] = useState(false);
+  // Asked when the call in the editor still has unsaved typing and another one replaces it.
+  const [switchConfirmation, setSwitchConfirmation] = useState<{
+    key: string;
+    apply: () => void;
+  } | null>(null);
+  const [switchSequence] = useState(createRecordSwitchSequence);
+  const newCallBaselineRef = useRef<CommunicationFormValue | null>(null);
   const activeRef = useRef(true);
   const ownerRef = useRef(currentUserId);
   const episodeRef = useRef(episodeId);
@@ -709,6 +741,8 @@ export function EfaCommunicationPanel({
   const lastConfirmedOperationRef = useRef<string | null>(null);
   const markSavedRef = useRef<() => void>(() => {});
   formRef.current = formValue;
+  const reviewedRef = useRef(false);
+  reviewedRef.current = directionReviewed || timeReviewed.startedAt || timeReviewed.endedAt;
   onPositionChangeRef.current = onPositionChange;
   queueEntriesRef.current = queueEntries;
   selectedOperationRef.current = selectedOperationId;
@@ -1473,9 +1507,16 @@ export function EfaCommunicationPanel({
   async function selectCall(call: EfaCommunicationView) {
     if (pendingRef.current || busyRef.current) return;
     noteCallEditorInteraction();
+    // The call already in the editor keeps its typing; it only returns to the first step.
+    if (call.id === selectedCallRef.current?.id) {
+      await navigateToStep(0, "direct");
+      return;
+    }
     const client = await loadCommunicationClient();
     if (!currentContext()) return;
-    applyCallSelection(call, client, 0);
+    await requestEditorSwitch(() =>
+      applyCallSelection(callsRef.current.find((item) => item.id === call.id) ?? call, client, 0),
+    );
   }
 
   /**
@@ -1515,6 +1556,7 @@ export function EfaCommunicationPanel({
   ) {
     setSelected(call);
     selectedCallRef.current = call;
+    newCallBaselineRef.current = null;
     setConfirmingLifecycle(null);
     setDirection(call.direction);
     setDirectionReviewed(false);
@@ -1538,6 +1580,11 @@ export function EfaCommunicationPanel({
     )
       return;
     noteCallEditorInteraction();
+    await requestEditorSwitch(() => void openNewCall());
+  }
+
+  async function openNewCall() {
+    if (pendingRef.current || busyRef.current) return;
     // The prefilled start is editable and "Dejar sin hora" still clears it. It is not marked as
     // reviewed: the step resolves because it holds a value, and existing calls are never touched.
     const prefill = newCallStartedAtPrefill(episode);
@@ -1555,6 +1602,12 @@ export function EfaCommunicationPanel({
     setTimes(prefilledTimes);
     setTimeReviewed({ startedAt: false, endedAt: false });
     originalTimesRef.current = { startedAt: null, endedAt: null };
+    newCallBaselineRef.current = {
+      direction: "incoming",
+      priority: "",
+      startedAt: prefilledTimes.startedAt,
+      endedAt: prefilledTimes.endedAt,
+    };
     setDirty(true);
     setStep(0);
     setError("");
@@ -1835,6 +1888,39 @@ export function EfaCommunicationPanel({
     if (!currentContext()) return;
     setStep(nextStep);
   }
+  const callEditorKey = (communicationId: string | null) =>
+    `${currentUserId}:${episodeId}:${communicationId ?? "new"}`;
+  /**
+   * Replaces the call in the editor only after saving the current one. When typing could not be
+   * saved (new call, another user's record, offline, pending or a failed save) it asks before
+   * discarding it.
+   */
+  async function requestEditorSwitch(apply: () => void) {
+    const fromId = selectedCallRef.current?.id ?? null;
+    const isLatest = switchSequence.begin();
+    const decision = await prepareRecordSwitch({
+      flush: autosave.flush,
+      isDirty: () =>
+        communicationHasUnsavedInput({
+          dirty: dirtyRef.current,
+          hasSelected: selectedCallRef.current !== null,
+          current: formRef.current,
+          newCallBaseline: newCallBaselineRef.current,
+          reviewed: reviewedRef.current,
+        }),
+      isCurrent: () =>
+        isLatest() && currentContext() && (selectedCallRef.current?.id ?? null) === fromId,
+    });
+    // A save still pending or another action running keeps the current call, as before.
+    const blocked = () => Boolean(pendingRef.current) || busyRef.current;
+    const guardedApply = () => {
+      if (!blocked()) apply();
+    };
+    if (decision === "stale" || blocked()) return;
+    if (decision === "switch") guardedApply();
+    else setSwitchConfirmation({ key: callEditorKey(fromId), apply: guardedApply });
+  }
+  const switchCopy = recordSwitchConfirmationCopy("llamada");
   const finalizeActions = communicationFinalizeActions({
     step,
     state: selected?.state,
@@ -2456,6 +2542,22 @@ export function EfaCommunicationPanel({
         description={finalizeCopy.description}
         confirmLabel={finalizeCopy.confirmLabel}
         onConfirm={(targetKey) => void finalizeCurrent(targetKey, finalizeIntent)}
+      />
+      <EfaActionConfirmation
+        open={switchConfirmation !== null}
+        onOpenChange={(open) => {
+          if (!open) setSwitchConfirmation(null);
+        }}
+        capturedTargetKey={switchConfirmation?.key ?? null}
+        currentTargetKey={callEditorKey(selected?.id ?? null)}
+        title={switchCopy.title}
+        description={switchCopy.description}
+        confirmLabel={switchCopy.confirmLabel}
+        onConfirm={() => {
+          const pendingSwitch = switchConfirmation;
+          setSwitchConfirmation(null);
+          pendingSwitch?.apply();
+        }}
       />
     </div>
   );

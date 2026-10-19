@@ -25,6 +25,7 @@ import {
   mergeConfirmedCommunication,
   communicationSaveStatus,
   communicationFieldsEditable,
+  communicationHasUnsavedInput,
   type CommunicationFormValue,
 } from "./EfaCommunicationStepper";
 import { EfaAutosaveStatus } from "./EfaAutosaveStatus";
@@ -651,5 +652,44 @@ describe("call autosave", () => {
         canEditNewCall: false,
       }),
     ).toBe(false);
+  });
+});
+
+describe("communicationHasUnsavedInput", () => {
+  const baseline: CommunicationFormValue = {
+    direction: "incoming",
+    priority: "",
+    startedAt: "2026-10-06T06:30",
+    endedAt: "",
+  };
+  const base = {
+    dirty: true,
+    hasSelected: false,
+    current: baseline,
+    newCallBaseline: baseline,
+    reviewed: false,
+  };
+
+  it("is clean when the form is not dirty", () => {
+    expect(communicationHasUnsavedInput({ ...base, dirty: false, hasSelected: true })).toBe(false);
+  });
+
+  it("follows the dirty flag for an existing call", () => {
+    expect(communicationHasUnsavedInput({ ...base, hasSelected: true })).toBe(true);
+  });
+
+  it("does not count an untouched new call as unsaved input", () => {
+    expect(communicationHasUnsavedInput(base)).toBe(false);
+  });
+
+  it("counts a changed value or an explicit choice on a new call", () => {
+    expect(
+      communicationHasUnsavedInput({ ...base, current: { ...baseline, priority: "red" } }),
+    ).toBe(true);
+    expect(communicationHasUnsavedInput({ ...base, reviewed: true })).toBe(true);
+  });
+
+  it("stays dirty for a new call without a known baseline", () => {
+    expect(communicationHasUnsavedInput({ ...base, newCallBaseline: null })).toBe(true);
   });
 });

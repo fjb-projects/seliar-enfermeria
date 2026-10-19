@@ -65,6 +65,11 @@ import {
   type SaveSnapshot,
 } from "@/lib/efa-autosave";
 import { useEfaAutosave } from "@/lib/use-efa-autosave";
+import {
+  createRecordSwitchSequence,
+  prepareRecordSwitch,
+  recordSwitchConfirmationCopy,
+} from "@/lib/efa-record-switch";
 import { EfaAutosaveStatus } from "@/components/EfaAutosaveStatus";
 
 const loadEpisodeClientHelpers = createClientOnlyFn(() => import("@/lib/efa-episodes.client"));
@@ -402,7 +407,8 @@ export function episodeFieldsEditable(input: {
 }
 
 /** The form differs from the saved service (or, for a new service, from the blank form). */
-function episodeFormDirty(
+// eslint-disable-next-line react-refresh/only-export-components
+export function episodeFormDirty(
   form: EpisodeFormValues,
   selected: Pick<EpisodeView, "eventAt" | "motive" | "address" | "interventionNumber"> | null,
 ) {
@@ -556,6 +562,12 @@ export function EfaEpisodePanel({
   // Operations the server confirmed, read once by the save that sent them.
   const confirmedOperations = useRef(new Set<string>());
   const markSavedRef = useRef<() => void>(() => {});
+  // Asked when the service in the editor still has unsaved typing and another one replaces it.
+  const [switchConfirmation, setSwitchConfirmation] = useState<{
+    key: string;
+    apply: () => void;
+  } | null>(null);
+  const [switchSequence] = useState(createRecordSwitchSequence);
   const initialCallIntentRef = useRef<InitialCallIntentSnapshot | null>(null);
   const initialCallContinuationRef = useRef(initialCallContinuation);
   const openOwnGuardRef = useRef(openOwnGuard);
@@ -717,11 +729,11 @@ export function EfaEpisodePanel({
       })
     )
       return;
-    if (
-      formDirty &&
-      !window.confirm("¿Descartar los cambios sin guardar y empezar un servicio nuevo?")
-    )
-      return;
+    void requestEditorSwitch(openNewServiceForm);
+  }
+
+  function openNewServiceForm() {
+    if (pendingRef.current) return;
     advanceEpisodeNavigationRevision();
     setSelectedId(null);
     setRegisterFirstCall(true);
@@ -734,9 +746,18 @@ export function EfaEpisodePanel({
 
   function editEpisode(episode: EpisodeView) {
     if (!canWrite || !queueReady || !episode.canEdit) return;
-    if (selectedId !== episode.id && formDirty) {
-      if (!window.confirm("¿Descartar el formulario actual para editar otro servicio?")) return;
+    if (selectedId === episode.id) {
+      // The service already in the editor keeps its typing; reloading it would discard it.
+      if (!formDirty) openEpisodeEditor(episode);
+      return;
     }
+    void requestEditorSwitch(() => {
+      if (pendingRef.current) return;
+      openEpisodeEditor(episodesRef.current.find((item) => item.id === episode.id) ?? episode);
+    });
+  }
+
+  function openEpisodeEditor(episode: EpisodeView) {
     advanceEpisodeNavigationRevision();
     setSelectedId(episode.id);
     setActiveConflict(null);
@@ -1975,6 +1996,30 @@ export function EfaEpisodePanel({
     },
   });
   markSavedRef.current = autosave.markSaved;
+  const editorKey = (serviceId: string | null) => `${currentUserId}:${serviceId ?? "new"}`;
+  /**
+   * Replaces the service in the editor only after saving the current one. When typing could not
+   * be saved (new service, another user's record, offline, pending or a failed save) it asks
+   * before discarding it.
+   */
+  async function requestEditorSwitch(apply: () => void) {
+    const targetUser = currentUserId;
+    const fromId = selectedIdRef.current;
+    const isLatest = switchSequence.begin();
+    const decision = await prepareRecordSwitch({
+      flush: autosave.flush,
+      isDirty: () =>
+        episodeFormDirty(
+          formRef.current,
+          episodesRef.current.find((item) => item.id === selectedIdRef.current) ?? null,
+        ),
+      isCurrent: () =>
+        isLatest() && activeUserRef.current === targetUser && selectedIdRef.current === fromId,
+    });
+    if (decision === "switch") apply();
+    else if (decision === "confirm") setSwitchConfirmation({ key: editorKey(fromId), apply });
+  }
+  const switchCopy = recordSwitchConfirmationCopy("servicio");
   const saveStatus = episodeSaveStatus({
     autosave: autosave.status,
     pendingStatus: selected ? episodeEditorPendingStatus(queueEntries, pending, selected.id) : null,
@@ -2175,6 +2220,22 @@ export function EfaEpisodePanel({
           Nuevo servicio
         </Button>
       )}
+      <EfaActionConfirmation
+        open={switchConfirmation !== null}
+        onOpenChange={(open) => {
+          if (!open) setSwitchConfirmation(null);
+        }}
+        capturedTargetKey={switchConfirmation?.key ?? null}
+        currentTargetKey={editorKey(selectedId)}
+        title={switchCopy.title}
+        description={switchCopy.description}
+        confirmLabel={switchCopy.confirmLabel}
+        onConfirm={() => {
+          const pendingSwitch = switchConfirmation;
+          setSwitchConfirmation(null);
+          pendingSwitch?.apply();
+        }}
+      />
 
       {canWrite && (selected || openOwnGuard) && (
         <Card>

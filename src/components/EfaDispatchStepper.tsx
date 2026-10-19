@@ -51,6 +51,11 @@ import {
   type SaveSnapshot,
 } from "@/lib/efa-autosave";
 import { useEfaAutosave } from "@/lib/use-efa-autosave";
+import {
+  createRecordSwitchSequence,
+  prepareRecordSwitch,
+  recordSwitchConfirmationCopy,
+} from "@/lib/efa-record-switch";
 import { EfaAutosaveStatus } from "@/components/EfaAutosaveStatus";
 
 const loadQueue = createClientOnlyFn(() => import("@/lib/efa-dispatches.queue"));
@@ -849,6 +854,12 @@ export function EfaDispatchStepper({
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
   const [finalizeConfirmationTarget, setFinalizeConfirmationTarget] = useState<string | null>(null);
+  // Asked when the dispatch in the editor still has unsaved typing and another one replaces it.
+  const [switchConfirmation, setSwitchConfirmation] = useState<{
+    key: string;
+    apply: () => void;
+  } | null>(null);
+  const [switchSequence] = useState(createRecordSwitchSequence);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
   const [errorSurface, setErrorSurface] = useState<DispatchErrorSurface>("global");
@@ -2035,6 +2046,46 @@ export function EfaDispatchStepper({
     setStep(Math.min(Math.max(nextStep, 0), dispatchStepTitles.length - 1));
   };
 
+  const editorKey = (dispatchId: string | null) =>
+    `${currentUserId}:${episodeId}:${dispatchId ?? "new"}`;
+  /**
+   * Replaces the dispatch in the editor only after saving the current one. When typing could not
+   * be saved (new dispatch, another user's record, offline, pending or a failed save) it asks
+   * before discarding it.
+   */
+  const requestEditorSwitch = async (apply: () => void) => {
+    const targetOwner = currentUserId;
+    const fromId = editorRef.current.selectedId;
+    const isLatest = switchSequence.begin();
+    const decision = await prepareRecordSwitch({
+      flush: autosave.flush,
+      isDirty: () => editorRef.current.dirty,
+      isCurrent: () =>
+        isLatest() &&
+        mounted.current &&
+        owner.current === targetOwner &&
+        editorRef.current.selectedId === fromId,
+    });
+    if (decision === "switch") apply();
+    else if (decision === "confirm") setSwitchConfirmation({ key: editorKey(fromId), apply });
+  };
+  const openDispatch = (dispatchId: string) => {
+    const row = rowsRef.current.find((item) => item.id === dispatchId);
+    if (!row) return;
+    selectedIdRef.current = row.id;
+    setSelectedId(row.id);
+    setForm(restoreDispatchForm(row));
+    setStep(0);
+  };
+  const startNewDispatch = () => {
+    selectedIdRef.current = null;
+    editorRef.current = { selectedId: null, form: emptyDispatchForm(), dirty: false };
+    setSelectedId(null);
+    setForm(emptyDispatchForm());
+    setStep(0);
+  };
+  const switchCopy = recordSwitchConfirmationCopy("despacho");
+
   const quickTime = (key: keyof DispatchForm) => {
     const time = captureDispatchTime(new Date());
     const statusKey = `${String(key).slice(0, 2)}Status` as keyof DispatchForm;
@@ -2089,10 +2140,9 @@ export function EfaDispatchStepper({
               className="min-h-11 w-full min-w-0 rounded border p-3 text-left"
               aria-pressed={selectedId === row.id}
               onClick={() => {
-                selectedIdRef.current = row.id;
-                setSelectedId(row.id);
-                setForm(restoreDispatchForm(row));
-                setStep(0);
+                // The dispatch already in the editor keeps its typing; it only returns to step 1.
+                if (row.id === editorRef.current.selectedId) void navigateToStep(0, "direct");
+                else void requestEditorSwitch(() => openDispatch(row.id));
               }}
             >
               <span className="font-medium">
@@ -2192,13 +2242,7 @@ export function EfaDispatchStepper({
             type="button"
             className="min-h-11 rounded border px-4"
             disabled={queueLocked}
-            onClick={() => {
-              selectedIdRef.current = null;
-              editorRef.current = { selectedId: null, form: emptyDispatchForm(), dirty: false };
-              setSelectedId(null);
-              setForm(emptyDispatchForm());
-              setStep(0);
-            }}
+            onClick={() => void requestEditorSwitch(startNewDispatch)}
           >
             Nuevo despacho independiente
           </button>
@@ -2985,6 +3029,22 @@ export function EfaDispatchStepper({
           description="El despacho pasará a estado finalizado con el resultado registrado."
           confirmLabel="Finalizar despacho"
           onConfirm={(targetKey) => void finalize(targetKey)}
+        />
+        <EfaActionConfirmation
+          open={switchConfirmation !== null}
+          onOpenChange={(open) => {
+            if (!open) setSwitchConfirmation(null);
+          }}
+          capturedTargetKey={switchConfirmation?.key ?? null}
+          currentTargetKey={editorKey(selectedId)}
+          title={switchCopy.title}
+          description={switchCopy.description}
+          confirmLabel={switchCopy.confirmLabel}
+          onConfirm={() => {
+            const pendingSwitch = switchConfirmation;
+            setSwitchConfirmation(null);
+            pendingSwitch?.apply();
+          }}
         />
       </section>
     </div>

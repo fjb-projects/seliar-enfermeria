@@ -23,7 +23,13 @@ import { formatObservedDateTime, policeEventLabel, timeStatusLabel } from "@/lib
 import type { AutosaveInput, AutosaveStatus } from "@/lib/efa-autosave";
 import type { PoliceQueueEntry, PoliceQueueKind } from "@/lib/efa-police-coordination.queue";
 import { useEfaAutosave } from "@/lib/use-efa-autosave";
+import {
+  createRecordSwitchSequence,
+  prepareRecordSwitch,
+  recordSwitchConfirmationCopy,
+} from "@/lib/efa-record-switch";
 import { EfaAutosaveStatus } from "@/components/EfaAutosaveStatus";
+import { EfaActionConfirmation } from "@/components/EfaActionConfirmation";
 
 const loadQueue = createClientOnlyFn(() => import("@/lib/efa-police-coordination.queue"));
 type DispatchChoice = {
@@ -466,6 +472,16 @@ export function nextPoliceAutosaveUnit(dirty: {
   return null;
 }
 
+/** Whether switching to another coordination would lose typing, including an edited event. */
+// eslint-disable-next-line react-refresh/only-export-components -- Pure helper exported for deterministic tests.
+export function policeHasUnsavedChanges(dirty: {
+  coordinationDirty: boolean;
+  dispatchesDirty: boolean;
+  eventDirty: boolean;
+}) {
+  return dirty.coordinationDirty || dirty.dispatchesDirty || dirty.eventDirty;
+}
+
 /**
  * The new payload for "conservar mis cambios" after a conflict: it targets the current server
  * versions and, for coordination fields and links, sends what the form holds now (including
@@ -592,6 +608,12 @@ export function EfaPoliceCoordinationPanel({
   const [dirtyEventId, setDirtyEventId] = useState("");
   const [eventEdits, setEventEdits] = useState<Record<string, EventForm>>({});
   const [auditRows, setAuditRows] = useState<Array<Record<string, unknown>>>([]);
+  // Asked when the coordination in the editor still has unsaved typing and another one replaces it.
+  const [switchConfirmation, setSwitchConfirmation] = useState<{
+    key: string;
+    apply: () => void;
+  } | null>(null);
+  const [switchSequence] = useState(createRecordSwitchSequence);
   const [activeStep, setActiveStep] = useState(0);
   const activeStepTargetRef = useRef<HTMLElement>(null);
   const previousActiveStepRef = useRef(activeStep);
@@ -630,6 +652,7 @@ export function EfaPoliceCoordinationPanel({
   const dispatchIdsRef = useRef(links);
   const coordinationDirtyRef = useRef(coordinationDirty);
   const dispatchesDirtyRef = useRef(dispatchesDirty);
+  const dirtyEventIdRef = useRef(dirtyEventId);
   const pendingOperationIdRef = useRef(pendingOperationId);
   const busyRef = useRef(false);
   const storeRef = useRef<import("@/lib/efa-police-coordination.queue").PoliceQueueStore | null>(
@@ -654,6 +677,7 @@ export function EfaPoliceCoordinationPanel({
   dispatchIdsRef.current = links;
   coordinationDirtyRef.current = coordinationDirty;
   dispatchesDirtyRef.current = dispatchesDirty;
+  dirtyEventIdRef.current = dirtyEventId;
   pendingOperationIdRef.current = pendingOperationId;
   const setCoordinationDirtyTracked = (value: boolean) => {
     coordinationDirtyRef.current = value;
@@ -1691,6 +1715,44 @@ export function EfaPoliceCoordinationPanel({
     if (mounted.current) setActiveStep(step);
   };
   const stepChange = (step: number) => void changeStep(step);
+  const editorKey = (coordinationId: string) =>
+    `${currentUserId}:${episodeId}:${coordinationId || "new"}`;
+  /**
+   * Replaces the coordination in the editor only after saving the current one (fields, then
+   * links: the autosave saves one unit per cycle). When typing could not be saved (new
+   * coordination, an edited event, another user's record, offline, pending or a failed save) it
+   * asks before discarding it.
+   */
+  const requestEditorSwitch = async (apply: () => void) => {
+    const targetUser = currentUserId;
+    const fromId = selectedRef.current;
+    const isLatest = switchSequence.begin();
+    const decision = await prepareRecordSwitch({
+      flush: async () => (await autosave.flush()) && autosave.flush(),
+      isDirty: () =>
+        policeHasUnsavedChanges({
+          coordinationDirty: coordinationDirtyRef.current,
+          dispatchesDirty: dispatchesDirtyRef.current,
+          eventDirty: dirtyEventIdRef.current !== "",
+        }),
+      isCurrent: () =>
+        isLatest() &&
+        mounted.current &&
+        context.current.currentUserId === targetUser &&
+        selectedRef.current === fromId,
+    });
+    if (decision === "switch") apply();
+    else if (decision === "confirm")
+      setSwitchConfirmation({
+        key: editorKey(fromId),
+        // The pending id ref only catches up on the next render, so it is checked on confirm: a
+        // save left pending or another action running keeps the current coordination, as before.
+        apply: () => {
+          if (!pendingOperationIdRef.current && !busyRef.current) apply();
+        },
+      });
+  };
+  const switchCopy = recordSwitchConfirmationCopy("coordinación");
 
   return (
     <Card className="min-w-0 border-0 bg-transparent p-0 shadow-none">
@@ -1716,8 +1778,8 @@ export function EfaPoliceCoordinationPanel({
               type="button"
               variant={selectedId ? "outline" : "secondary"}
               className="min-h-11"
-              disabled={!writeAllowed || busy || dirty || Boolean(pendingOperationId)}
-              onClick={beginCreate}
+              disabled={!writeAllowed || busy || Boolean(pendingOperationId)}
+              onClick={() => void requestEditorSwitch(beginCreate)}
             >
               Nueva coordinación
             </Button>
@@ -1727,8 +1789,8 @@ export function EfaPoliceCoordinationPanel({
                 key={item.id}
                 variant={selectedId === item.id ? "secondary" : "outline"}
                 className="min-h-11"
-                disabled={busy || dirty || Boolean(pendingOperationId)}
-                onClick={() => void selectCoordination(item.id)}
+                disabled={busy || Boolean(pendingOperationId)}
+                onClick={() => void requestEditorSwitch(() => void selectCoordination(item.id))}
               >
                 {item.placeType === "incident" ? "Incidente" : "Punto de encuentro"} · v
                 {item.version}
@@ -2648,6 +2710,22 @@ export function EfaPoliceCoordinationPanel({
             )}
           </section>
         )}
+        <EfaActionConfirmation
+          open={switchConfirmation !== null}
+          onOpenChange={(open) => {
+            if (!open) setSwitchConfirmation(null);
+          }}
+          capturedTargetKey={switchConfirmation?.key ?? null}
+          currentTargetKey={editorKey(selectedId)}
+          title={switchCopy.title}
+          description={switchCopy.description}
+          confirmLabel={switchCopy.confirmLabel}
+          onConfirm={() => {
+            const pendingSwitch = switchConfirmation;
+            setSwitchConfirmation(null);
+            pendingSwitch?.apply();
+          }}
+        />
       </CardContent>
     </Card>
   );
