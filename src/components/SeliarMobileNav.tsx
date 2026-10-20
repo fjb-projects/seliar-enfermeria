@@ -135,7 +135,7 @@ export function SeliarMobileNav() {
       return [...uniqueItems.values()];
     }
     if (isAuthenticated) {
-      return [{ to: "/guardia-efa" as const, label: "Consulta EFA", icon: ClipboardClock }];
+      return [{ to: "/guardia-efa" as const, label: "Mi guardia", icon: ClipboardClock }];
     }
     return [];
   }, [isAuthenticated, navigation.summary]);

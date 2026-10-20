@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { History, LockKeyhole, PanelsTopLeft, Pencil, X } from "lucide-react";
-import { Link } from "@tanstack/react-router";
 import { createClientOnlyFn, useServerFn } from "@tanstack/react-start";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,8 +14,10 @@ import { EfaCommunicationPanel } from "@/components/EfaCommunicationStepper";
 import { EfaDispatchStepper } from "@/components/EfaDispatchStepper";
 import { EfaPoliceCoordinationPanel } from "@/components/EfaPoliceCoordinationPanel";
 import { EfaObservationPanel } from "@/components/EfaObservationPanel";
+import { EfaGuardConductAction } from "@/components/EfaGuardConductSheet";
 import { EfaEpisodeSummary } from "@/components/EfaEpisodeSummary";
 import { readSession } from "@/lib/auth.functions";
+import { formatTimeMinutes } from "@/lib/efa-labels";
 import {
   createEfaEpisode,
   closeEfaEpisode,
@@ -57,6 +58,20 @@ import {
   saveEpisodeSectionPosition,
   type EfaEpisodePosition,
 } from "@/lib/efa-episode-position";
+import {
+  createSaveSnapshot,
+  isDirtyAfterSave,
+  type AutosaveInput,
+  type AutosaveStatus,
+  type SaveSnapshot,
+} from "@/lib/efa-autosave";
+import { useEfaAutosave } from "@/lib/use-efa-autosave";
+import {
+  createRecordSwitchSequence,
+  prepareRecordSwitch,
+  recordSwitchConfirmationCopy,
+} from "@/lib/efa-record-switch";
+import { EfaAutosaveStatus } from "@/components/EfaAutosaveStatus";
 
 const loadEpisodeClientHelpers = createClientOnlyFn(() => import("@/lib/efa-episodes.client"));
 const loadEpisodeQueue = createClientOnlyFn(() => import("@/lib/efa-episodes.queue"));
@@ -245,6 +260,173 @@ export function canAutoOpenInitialCallAfterRefresh(eligibility: InitialCallRefre
     eligibility.formMatches,
   );
 }
+/** The minimal shape of an operation needed to know which service it targets. */
+type EpisodeOperationTarget = { kind: PendingEpisodeOperation["kind"]; payload: object };
+
+function operationEpisodeId(operation: EpisodeOperationTarget) {
+  if (operation.kind === "create") return null;
+  const { episodeId } = operation.payload as { episodeId?: unknown };
+  return typeof episodeId === "string" ? episodeId : null;
+}
+
+/** A queue entry that still has to reach the server; a confirmed one only waits for cleanup. */
+function isLiveEpisodeQueueEntry(entry: Pick<EpisodeQueueEntry, "status">) {
+  return entry.status !== "confirmed-cleanup";
+}
+
+/**
+ * Status of the live queued update or close behind the service editor, or `"pending"` for an
+ * operation the panel holds that has not reached the local queue yet.
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- Pure helper exported for deterministic tests.
+export function episodeEditorPendingStatus(
+  entries: readonly (Pick<EpisodeQueueEntry, "kind" | "status"> & { payload: object })[],
+  pendingOperation: EpisodeOperationTarget | null,
+  episodeId: string,
+): EpisodeQueueEntry["status"] | null {
+  const entry = entries.find(
+    (item) => isLiveEpisodeQueueEntry(item) && operationEpisodeId(item) === episodeId,
+  );
+  if (entry) return entry.status;
+  return pendingOperation && operationEpisodeId(pendingOperation) === episodeId ? "pending" : null;
+}
+
+/**
+ * Maps the service editor to the autosave conditions; the online flag is tracked by the hook.
+ * Only an existing draft owned by the editor autosaves: the create form stays a manual first save.
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- Pure helper exported for deterministic tests.
+export function episodeAutosaveConditions(input: {
+  canWrite: boolean;
+  selected: Pick<EpisodeView, "id" | "state" | "ownerUserId" | "canEdit" | "cancelledAt"> | null;
+  currentUserId: string;
+  dirty: boolean;
+  /** The operation the panel holds; `save()` refuses while any exists (one pending at a time). */
+  pendingOperation: EpisodeOperationTarget | null;
+  queueEntries: readonly (Pick<EpisodeQueueEntry, "kind" | "status"> & { payload: object })[];
+  queueUsable: boolean;
+  busy: boolean;
+}): Omit<AutosaveInput, "online"> {
+  const { selected } = input;
+  return {
+    canWrite: input.canWrite && (selected ? selected.canEdit : true),
+    recordExists: selected !== null,
+    isDraft: selected?.state === "draft" && !selected.cancelledAt,
+    editorIsOwner: selected?.ownerUserId === input.currentUserId,
+    dirty: input.dirty,
+    pending:
+      input.pendingOperation !== null ||
+      (selected !== null &&
+        episodeEditorPendingStatus(input.queueEntries, null, selected.id) !== null),
+    queueUsable: input.queueUsable,
+    busy: input.busy,
+  };
+}
+
+/**
+ * A confirmed save applies the server values unless the user typed after the snapshot was taken:
+ * then the newer values stay in the form and it remains dirty for the next save.
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- Pure helper exported for deterministic tests.
+export function mergeConfirmedEpisode(
+  snapshot: SaveSnapshot<EpisodeFormValues> | null,
+  current: EpisodeFormValues,
+  server: EpisodeFormValues,
+): { keepLocal: boolean; form: EpisodeFormValues; dirty: boolean } {
+  const keepLocal = snapshot !== null && isDirtyAfterSave(snapshot, current);
+  return keepLocal
+    ? { keepLocal, form: current, dirty: true }
+    : { keepLocal, form: server, dirty: false };
+}
+
+/**
+ * Loading the server version over a conflicted update drops the values that operation sent, but
+ * keeps each field typed after its snapshot, so the next save sends them on the current version.
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- Pure helper exported for deterministic tests.
+export function rebaseEpisodeFormOnServer(
+  snapshot: SaveSnapshot<EpisodeFormValues> | null,
+  current: EpisodeFormValues,
+  server: EpisodeFormValues,
+): { form: EpisodeFormValues; keptLocal: boolean } {
+  if (!snapshot) return { form: server, keptLocal: false };
+  const fields = ["eventAt", "motive", "address", "interventionNumber"] as const;
+  const form = { ...server };
+  let keptLocal = false;
+  for (const field of fields) {
+    if (current[field] === snapshot.value[field]) continue;
+    form[field] = current[field];
+    keptLocal = true;
+  }
+  return { form, keptLocal };
+}
+
+/**
+ * Status line for the service editor: a queued operation outranks the autosave state, and a clean
+ * service shows the time the server last saved it.
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- Pure helper exported for deterministic tests.
+export function episodeSaveStatus(input: {
+  autosave: AutosaveStatus;
+  pendingStatus: EpisodeQueueEntry["status"] | null;
+  busy: boolean;
+  dirty: boolean;
+  savedAt: string | null;
+}): AutosaveStatus {
+  if (input.pendingStatus) {
+    if (input.busy) return { kind: "saving" };
+    if (input.autosave.kind === "offline") return input.autosave;
+    return { kind: "blocked", reason: "pending" };
+  }
+  if (input.autosave.kind !== "idle" && input.autosave.kind !== "saved") return input.autosave;
+  if (input.dirty) return { kind: "dirty" };
+  const savedAt = input.savedAt ? new Date(input.savedAt) : null;
+  return savedAt && Number.isFinite(savedAt.getTime())
+    ? { kind: "saved", at: savedAt }
+    : input.autosave;
+}
+
+/**
+ * The edit form of an existing service follows permission only, so a pending, running or paused
+ * save never freezes typing; only a close of that same service does. The create form keeps its
+ * freeze while anything is pending, because a new service is a manual first save.
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- Pure helper exported for deterministic tests.
+export function episodeFieldsEditable(input: {
+  canWrite: boolean;
+  queueReady: boolean;
+  selected: Pick<EpisodeView, "id" | "canEdit" | "cancelledAt"> | null;
+  pending: EpisodeOperationTarget | null;
+  busy: boolean;
+  conflict: boolean;
+}) {
+  if (!input.canWrite || !input.queueReady) return false;
+  const { selected, pending } = input;
+  if (!selected) return !input.busy && !pending && !input.conflict;
+  const closingSelected = pending?.kind === "close" && operationEpisodeId(pending) === selected.id;
+  return selected.canEdit && !selected.cancelledAt && !closingSelected;
+}
+
+/** The form differs from the saved service (or, for a new service, from the blank form). */
+// eslint-disable-next-line react-refresh/only-export-components
+export function episodeFormDirty(
+  form: EpisodeFormValues,
+  selected: Pick<EpisodeView, "eventAt" | "motive" | "address" | "interventionNumber"> | null,
+) {
+  if (!selected)
+    return Boolean(form.eventAt || form.motive || form.address || form.interventionNumber);
+  const date = new Date(selected.eventAt);
+  const savedEventAt = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
+    .toISOString()
+    .slice(0, 16);
+  return (
+    form.eventAt !== savedEventAt ||
+    form.motive !== (selected.motive ?? "") ||
+    form.address !== (selected.address ?? "") ||
+    form.interventionNumber !== (selected.interventionNumber ?? "")
+  );
+}
+
 // eslint-disable-next-line react-refresh/only-export-components
 export const formatEpisodeDate = (value: Date | string) =>
   new Date(value).toLocaleString("es-AR", { timeZone: "America/Argentina/Buenos_Aires" });
@@ -255,6 +437,36 @@ const SERVICE_INTRO_NOTICE_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
 
 function serviceIntroNoticeStorageKey(userId: string) {
   return `efa-service-intro:${SERVICE_INTRO_NOTICE_VERSION}:${encodeURIComponent(userId)}`;
+}
+
+// One compact line that scopes the list to the open own guard, in the live style of
+// /guardia-efa (pulsing brand dot, small uppercase eyebrow) but sized as body text.
+function GuardScopeStatus({ startedAt }: { startedAt: string | Date | null }) {
+  if (!startedAt) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        Sin guardia abierta: no hay servicios para mostrar.
+      </p>
+    );
+  }
+  return (
+    <p className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm">
+      <span className="text-xs font-medium tracking-wide whitespace-nowrap uppercase">
+        <span
+          aria-hidden="true"
+          className="mr-2 inline-block size-2 rounded-full bg-[var(--brand-orange)] align-middle motion-safe:animate-pulse"
+        />
+        Guardia abierta
+      </span>
+      <span className="text-muted-foreground">
+        desde{" "}
+        <span className="font-medium text-foreground tabular-nums">
+          {formatTimeMinutes(startedAt)}
+        </span>{" "}
+        · solo servicios de esta guardia
+      </span>
+    </p>
+  );
 }
 
 export function EfaEpisodePanel({
@@ -326,6 +538,10 @@ export function EfaEpisodePanel({
   const [serverConfirmedOperationId, setServerConfirmedOperationId] = useState<string | null>(null);
   const queueEntriesRef = useRef(queueEntries);
   queueEntriesRef.current = queueEntries;
+  // Follows `busy`; `save()` also sets it synchronously, so the autosave gate sees a finished save
+  // before the next render.
+  const busyRef = useRef(busy);
+  busyRef.current = busy;
   const pendingRef = useRef(pending);
   pendingRef.current = pending;
   const conflictRef = useRef(conflict);
@@ -345,6 +561,18 @@ export function EfaEpisodePanel({
   const selectedQueueOperationId = useRef<string | null>(null);
   const episodeNavigationRevisionRef = useRef(0);
   const formRef = useRef(form);
+  const selectedIdRef = useRef(selectedId);
+  // The form each update sent, to keep typing done while it was in flight or paused.
+  const saveSnapshots = useRef(new Map<string, SaveSnapshot<EpisodeFormValues>>());
+  // Operations the server confirmed, read once by the save that sent them.
+  const confirmedOperations = useRef(new Set<string>());
+  const markSavedRef = useRef<() => void>(() => {});
+  // Asked when the service in the editor still has unsaved typing and another one replaces it.
+  const [switchConfirmation, setSwitchConfirmation] = useState<{
+    key: string;
+    apply: () => void;
+  } | null>(null);
+  const [switchSequence] = useState(createRecordSwitchSequence);
   const initialCallIntentRef = useRef<InitialCallIntentSnapshot | null>(null);
   const initialCallContinuationRef = useRef(initialCallContinuation);
   const openOwnGuardRef = useRef(openOwnGuard);
@@ -352,6 +580,7 @@ export function EfaEpisodePanel({
   const activeWorkspaceSectionRef = useRef(activeWorkspaceSection);
   const visitedWorkspaceSectionsRef = useRef(visitedWorkspaceSections);
   formRef.current = form;
+  selectedIdRef.current = selectedId;
   initialCallContinuationRef.current = initialCallContinuation;
   openOwnGuardRef.current = openOwnGuard;
   workspaceEpisodeIdRef.current = workspaceEpisodeId;
@@ -415,6 +644,20 @@ export function EfaEpisodePanel({
     }
   }
 
+  // Keeps the ref in step with typing, so a save confirmed before the next render merges with it.
+  function updateForm(next: EpisodeFormValues) {
+    formRef.current = next;
+    setForm(next);
+  }
+
+  /** Applies a confirmed form unless the user typed after the operation's snapshot. */
+  function applyConfirmedForm(operationId: string, serverForm: EpisodeFormValues) {
+    const snapshot = saveSnapshots.current.get(operationId) ?? null;
+    saveSnapshots.current.delete(operationId);
+    const merge = mergeConfirmedEpisode(snapshot, formRef.current, serverForm);
+    if (!merge.keepLocal) updateForm(merge.form);
+  }
+
   function setActiveConflict(next: ActiveEpisodeConflict | null) {
     conflictRef.current = next;
     setConflict(next);
@@ -463,18 +706,7 @@ export function EfaEpisodePanel({
   const displayName = (episode: EpisodeView) => episode.motive || episode.address || "Servicio";
   const accessibleDisplayName = (episode: EpisodeView) =>
     `${displayName(episode)} · ${formatEpisodeDate(episode.eventAt)}`;
-  const formDirty = selected
-    ? form.eventAt !==
-        (() => {
-          const date = new Date(selected.eventAt);
-          return new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
-            .toISOString()
-            .slice(0, 16);
-        })() ||
-      form.motive !== (selected.motive ?? "") ||
-      form.address !== (selected.address ?? "") ||
-      form.interventionNumber !== (selected.interventionNumber ?? "")
-    : Boolean(form.eventAt || form.motive || form.address || form.interventionNumber);
+  const formDirty = episodeFormDirty(form, selected);
   const queueStatusLabel = (status: EpisodeQueueEntry["status"]) =>
     status === "pending"
       ? "pendiente"
@@ -502,11 +734,11 @@ export function EfaEpisodePanel({
       })
     )
       return;
-    if (
-      formDirty &&
-      !window.confirm("¿Descartar los cambios sin guardar y empezar un servicio nuevo?")
-    )
-      return;
+    void requestEditorSwitch(openNewServiceForm);
+  }
+
+  function openNewServiceForm() {
+    if (pendingRef.current) return;
     advanceEpisodeNavigationRevision();
     setSelectedId(null);
     setRegisterFirstCall(true);
@@ -519,22 +751,35 @@ export function EfaEpisodePanel({
 
   function editEpisode(episode: EpisodeView) {
     if (!canWrite || !queueReady || !episode.canEdit) return;
-    if (selectedId !== episode.id && formDirty) {
-      if (!window.confirm("¿Descartar el formulario actual para editar otro servicio?")) return;
+    if (selectedId === episode.id) {
+      // The service already in the editor keeps its typing; reloading it would discard it.
+      if (!formDirty) openEpisodeEditor(episode);
+      return;
     }
+    void requestEditorSwitch(() => {
+      if (pendingRef.current) return;
+      openEpisodeEditor(episodesRef.current.find((item) => item.id === episode.id) ?? episode);
+    });
+  }
+
+  function openEpisodeEditor(episode: EpisodeView) {
     advanceEpisodeNavigationRevision();
     setSelectedId(episode.id);
     setActiveConflict(null);
     const ticket = ownerTicketRef.current;
-    void loadEpisodeClientHelpers().then(({ isoToLocalDateTimeValue }) => {
+    const loadForm = ({ isoToLocalDateTimeValue }: EpisodeClientHelpers) => {
       if (!ticket || !ownerFenceRef.current?.isCurrent(ticket)) return;
-      setForm({
+      updateForm({
         eventAt: isoToLocalDateTimeValue(episode.eventAt),
         motive: episode.motive ?? "",
         address: episode.address ?? "",
         interventionNumber: episode.interventionNumber ?? "",
       });
-    });
+    };
+    // Load the form in the same update as the selection, so an autosave never pairs the previous
+    // service's values with the newly selected one.
+    if (episodeHelpersRef.current) loadForm(episodeHelpersRef.current);
+    else void loadEpisodeClientHelpers().then(loadForm);
     setError("");
     setSaveError("");
     setMessage("");
@@ -633,7 +878,7 @@ export function EfaEpisodePanel({
       if (syncEditor) {
         setError("");
         setRefreshWarning("");
-        setForm(baseline.form);
+        applyConfirmedForm(operationId, baseline.form);
       }
     } catch {
       if (!ownerFenceRef.current?.isCurrent(ticket)) return;
@@ -654,21 +899,25 @@ export function EfaEpisodePanel({
         );
       }
       if (syncEditor) {
-        setForm(baseline.form);
+        applyConfirmedForm(operationId, baseline.form);
       }
     }
-    setMessage(
-      operationKind === "close" && !operationChanged
-        ? `El servicio ya estaba cerrado (versión ${operationVersion}).`
-        : `${operationKind === "close" ? "Cierre" : "Guardado"} confirmado (versión ${operationVersion}).`,
-    );
-    if (
+    const editorOperation = Boolean(
       queueModuleRef.current?.shouldSyncEpisodeOperationToEditor(
         operationId,
         pendingRef.current?.operationId ?? null,
         selectedQueueOperationId.current,
-      )
-    ) {
+      ),
+    );
+    // A plain confirmed update of the edited service is announced by its status line only.
+    if (operationKind !== "update" || !editorOperation)
+      setMessage(
+        operationKind === "close" && !operationChanged
+          ? `El servicio ya estaba cerrado (versión ${operationVersion}).`
+          : `${operationKind === "close" ? "Cierre" : "Guardado"} confirmado (versión ${operationVersion}).`,
+      );
+    if (editorOperation) {
+      if (operationKind === "update") markSavedRef.current();
       if (operationKind !== "close") setSelectedId(saved.id);
       setActiveConflict(null);
       setPending(null);
@@ -703,7 +952,11 @@ export function EfaEpisodePanel({
     selectedQueueOperationId.current = entry.operationId;
     setPending(restored.operation);
     pendingRef.current = restored.operation;
-    if (restored.form) setForm(restored.form);
+    if (restored.form) {
+      updateForm(restored.form);
+      if (entry.kind === "update")
+        saveSnapshots.current.set(entry.operationId, createSaveSnapshot(restored.form));
+    }
     const createPayload =
       entry.kind === "create" ? (entry.payload as PendingEpisodeCreate["payload"]) : null;
     if (entry.kind === "create") {
@@ -1132,6 +1385,8 @@ export function EfaEpisodePanel({
           );
           return;
         }
+        if (outcome.status === "confirmed" || outcome.status === "confirmed-cleanup-failed")
+          confirmedOperations.current.add(entry.operationId);
         try {
           await applyQueueOutcome(outcome, ticket, {
             kind: entry.kind,
@@ -1270,41 +1525,51 @@ export function EfaEpisodePanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUserId]);
 
-  function save() {
+  /**
+   * Sends a snapshot of the form while typing continues. Resolves `true` only when the server
+   * confirmed this save; `false` when it was refused, failed, stayed queued or did not run.
+   */
+  function save(): Promise<boolean> {
     if (
       !canWrite ||
       !queueReady ||
       !queueAvailable ||
-      pending ||
-      conflict ||
+      pendingRef.current ||
+      conflictRef.current ||
       serverConfirmedOperationId
     )
-      return;
+      return Promise.resolve(false);
     let preparationStage = "client helpers";
     const ticket = ownerTicketRef.current;
-    if (!ticket || ticket.ownerUserId !== currentUserId) return;
+    if (!ticket || ticket.ownerUserId !== currentUserId) return Promise.resolve(false);
     const requestedNavigationRevision = episodeNavigationRevisionRef.current;
-    void submissionGate.current
+    const snapshot = createSaveSnapshot(formRef.current);
+    const formAtSave = snapshot.value;
+    const record = selectedIdRef.current
+      ? (episodesRef.current.find((item) => item.id === selectedIdRef.current) ?? null)
+      : null;
+    return submissionGate.current
       .run(async () => {
-        if (!ownerFenceRef.current?.isCurrent(ticket)) return;
+        if (!ownerFenceRef.current?.isCurrent(ticket)) return false;
+        busyRef.current = true;
         setBusy(true);
         setSaveError("");
         try {
           const helpers = episodeHelpersRef.current ?? (await loadEpisodeClientHelpers());
           episodeHelpersRef.current = helpers;
-          if (!ownerFenceRef.current?.isCurrent(ticket)) return;
+          if (!ownerFenceRef.current?.isCurrent(ticket)) return false;
           preparationStage = "form validation";
-          const validation = helpers.validateEpisodeForm(form);
+          const validation = helpers.validateEpisodeForm(formAtSave);
           if (!validation.valid) {
             setSaveError("Indica una fecha y hora válidas para el episodio.");
-            return;
+            return false;
           }
-          const normalized = { ...form, eventAt: validation.eventAt };
+          const normalized = { ...formAtSave, eventAt: validation.eventAt };
           preparationStage = "operation creation";
-          const operation = selected
+          const operation = record
             ? helpers.createPendingUpdate({
-                episodeId: selected.id,
-                expectedVersion: selected.version,
+                episodeId: record.id,
+                expectedVersion: record.version,
                 eventAt: validation.eventAt,
                 motive: normalized.motive,
                 address: normalized.address,
@@ -1317,7 +1582,7 @@ export function EfaEpisodePanel({
               : null;
           if (!operation) {
             setSaveError("Para crear un episodio necesitas una guardia propia abierta.");
-            return;
+            return false;
           }
           initialCallIntentRef.current =
             operation.kind === "create" &&
@@ -1328,7 +1593,7 @@ export function EfaEpisodePanel({
                   operationId: operation.operationId,
                   guardId: operation.payload.guardId,
                   navigationRevision: requestedNavigationRevision,
-                  form: { ...form },
+                  form: { ...formAtSave },
                 }
               : null;
           const entry: EpisodeQueueEntry = {
@@ -1340,10 +1605,13 @@ export function EfaEpisodePanel({
             createdAt: new Date().toISOString(),
           };
           selectedQueueOperationId.current = operation.operationId;
+          if (operation.kind === "update")
+            saveSnapshots.current.set(operation.operationId, snapshot);
           setPending(operation);
           pendingRef.current = operation;
           preparationStage = "local queue";
           await runQueueEntry(entry, "enqueue");
+          return confirmedOperations.current.delete(operation.operationId);
         } catch (cause) {
           if (ownerFenceRef.current?.isCurrent(ticket)) {
             console.error("EFA draft save failed", {
@@ -1354,10 +1622,13 @@ export function EfaEpisodePanel({
               "No se pudo preparar el borrador para guardar. Tus datos permanecen en esta pantalla.",
             );
           }
+          return false;
         } finally {
+          busyRef.current = false;
           if (ownerFenceRef.current?.isCurrent(ticket)) setBusy(false);
         }
       })
+      .then((result) => result.accepted && result.value === true)
       .catch((cause) => {
         if (ownerFenceRef.current?.isCurrent(ticket)) {
           console.error("EFA draft save submission failed", {
@@ -1366,6 +1637,7 @@ export function EfaEpisodePanel({
           });
           setSaveError("No se pudo preparar el borrador para guardar.");
         }
+        return false;
       });
   }
 
@@ -1631,16 +1903,28 @@ export function EfaEpisodePanel({
         queueEntriesRef.current = remaining;
         setQueueEntries(remaining);
       }
+      episodesRef.current = episodesRef.current.map((item) =>
+        item.id === latest.id ? latest : item,
+      );
       setEpisodes((current) => current.map((item) => (item.id === latest.id ? latest : item)));
+      let keptLocal = false;
       if (queuedEntry.kind === "update") {
         setSelectedId(latest.id);
-        setForm({
-          eventAt: helpers.isoToLocalDateTimeValue(latest.eventAt),
-          motive: latest.motive ?? "",
-          address: latest.address ?? "",
-          interventionNumber: latest.interventionNumber ?? "",
-        });
+        // Fields typed after the conflicted update was sent stay, so the next save sends them.
+        const rebase = rebaseEpisodeFormOnServer(
+          saveSnapshots.current.get(selectedConflict.operationId) ?? null,
+          formRef.current,
+          {
+            eventAt: helpers.isoToLocalDateTimeValue(latest.eventAt),
+            motive: latest.motive ?? "",
+            address: latest.address ?? "",
+            interventionNumber: latest.interventionNumber ?? "",
+          },
+        );
+        keptLocal = rebase.keptLocal;
+        updateForm(rebase.form);
       }
+      saveSnapshots.current.delete(selectedConflict.operationId);
       setActiveConflict(null);
       if (pendingRef.current?.operationId === selectedConflict.operationId) {
         setPending(null);
@@ -1654,7 +1938,9 @@ export function EfaEpisodePanel({
           ? latest.state === "closed"
             ? "El servicio ya figura cerrado en la versión actual del servidor."
             : `Se cargó la versión ${latest.version}. Si deseas cerrarlo, confirma el cierre nuevamente.`
-          : "Se cargó la versión actual del servidor. Revisa los datos antes de guardar.",
+          : keptLocal
+            ? "Se cargó la versión actual del servidor y se conservó lo que escribiste después del último guardado. Revisá los datos antes de guardar."
+            : "Se cargó la versión actual del servidor. Revisa los datos antes de guardar.",
       );
     } catch {
       if (!isActiveConflict(selectedConflict, ticket)) return;
@@ -1688,6 +1974,86 @@ export function EfaEpisodePanel({
     }
   }
 
+  const fieldsEditable = episodeFieldsEditable({
+    canWrite,
+    queueReady,
+    selected,
+    pending,
+    busy,
+    conflict: Boolean(conflict),
+  });
+  const autosave = useEfaAutosave({
+    enabled: canWrite && selected !== null,
+    conditions: episodeAutosaveConditions({
+      canWrite,
+      selected,
+      currentUserId,
+      dirty: formDirty,
+      pendingOperation: pending,
+      queueEntries,
+      queueUsable: queueReady && queueAvailable && !queueError && queueStoreRef.current !== null,
+      busy,
+    }),
+    // The same conditions from refs, read when a save would fire (a confirmation updates them).
+    getConditions: () => {
+      const record = episodesRef.current.find((item) => item.id === selectedIdRef.current) ?? null;
+      return episodeAutosaveConditions({
+        canWrite: canWriteRef.current,
+        selected: record,
+        currentUserId: activeUserRef.current,
+        dirty: record !== null && episodeFormDirty(formRef.current, record),
+        pendingOperation: pendingRef.current,
+        queueEntries: queueEntriesRef.current,
+        queueUsable: queueReady && queueAvailable && !queueError && queueStoreRef.current !== null,
+        busy: busyRef.current,
+      });
+    },
+    save,
+    changeKey: JSON.stringify(form),
+    // Read from refs: a confirmed save updates them before the next render.
+    isDirty: () => {
+      const record = episodesRef.current.find((item) => item.id === selectedIdRef.current);
+      return record !== undefined && episodeFormDirty(formRef.current, record);
+    },
+  });
+  markSavedRef.current = autosave.markSaved;
+  const editorKey = (serviceId: string | null) => `${currentUserId}:${serviceId ?? "new"}`;
+  /**
+   * Replaces the service in the editor only after saving the current one. When typing could not
+   * be saved (new service, another user's record, offline, pending or a failed save) it asks
+   * before discarding it.
+   */
+  async function requestEditorSwitch(apply: () => void) {
+    const targetUser = currentUserId;
+    const fromId = selectedIdRef.current;
+    const isLatest = switchSequence.begin();
+    const decision = await prepareRecordSwitch({
+      flush: autosave.flush,
+      isDirty: () =>
+        episodeFormDirty(
+          formRef.current,
+          episodesRef.current.find((item) => item.id === selectedIdRef.current) ?? null,
+        ),
+      isCurrent: () =>
+        isLatest() && activeUserRef.current === targetUser && selectedIdRef.current === fromId,
+    });
+    if (decision === "switch") apply();
+    else if (decision === "confirm") setSwitchConfirmation({ key: editorKey(fromId), apply });
+  }
+  const switchCopy = recordSwitchConfirmationCopy("servicio");
+  const saveStatus = episodeSaveStatus({
+    autosave: autosave.status,
+    pendingStatus: selected ? episodeEditorPendingStatus(queueEntries, pending, selected.id) : null,
+    busy,
+    dirty: formDirty,
+    savedAt: selected?.updatedAt ?? null,
+  });
+  // While an update of the edited service is in flight its status line says "Guardando…".
+  const showPendingNotice = Boolean(
+    pending &&
+    !(busy && pending.kind === "update" && operationEpisodeId(pending) === (selected?.id ?? "")),
+  );
+
   if (queueOwnerId !== currentUserId) {
     return (
       <Card>
@@ -1703,196 +2069,171 @@ export function EfaEpisodePanel({
       className="min-w-0 space-y-3 sm:space-y-4"
       onClickCapture={advanceEpisodeNavigationRevision}
     >
-      <Card>
-        <CardHeader className="px-3 py-3 sm:px-6 sm:py-6">
-          <CardTitle>Servicios de la guardia</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3 px-3 pb-3 pt-0 sm:px-6 sm:pb-6">
-          {serviceIntroNoticeVisible ? (
-            <aside
-              aria-label="Información sobre los servicios y el guardado"
-              className="flex items-start gap-2 rounded-lg border border-sky-200 bg-sky-50 p-3 text-sky-950"
-            >
-              <p className="min-w-0 flex-1 text-sm">
-                Los servicios activos aparecen primero. Solo se conservan las operaciones enviadas;
-                el texto que aún no enviaste puede perderse.
-              </p>
-              <Button
-                type="button"
-                variant="ghost"
-                className="min-h-11 min-w-11 shrink-0 px-2 text-sky-950 hover:bg-sky-100"
-                aria-label="Cerrar aviso"
-                title="Cerrar aviso"
-                onClick={dismissServiceIntroNotice}
-              >
-                <X aria-hidden="true" className="size-4" />
-              </Button>
-            </aside>
-          ) : (
-            <details className="rounded-md border border-sky-200 bg-sky-50/60 px-3 text-sm text-sky-950">
-              <summary className="min-h-11 cursor-pointer py-3 font-medium">
-                Información sobre la lista y los datos no enviados
-              </summary>
-              <p className="pb-3">
-                Los servicios activos aparecen primero. Solo se conservan las operaciones enviadas;
-                el texto que aún no enviaste puede perderse.
-              </p>
-            </details>
-          )}
-          {serviceIntroNoticeFeedback && (
-            <p role="status" className="text-sm text-muted-foreground">
-              {serviceIntroNoticeFeedback}
-            </p>
-          )}
-          {!canWrite && (
-            <p className="rounded-md bg-muted p-3 text-sm">
-              Solo lectura: se requiere acceso EFA vigente para editar.
-            </p>
-          )}
-          <div className="flex min-w-0 flex-col gap-2 rounded-md border p-2 sm:flex-row sm:items-center sm:justify-between sm:p-3">
-            <p className="text-sm">
-              {openOwnGuard
-                ? `Guardia propia abierta desde ${formatEpisodeDate(openOwnGuard.startedAt)}.`
-                : "Sin guardia propia abierta."}{" "}
-              Solo se muestran servicios de la guardia abierta; no es el historial completo.
-            </p>
-            <Button asChild variant="outline" className="min-h-11 w-full sm:w-auto">
-              <Link to="/guardia-efa">Volver a mi guardia EFA</Link>
-            </Button>
-          </div>
-          {!queueReady && (
-            <p role="status" className="rounded-md border p-3 text-sm">
-              Preparando el almacenamiento local antes de habilitar guardados…
-            </p>
-          )}
-          {!queueAvailable && queueReady && (
-            <p role="alert" className="rounded-md border border-destructive/50 p-3 text-sm">
-              La cola local no está disponible. No se enviará ninguna operación hasta poder
-              conservarla primero en este dispositivo.
-            </p>
-          )}
-          <p className="rounded-md bg-muted p-1 text-xs text-muted-foreground">
-            Las operaciones enviadas y sus datos privados, incluida la dirección, se guardan en
-            IndexedDB legible por este origen.
+      <GuardScopeStatus startedAt={openOwnGuard?.startedAt ?? null} />
+      {serviceIntroNoticeVisible && (
+        <aside
+          aria-label="Información sobre los servicios y el guardado"
+          className="flex items-start gap-2 rounded-lg border border-sky-200 bg-sky-50 p-3 text-sky-950"
+        >
+          <p className="min-w-0 flex-1 text-sm">
+            Los servicios activos aparecen primero. Solo se conservan las operaciones enviadas; el
+            texto que aún no enviaste puede perderse.
           </p>
-          {queueError && (
-            <p role="alert" className="text-sm text-destructive">
-              {queueError}
-            </p>
-          )}
-          {queueEntries.length > 0 && (
-            <details className="rounded-md border p-3 text-sm">
-              <summary className="min-h-11 cursor-pointer py-2 font-medium">
-                Operaciones conservadas en este dispositivo ({queueEntries.length})
-              </summary>
-              <div className="space-y-2 pt-2">
-                <Label htmlFor="episode-pending-operation">Seleccionar operación</Label>
-                <select
-                  id="episode-pending-operation"
-                  className="min-h-11 w-full rounded-md border bg-background px-3"
-                  value={selectedQueueOperationId.current ?? ""}
-                  onChange={(event) => selectQueuedOperation(event.target.value)}
-                  disabled={busy}
-                >
-                  <option value="">Selecciona una operación</option>
-                  {queueEntries.map((entry) => (
-                    <option
-                      key={`${entry.ownerUserId}:${entry.operationId}`}
-                      value={entry.operationId}
-                    >
-                      {queueOperationLabel(entry)} · {entry.createdAt} ·{" "}
-                      {queueStatusLabel(entry.status)}
-                    </option>
-                  ))}
-                </select>
-                {queueEntries.map((entry) => (
-                  <div
-                    key={`${entry.ownerUserId}:${entry.operationId}`}
-                    className="flex flex-col gap-2 border-t pt-2 sm:flex-row sm:items-center sm:justify-between"
-                  >
-                    <span>
-                      {queueOperationLabel(entry)} · {queueStatusLabel(entry.status)}
-                    </span>
-                    {entry.status !== "pending" && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="min-h-11"
-                        disabled={busy}
-                        onClick={() => void discardPausedOperation(entry)}
-                      >
-                        Descartar esta operación pausada
-                      </Button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </details>
-          )}
-          {error && (
-            <p role="alert" className="text-sm text-destructive">
-              {error}
-            </p>
-          )}
-          {message && (
-            <p role="status" className="text-sm text-green-700">
-              {message}
-            </p>
-          )}
-          {refreshWarning && (
-            <p role="status" className="text-sm text-amber-800">
-              {refreshWarning}
-            </p>
-          )}
-          {pending && (
-            <div className="rounded-md border border-amber-500/50 bg-amber-50 p-3 text-sm">
-              Operación pendiente de confirmación. Los campos están congelados para conservar la
-              misma identidad y el mismo contenido.
-              {pendingQueueEntry?.status !== "pending" &&
-                serverConfirmedOperationId !== pending.operationId && (
-                  <span className="mt-1 block">
-                    Estado pausado: requiere resolver el conflicto o el permiso antes de cualquier
-                    reintento.
-                  </span>
-                )}
-              <Button
-                className="mt-3 min-h-11 w-full sm:w-auto"
-                disabled={
-                  busy ||
-                  !canWrite ||
-                  !queueReady ||
-                  (serverConfirmedOperationId !== pending.operationId && !queueAvailable) ||
-                  (serverConfirmedOperationId !== pending.operationId &&
-                    pendingQueueEntry !== null &&
-                    pendingQueueEntry?.status !== "pending")
-                }
-                onClick={() => void retryPending()}
-              >
-                {serverConfirmedOperationId === pending.operationId
-                  ? "Limpiar cola local ya confirmada"
-                  : pendingQueueEntry
-                    ? "Reintentar misma operación"
-                    : "Guardar operación localmente y reintentar"}
-              </Button>
-            </div>
-          )}
-          {conflict && (
-            <Button
-              variant="outline"
-              className="min-h-11"
+          <Button
+            type="button"
+            variant="ghost"
+            className="min-h-11 min-w-11 shrink-0 px-2 text-sky-950 hover:bg-sky-100"
+            aria-label="Cerrar aviso"
+            title="Cerrar aviso"
+            onClick={dismissServiceIntroNotice}
+          >
+            <X aria-hidden="true" className="size-4" />
+          </Button>
+        </aside>
+      )}
+      {serviceIntroNoticeFeedback && (
+        <p role="status" className="text-sm text-muted-foreground">
+          {serviceIntroNoticeFeedback}
+        </p>
+      )}
+      {!canWrite && (
+        <p className="rounded-md bg-muted p-3 text-sm">
+          Solo lectura: se requiere acceso EFA vigente para editar.
+        </p>
+      )}
+      {!queueReady && (
+        <p role="status" className="rounded-md border p-3 text-sm">
+          Preparando el almacenamiento local antes de habilitar guardados…
+        </p>
+      )}
+      {!queueAvailable && queueReady && (
+        <p role="alert" className="rounded-md border border-destructive/50 p-3 text-sm">
+          La cola local no está disponible. No se enviará ninguna operación hasta poder conservarla
+          primero en este dispositivo.
+        </p>
+      )}
+      {queueError && (
+        <p role="alert" className="text-sm text-destructive">
+          {queueError}
+        </p>
+      )}
+      {queueEntries.length > 0 && (
+        <details className="rounded-md border p-3 text-sm">
+          <summary className="min-h-11 cursor-pointer py-2 font-medium">
+            Operaciones conservadas en este dispositivo ({queueEntries.length})
+          </summary>
+          <div className="space-y-2 pt-2">
+            <Label htmlFor="episode-pending-operation">Seleccionar operación</Label>
+            <select
+              id="episode-pending-operation"
+              className="min-h-11 w-full rounded-md border bg-background px-3"
+              value={selectedQueueOperationId.current ?? ""}
+              onChange={(event) => selectQueuedOperation(event.target.value)}
               disabled={busy}
-              onClick={() => void loadServerVersion()}
             >
-              Cargar versión actual del servidor
-            </Button>
-          )}
-          {canWrite && !selected && !openOwnGuard && !pending && (
-            <p className="rounded-md border p-3 text-sm">
-              Para registrar un servicio, abre primero tu guardia EFA. Esta vista no muestra
-              servicios de guardias anteriores.
-            </p>
-          )}
-          {selected && canWrite && openOwnGuard && (
+              <option value="">Selecciona una operación</option>
+              {queueEntries.map((entry) => (
+                <option key={`${entry.ownerUserId}:${entry.operationId}`} value={entry.operationId}>
+                  {queueOperationLabel(entry)} · {entry.createdAt} ·{" "}
+                  {queueStatusLabel(entry.status)}
+                </option>
+              ))}
+            </select>
+            {queueEntries.map((entry) => (
+              <div
+                key={`${entry.ownerUserId}:${entry.operationId}`}
+                className="flex flex-col gap-2 border-t pt-2 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <span>
+                  {queueOperationLabel(entry)} · {queueStatusLabel(entry.status)}
+                </span>
+                {entry.status !== "pending" && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="min-h-11"
+                    disabled={busy}
+                    onClick={() => void discardPausedOperation(entry)}
+                  >
+                    Descartar esta operación pausada
+                  </Button>
+                )}
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+      {error && (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      )}
+      {message && (
+        <p role="status" className="text-sm text-green-700">
+          {message}
+        </p>
+      )}
+      {refreshWarning && (
+        <p role="status" className="text-sm text-amber-800">
+          {refreshWarning}
+        </p>
+      )}
+      {pending && showPendingNotice && (
+        <div className="rounded-md border border-amber-500/50 bg-amber-50 p-3 text-sm">
+          {serverConfirmedOperationId === pending.operationId
+            ? "La operación ya quedó confirmada en el servidor; falta limpiar la cola local."
+            : pending.kind === "update"
+              ? "El guardado del servicio sigue pendiente de confirmación. Podés seguir escribiendo; los cambios nuevos se guardan después."
+              : pending.kind === "close"
+                ? "Cierre del servicio pendiente de confirmación."
+                : "Apertura del servicio pendiente de confirmación. Los campos esperan la confirmación para conservar la misma identidad y el mismo contenido."}
+          {pendingQueueEntry?.status !== "pending" &&
+            serverConfirmedOperationId !== pending.operationId && (
+              <span className="mt-1 block">
+                Estado pausado: requiere resolver el conflicto o el permiso antes de cualquier
+                reintento.
+              </span>
+            )}
+          <Button
+            className="mt-3 min-h-11 w-full sm:w-auto"
+            disabled={
+              busy ||
+              !canWrite ||
+              !queueReady ||
+              (serverConfirmedOperationId !== pending.operationId && !queueAvailable) ||
+              (serverConfirmedOperationId !== pending.operationId &&
+                pendingQueueEntry !== null &&
+                pendingQueueEntry?.status !== "pending")
+            }
+            onClick={() => void retryPending()}
+          >
+            {serverConfirmedOperationId === pending.operationId
+              ? "Limpiar cola local ya confirmada"
+              : pendingQueueEntry
+                ? "Reintentar misma operación"
+                : "Guardar operación localmente y reintentar"}
+          </Button>
+        </div>
+      )}
+      {conflict && (
+        <Button
+          variant="outline"
+          className="min-h-11"
+          disabled={busy}
+          onClick={() => void loadServerVersion()}
+        >
+          Cargar versión actual del servidor
+        </Button>
+      )}
+      {canWrite && !selected && !openOwnGuard && !pending && (
+        <p className="rounded-md border p-3 text-sm">
+          Para registrar un servicio, abre primero tu guardia EFA. Esta vista no muestra servicios
+          de guardias anteriores.
+        </p>
+      )}
+      {canWrite && openOwnGuard && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+          {selected && (
             <Button
               variant="outline"
               className="min-h-11"
@@ -1902,8 +2243,31 @@ export function EfaEpisodePanel({
               Nuevo servicio
             </Button>
           )}
-        </CardContent>
-      </Card>
+          <EfaGuardConductAction
+            appearance="link"
+            label="Registrar conducta sin servicio"
+            guardId={openOwnGuard.id}
+            currentUserId={currentUserId}
+            isAdmin={isAdmin}
+          />
+        </div>
+      )}
+      <EfaActionConfirmation
+        open={switchConfirmation !== null}
+        onOpenChange={(open) => {
+          if (!open) setSwitchConfirmation(null);
+        }}
+        capturedTargetKey={switchConfirmation?.key ?? null}
+        currentTargetKey={editorKey(selectedId)}
+        title={switchCopy.title}
+        description={switchCopy.description}
+        confirmLabel={switchCopy.confirmLabel}
+        onConfirm={() => {
+          const pendingSwitch = switchConfirmation;
+          setSwitchConfirmation(null);
+          pendingSwitch?.apply();
+        }}
+      />
 
       {canWrite && (selected || openOwnGuard) && (
         <Card>
@@ -1918,14 +2282,16 @@ export function EfaEpisodePanel({
                 className="h-11 min-h-11 w-full min-w-0 max-w-full"
                 type="datetime-local"
                 value={form.eventAt}
-                disabled={!queueReady || busy || Boolean(pending) || Boolean(conflict)}
-                onChange={(event) => setForm({ ...form, eventAt: event.target.value })}
+                disabled={!fieldsEditable}
+                onChange={(event) =>
+                  updateForm({ ...formRef.current, eventAt: event.target.value })
+                }
               />
               <Button
                 type="button"
                 variant="outline"
                 className="min-h-11"
-                disabled={!queueReady || busy || Boolean(pending) || Boolean(conflict)}
+                disabled={!fieldsEditable}
                 onClick={() => {
                   const ticket = ownerTicketRef.current;
                   const queue = queueModuleRef.current;
@@ -1963,8 +2329,8 @@ export function EfaEpisodePanel({
                 id="episode-motive"
                 maxLength={2000}
                 value={form.motive}
-                disabled={!queueReady || busy || Boolean(pending) || Boolean(conflict)}
-                onChange={(event) => setForm({ ...form, motive: event.target.value })}
+                disabled={!fieldsEditable}
+                onChange={(event) => updateForm({ ...formRef.current, motive: event.target.value })}
                 placeholder="Describe brevemente la atención"
               />
             </div>
@@ -1979,8 +2345,10 @@ export function EfaEpisodePanel({
                     id="episode-address"
                     maxLength={1000}
                     value={form.address}
-                    disabled={!queueReady || busy || Boolean(pending) || Boolean(conflict)}
-                    onChange={(event) => setForm({ ...form, address: event.target.value })}
+                    disabled={!fieldsEditable}
+                    onChange={(event) =>
+                      updateForm({ ...formRef.current, address: event.target.value })
+                    }
                   />
                 </div>
                 <div className="space-y-2">
@@ -1989,9 +2357,9 @@ export function EfaEpisodePanel({
                     id="episode-intervention"
                     maxLength={100}
                     value={form.interventionNumber}
-                    disabled={!queueReady || busy || Boolean(pending) || Boolean(conflict)}
+                    disabled={!fieldsEditable}
                     onChange={(event) =>
-                      setForm({ ...form, interventionNumber: event.target.value })
+                      updateForm({ ...formRef.current, interventionNumber: event.target.value })
                     }
                   />
                 </div>
@@ -2027,10 +2395,11 @@ export function EfaEpisodePanel({
                 Boolean(conflict) ||
                 Boolean(serverConfirmedOperationId)
               }
-              onClick={save}
+              onClick={() => void autosave.runExclusive(save)}
             >
               {episodeSaveActionLabel(Boolean(selected), registerFirstCall)}
             </Button>
+            {selected && <EfaAutosaveStatus status={saveStatus} />}
             {saveError && (
               <p role="alert" className="text-sm text-destructive">
                 {saveError}
@@ -2226,6 +2595,7 @@ export function EfaEpisodePanel({
                         episodeId={episode.id}
                         episodeLabel={accessibleDisplayName(episode)}
                         currentUserId={currentUserId}
+                        episodeOwnerUserId={episode.ownerUserId}
                         canWrite={canWrite}
                         episodeCanEdit={episode.canEdit}
                         episode={{ eventAt: episode.eventAt, address: episode.address }}
@@ -2271,6 +2641,7 @@ export function EfaEpisodePanel({
                         episodeId={episode.id}
                         episodeLabel={accessibleDisplayName(episode)}
                         currentUserId={currentUserId}
+                        episodeOwnerUserId={episode.ownerUserId}
                         canWrite={canWrite}
                         episodeCanEdit={episode.canEdit}
                         initialPosition={workspaceSectionPositions.dispatches ?? null}
@@ -2366,6 +2737,10 @@ export function EfaEpisodePanel({
           ))}
         </CardContent>
       </Card>
+
+      <p className="text-xs text-muted-foreground">
+        Las operaciones enviadas, incluida la dirección, quedan guardadas en este dispositivo.
+      </p>
     </div>
   );
 }

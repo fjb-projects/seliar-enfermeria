@@ -19,6 +19,26 @@ describe("EFA panel quick actions", () => {
     });
   });
 
+  it("names every link to /guardia-efa 'Mi guardia' in the navigation", () => {
+    const guardActions = [
+      summary(),
+      summary({ canWrite: true }),
+      summary({ isAdmin: true }),
+      summary({
+        canWrite: true,
+        isAdmin: true,
+        openGuard: { startedAt: "2026-10-06T10:00:00.000Z", baseCount: 1, activeEpisodeCount: 0 },
+      }),
+    ]
+      .flatMap((value) => getEfaPanelQuickActions(value))
+      .filter((action) => action.to === "/guardia-efa");
+
+    expect(guardActions.map((action) => action.id).sort()).toEqual(
+      expect.arrayContaining(["consult-guards", "manage-guard", "start-guard"]),
+    );
+    for (const action of guardActions) expect(action.navLabel).toBe("Mi guardia");
+  });
+
   it("hides the coordination view from non-administrators", () => {
     for (const value of [summary(), summary({ canWrite: true })]) {
       const ids = getEfaPanelQuickActions(value).map((action) => action.id);

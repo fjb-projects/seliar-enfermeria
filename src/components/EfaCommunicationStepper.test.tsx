@@ -20,7 +20,20 @@ import {
   shouldContinueToDispatches,
   EfaCommunicationStepper,
   resolveCommunicationRestore,
+  communicationAutosaveConditions,
+  shouldCreateDraftOnNext,
+  mergeConfirmedCommunication,
+  communicationSaveStatus,
+  communicationFieldsEditable,
+  communicationHasUnsavedInput,
+  communicationSwitchStep,
+  communicationOperationScope,
+  communicationHeldStatus,
+  type CommunicationFormValue,
 } from "./EfaCommunicationStepper";
+import { EfaAutosaveStatus } from "./EfaAutosaveStatus";
+import { createSaveSnapshot, shouldAutosave } from "@/lib/efa-autosave";
+import type { CommunicationQueueEntry } from "@/lib/efa-communications.queue";
 
 describe("EfaCommunicationStepper", () => {
   it("keeps unresolved and optional fields neutral until they are observed or explicitly reviewed", () => {
@@ -441,5 +454,384 @@ describe("resolveCommunicationRestore", () => {
     expect(resolveCommunicationRestore({ recordId: null, step: 1 }, calls, true)).toBeNull();
     expect(resolveCommunicationRestore(null, calls, true)).toBeNull();
     expect(resolveCommunicationRestore(undefined, calls, true)).toBeNull();
+  });
+});
+
+describe("call autosave", () => {
+  const draftCall = {
+    id: "call-1",
+    state: "draft" as const,
+    ownerUserId: "owner",
+    canEdit: true,
+    clientCreationKey: "key-1",
+  };
+  const conditionsBase: Parameters<typeof communicationAutosaveConditions>[0] = {
+    canWrite: true,
+    selected: draftCall,
+    currentUserId: "owner",
+    dirty: true,
+    hasPendingEntry: false,
+    queueEntries: [],
+    queueReady: true,
+    callsReady: true,
+    storeReady: true,
+    queueError: "",
+    busy: false,
+  };
+
+  it("lets the owner autosave a dirty, saved draft when nothing is pending", () => {
+    const conditions = communicationAutosaveConditions(conditionsBase);
+    expect(conditions).toEqual({
+      canWrite: true,
+      recordExists: true,
+      isDraft: true,
+      editorIsOwner: true,
+      dirty: true,
+      pending: false,
+      queueUsable: true,
+      busy: false,
+    });
+    expect(shouldAutosave({ ...conditions, online: true })).toEqual({ ok: true });
+  });
+
+  it("never autosaves an unsaved, non-draft, foreign or read-only call", () => {
+    const reason = (patch: Partial<typeof conditionsBase>) => {
+      const decision = shouldAutosave({
+        ...communicationAutosaveConditions({ ...conditionsBase, ...patch }),
+        online: true,
+      });
+      return decision.ok ? "ok" : decision.reason;
+    };
+    expect(reason({ selected: null })).toBe("no_record");
+    expect(reason({ selected: { ...draftCall, state: "finalized" } })).toBe("not_draft");
+    expect(reason({ currentUserId: "admin" })).toBe("not_owner");
+    expect(reason({ selected: { ...draftCall, canEdit: false } })).toBe("cannot_write");
+    expect(reason({ canWrite: false })).toBe("cannot_write");
+    expect(reason({ dirty: false })).toBe("not_dirty");
+  });
+
+  it("waits for the queue: not ready, failing, or holding an entry for this call", () => {
+    const pendingFor = (payload: Record<string, unknown>, status = "uncertain") =>
+      communicationAutosaveConditions({
+        ...conditionsBase,
+        queueEntries: [{ kind: "update", status, payload } as never],
+      }).pending;
+    expect(
+      communicationAutosaveConditions({ ...conditionsBase, queueReady: false }).queueUsable,
+    ).toBe(false);
+    expect(
+      communicationAutosaveConditions({ ...conditionsBase, storeReady: false }).queueUsable,
+    ).toBe(false);
+    expect(
+      communicationAutosaveConditions({ ...conditionsBase, queueError: "sin almacenamiento" })
+        .queueUsable,
+    ).toBe(false);
+    expect(
+      communicationAutosaveConditions({ ...conditionsBase, hasPendingEntry: true }).pending,
+    ).toBe(true);
+    expect(pendingFor({ communicationId: "call-1" })).toBe(true);
+    expect(pendingFor({ communicationId: "call-1" }, "paused-conflict")).toBe(true);
+    expect(pendingFor({ clientCreationKey: "key-1" })).toBe(true);
+    expect(pendingFor({ communicationId: "call-2" })).toBe(false);
+    // A server-confirmed entry that only failed its local cleanup has nothing left to send.
+    expect(pendingFor({ communicationId: "call-1" }, "confirmed-cleanup-failed")).toBe(false);
+  });
+
+  it("creates the draft on Siguiente only for an owned, unsaved call with a chosen type", () => {
+    const base = { hasRecord: false, canCreate: true, editorIsOwner: true, directionChosen: true };
+    expect(shouldCreateDraftOnNext(base)).toBe(true);
+    expect(shouldCreateDraftOnNext({ ...base, hasRecord: true })).toBe(false);
+    expect(shouldCreateDraftOnNext({ ...base, canCreate: false })).toBe(false);
+    expect(shouldCreateDraftOnNext({ ...base, editorIsOwner: false })).toBe(false);
+    // A pristine form (only defaults) has no chosen type, so it is never created.
+    expect(shouldCreateDraftOnNext({ ...base, directionChosen: false })).toBe(false);
+  });
+
+  const sent: CommunicationFormValue = {
+    direction: "incoming",
+    priority: "",
+    startedAt: "2026-10-19T10:00:00.000",
+    endedAt: "",
+  };
+  const server: CommunicationFormValue = { ...sent, startedAt: "2026-10-19T10:00:00.000" };
+
+  it("applies the server values when nothing was typed during the save", () => {
+    expect(mergeConfirmedCommunication(createSaveSnapshot(sent), { ...sent }, server)).toEqual({
+      keepLocal: false,
+      form: server,
+      dirty: false,
+    });
+    // Without a snapshot (e.g. a finalize), the confirmed call wins as before.
+    expect(mergeConfirmedCommunication(null, { ...sent, priority: "red" }, server)).toEqual({
+      keepLocal: false,
+      form: server,
+      dirty: false,
+    });
+  });
+
+  it("keeps newer typing and stays dirty when the form changed after the snapshot", () => {
+    const current = { ...sent, priority: "red" as const, endedAt: "2026-10-19T10:05:00.000" };
+    expect(mergeConfirmedCommunication(createSaveSnapshot(sent), current, server)).toEqual({
+      keepLocal: true,
+      form: current,
+      dirty: true,
+    });
+  });
+
+  it("shows the queue state first and falls back to the call's own saved time", () => {
+    const idle = { kind: "idle" } as const;
+    const base = {
+      autosave: idle,
+      pendingStatus: null,
+      busy: false,
+      dirty: false,
+      savedAt: "2026-10-19T13:05:00.000Z",
+    };
+    expect(communicationSaveStatus({ ...base, pendingStatus: "pending", busy: true })).toEqual({
+      kind: "saving",
+    });
+    expect(communicationSaveStatus({ ...base, pendingStatus: "uncertain" })).toEqual({
+      kind: "blocked",
+      reason: "pending",
+    });
+    expect(
+      communicationSaveStatus({
+        ...base,
+        pendingStatus: "uncertain",
+        autosave: { kind: "offline" },
+      }),
+    ).toEqual({ kind: "offline" });
+    expect(communicationSaveStatus(base)).toEqual({
+      kind: "saved",
+      at: new Date("2026-10-19T13:05:00.000Z"),
+    });
+    expect(communicationSaveStatus({ ...base, dirty: true })).toEqual({ kind: "dirty" });
+    expect(communicationSaveStatus({ ...base, savedAt: null })).toEqual(idle);
+    const saving = { kind: "saving" } as const;
+    expect(communicationSaveStatus({ ...base, autosave: saving })).toBe(saving);
+  });
+
+  it("renders the pending state through the single autosave status region", () => {
+    const html = renderToStaticMarkup(
+      <EfaAutosaveStatus
+        status={communicationSaveStatus({
+          autosave: { kind: "dirty" },
+          pendingStatus: "paused-conflict",
+          busy: false,
+          dirty: true,
+          savedAt: null,
+        })}
+      />,
+    );
+    expect(html).toContain("Pendiente");
+    expect(html.match(/aria-live/g)).toHaveLength(1);
+  });
+
+  it("keeps the fields editable while an operation is pending, only gated by permission", () => {
+    expect(
+      communicationFieldsEditable({
+        hasSelected: true,
+        canEditSelected: true,
+        canEditNewCall: false,
+      }),
+    ).toBe(true);
+    expect(
+      communicationFieldsEditable({
+        hasSelected: true,
+        canEditSelected: false,
+        canEditNewCall: true,
+      }),
+    ).toBe(false);
+    expect(
+      communicationFieldsEditable({
+        hasSelected: false,
+        canEditSelected: false,
+        canEditNewCall: true,
+      }),
+    ).toBe(true);
+    expect(
+      communicationFieldsEditable({
+        hasSelected: false,
+        canEditSelected: true,
+        canEditNewCall: false,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("communicationHasUnsavedInput", () => {
+  const baseline: CommunicationFormValue = {
+    direction: "incoming",
+    priority: "",
+    startedAt: "2026-10-06T06:30",
+    endedAt: "",
+  };
+  const base = {
+    dirty: true,
+    hasSelected: false,
+    current: baseline,
+    newCallBaseline: baseline,
+    reviewed: false,
+  };
+
+  it("is clean when the form is not dirty", () => {
+    expect(communicationHasUnsavedInput({ ...base, dirty: false, hasSelected: true })).toBe(false);
+  });
+
+  it("follows the dirty flag for an existing call", () => {
+    expect(communicationHasUnsavedInput({ ...base, hasSelected: true })).toBe(true);
+  });
+
+  it("does not count an untouched new call as unsaved input", () => {
+    expect(communicationHasUnsavedInput(base)).toBe(false);
+  });
+
+  it("counts a changed value or an explicit choice on a new call", () => {
+    expect(
+      communicationHasUnsavedInput({ ...base, current: { ...baseline, priority: "red" } }),
+    ).toBe(true);
+    expect(communicationHasUnsavedInput({ ...base, reviewed: true })).toBe(true);
+  });
+
+  it("stays dirty for a new call without a known baseline", () => {
+    expect(communicationHasUnsavedInput({ ...base, newCallBaseline: null })).toBe(true);
+  });
+});
+
+describe("communicationSwitchStep", () => {
+  it("asks before discarding even while the call holds a pending save", () => {
+    expect(
+      communicationSwitchStep({ prepared: "confirm", busy: false, heldOperationId: "op-1" }),
+    ).toEqual({
+      kind: "confirm",
+    });
+  });
+
+  it("switches a clean call and releases the operation it still holds", () => {
+    expect(
+      communicationSwitchStep({ prepared: "switch", busy: false, heldOperationId: "op-1" }),
+    ).toEqual({
+      kind: "switch",
+      releaseOperationId: "op-1",
+    });
+    expect(
+      communicationSwitchStep({ prepared: "switch", busy: false, heldOperationId: "" }),
+    ).toEqual({
+      kind: "switch",
+      releaseOperationId: null,
+    });
+  });
+
+  it("keeps the call while another action is still running", () => {
+    expect(
+      communicationSwitchStep({ prepared: "confirm", busy: true, heldOperationId: "" }),
+    ).toEqual({
+      kind: "blocked",
+    });
+    expect(
+      communicationSwitchStep({ prepared: "switch", busy: true, heldOperationId: "" }),
+    ).toEqual({
+      kind: "blocked",
+    });
+  });
+
+  it("drops a request superseded while the flush ran", () => {
+    expect(
+      communicationSwitchStep({ prepared: "stale", busy: false, heldOperationId: "op-1" }),
+    ).toEqual({
+      kind: "stale",
+    });
+  });
+});
+
+describe("communicationOperationScope", () => {
+  it("lets the editor showing the operation adopt its outcome and release the lock", () => {
+    expect(
+      communicationOperationScope({
+        operationId: "op-1",
+        pendingOperationId: "op-1",
+        selectedOperationId: "op-1",
+      }),
+    ).toEqual({ ownsEditor: true, holdsLock: true });
+  });
+
+  it("releases the lock of another call's entry without touching the current form", () => {
+    expect(
+      communicationOperationScope({
+        operationId: "op-1",
+        pendingOperationId: "op-1",
+        selectedOperationId: "",
+      }),
+    ).toEqual({ ownsEditor: false, holdsLock: true });
+  });
+
+  it("leaves an entry that was already released (discarded switch) out of the editor", () => {
+    expect(
+      communicationOperationScope({
+        operationId: "op-1",
+        pendingOperationId: "op-2",
+        selectedOperationId: "op-2",
+      }),
+    ).toEqual({ ownsEditor: false, holdsLock: false });
+    expect(
+      communicationOperationScope({
+        operationId: "",
+        pendingOperationId: "",
+        selectedOperationId: "",
+      }),
+    ).toEqual({ ownsEditor: false, holdsLock: false });
+  });
+});
+
+describe("communicationHeldStatus", () => {
+  const entry = (
+    operationId: string,
+    status: CommunicationQueueEntry["status"],
+    payload: Record<string, unknown>,
+  ) =>
+    ({
+      ownerUserId: "user-1",
+      episodeId: "episode-1",
+      operationId,
+      kind: "update",
+      payload,
+      status,
+      createdAt: "2026-10-19T13:00:00.000Z",
+    }) as CommunicationQueueEntry;
+  const selected = { id: "call-a", clientCreationKey: "key-a" };
+
+  it("reports the live status of the operation the panel holds", () => {
+    const held = entry("op-1", "pending", { communicationId: "call-a" });
+    expect(
+      communicationHeldStatus({
+        pendingEntry: held,
+        queueEntries: [{ ...held, status: "paused-conflict" }],
+        selected,
+      }),
+    ).toBe("paused-conflict");
+    expect(communicationHeldStatus({ pendingEntry: held, queueEntries: [], selected })).toBe(
+      "pending",
+    );
+  });
+
+  it("reports a released entry that still targets the call in the editor", () => {
+    expect(
+      communicationHeldStatus({
+        pendingEntry: null,
+        queueEntries: [entry("op-1", "uncertain", { communicationId: "call-a" })],
+        selected,
+      }),
+    ).toBe("uncertain");
+  });
+
+  it("ignores entries of other calls, cleanup-only entries and a new call", () => {
+    const other = entry("op-1", "pending", { communicationId: "call-b" });
+    const cleanup = entry("op-2", "confirmed-cleanup-failed", { communicationId: "call-a" });
+    expect(
+      communicationHeldStatus({ pendingEntry: null, queueEntries: [other, cleanup], selected }),
+    ).toBeNull();
+    expect(
+      communicationHeldStatus({ pendingEntry: null, queueEntries: [other], selected: null }),
+    ).toBeNull();
   });
 });

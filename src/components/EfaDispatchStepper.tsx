@@ -43,6 +43,20 @@ import {
   formatDispatchPriority,
   timeStatusLabel,
 } from "@/lib/efa-labels";
+import {
+  createSaveSnapshot,
+  isDirtyAfterSave,
+  type AutosaveInput,
+  type AutosaveStatus,
+  type SaveSnapshot,
+} from "@/lib/efa-autosave";
+import { useEfaAutosave } from "@/lib/use-efa-autosave";
+import {
+  createRecordSwitchSequence,
+  prepareRecordSwitch,
+  recordSwitchConfirmationCopy,
+} from "@/lib/efa-record-switch";
+import { EfaAutosaveStatus } from "@/components/EfaAutosaveStatus";
 
 const loadQueue = createClientOnlyFn(() => import("@/lib/efa-dispatches.queue"));
 const loadClient = createClientOnlyFn(() => import("@/lib/efa-dispatches.client"));
@@ -427,6 +441,193 @@ function captureDispatchTime(now: Date) {
   return dateToLocalInput(now);
 }
 
+/**
+ * The editor differs from what the server holds: a new dispatch against the pristine form, an
+ * existing one against its saved record. A selection whose record is not loaded is not dirty.
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- Pure helper exported for deterministic tests.
+export function dispatchEditorDirty(input: {
+  selectedId: string | null;
+  form: DispatchForm;
+  record: DispatchForm | null;
+}) {
+  if (input.selectedId === null) return dispatchFormChanged(input.form, emptyDispatchForm());
+  return input.record ? dispatchFormChanged(input.form, input.record) : false;
+}
+
+/** A queue entry that still has to reach the server; a confirmed one only waits for cleanup. */
+function isLiveDispatchQueueEntry(entry: Pick<DispatchQueueEntry, "status">) {
+  return entry.status !== "confirmed-cleanup-failed";
+}
+
+/**
+ * Status of the live queued save (create, update or finalize) behind the editor: any create for
+ * a new dispatch, or an update or finalize of the selected one.
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- Pure helper exported for deterministic tests.
+export function dispatchEditorPendingStatus(
+  entries: readonly (Pick<DispatchQueueEntry, "kind" | "status"> & { payload: unknown })[],
+  selectedId: string | null,
+): DispatchQueueEntry["status"] | null {
+  const entry = entries.find((item) => {
+    if (!isLiveDispatchQueueEntry(item)) return false;
+    if (selectedId === null) return item.kind === "create";
+    return (
+      (item.kind === "update" || item.kind === "finalize") &&
+      (item.payload as Record<string, unknown>)["dispatchId"] === selectedId
+    );
+  });
+  return entry?.status ?? null;
+}
+
+/**
+ * Maps the stepper state to the autosave conditions; the online flag is tracked by the hook. The
+ * dispatch queue sends one operation at a time for the whole episode, so any live entry blocks.
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- Pure helper exported for deterministic tests.
+export function dispatchAutosaveConditions(input: {
+  canWrite: boolean;
+  episodeCanEdit: boolean;
+  selected: Pick<DispatchView, "state" | "ownerUserId" | "canEdit"> | null;
+  currentUserId: string;
+  dirty: boolean;
+  queueEntries: readonly Pick<DispatchQueueEntry, "status">[];
+  storageRetry: boolean;
+  queueUsable: boolean;
+  busy: boolean;
+}): Omit<AutosaveInput, "online"> {
+  const { selected } = input;
+  return {
+    canWrite: input.canWrite && input.episodeCanEdit && (selected ? selected.canEdit : true),
+    recordExists: selected !== null,
+    isDraft: selected?.state === "draft",
+    editorIsOwner: selected?.ownerUserId === input.currentUserId,
+    dirty: input.dirty,
+    pending: input.storageRetry || input.queueEntries.some(isLiveDispatchQueueEntry),
+    queueUsable: input.queueUsable,
+    busy: input.busy,
+  };
+}
+
+/**
+ * "Siguiente" creates the draft of a new dispatch owned by the editor once a base is chosen and
+ * the form holds more than the defaults; admins on another user's episode keep saving by hand.
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- Pure helper exported for deterministic tests.
+export function shouldCreateDispatchDraftOnNext(input: {
+  hasRecord: boolean;
+  canCreate: boolean;
+  editorIsOwner: boolean;
+  baseChosen: boolean;
+  pristine: boolean;
+  pending: boolean;
+}) {
+  return (
+    !input.hasRecord &&
+    input.canCreate &&
+    input.editorIsOwner &&
+    input.baseChosen &&
+    !input.pristine &&
+    !input.pending
+  );
+}
+
+/**
+ * A confirmed save applies the server values unless the user typed after the snapshot was taken:
+ * then the newer values stay in the form and it remains dirty for the next save.
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- Pure helper exported for deterministic tests.
+export function mergeConfirmedDispatch(
+  snapshot: SaveSnapshot<DispatchForm> | null,
+  current: DispatchForm,
+  server: DispatchForm,
+): { keepLocal: boolean; form: DispatchForm; dirty: boolean } {
+  const keepLocal = snapshot !== null && isDirtyAfterSave(snapshot, current);
+  return keepLocal
+    ? { keepLocal, form: current, dirty: true }
+    : { keepLocal, form: server, dirty: false };
+}
+
+/**
+ * Status line for the dispatch editor: a queued operation outranks the autosave state, and a
+ * clean dispatch without an autosave yet shows the time it was last saved on the server.
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- Pure helper exported for deterministic tests.
+export function dispatchSaveStatus(input: {
+  autosave: AutosaveStatus;
+  pendingStatus: DispatchQueueEntry["status"] | null;
+  busy: boolean;
+  dirty: boolean;
+  savedAt: string | null;
+}): AutosaveStatus {
+  if (input.pendingStatus) {
+    if (input.busy) return { kind: "saving" };
+    if (input.autosave.kind === "offline") return input.autosave;
+    return { kind: "blocked", reason: "pending" };
+  }
+  if (input.autosave.kind !== "idle") return input.autosave;
+  if (input.dirty) return { kind: "dirty" };
+  const savedAt = input.savedAt ? new Date(input.savedAt) : null;
+  return savedAt && Number.isFinite(savedAt.getTime())
+    ? { kind: "saved", at: savedAt }
+    : input.autosave;
+}
+
+/**
+ * Field inputs follow permission only, so a queued or running save never freezes typing; the
+ * save, finalize, lifecycle and "Nuevo despacho" actions still wait for the queue to drain.
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- Pure helper exported for deterministic tests.
+export function dispatchEditorAccess(input: {
+  editable: boolean;
+  queueLocked: boolean;
+  busy: boolean;
+}) {
+  return {
+    fieldsEditable: input.editable,
+    actionsEnabled: input.editable && !input.queueLocked && !input.busy,
+  };
+}
+
+/** The fields a create or update sends for the form; times keep the record's exact instants. */
+function dispatchSaveFields(form: DispatchForm, record: DispatchView | null) {
+  const source = record ?? {
+    t0At: null,
+    t1At: null,
+    t2At: null,
+    t3At: null,
+    t4At: null,
+    t5At: null,
+    t6At: null,
+  };
+  const preserveLegacyFirstResponseRole =
+    record &&
+    !!record.firstResponseRole &&
+    !firstResponseRoleValues.some((role) => role === record.firstResponseRole) &&
+    form.firstResponseRole === record.firstResponseRole;
+  return {
+    baseId: form.baseId,
+    institutionId: form.institutionId || null,
+    communicationId: form.communicationId || null,
+    priority: form.priority || null,
+    ...dispatchFormTimes(form, source),
+    t0Status: form.t0Status,
+    t1Status: form.t1Status,
+    t2Status: form.t2Status,
+    t3Status: form.t3Status,
+    t4Status: form.t4Status,
+    t5Status: form.t5Status,
+    t6Status: form.t6Status,
+    ...(!preserveLegacyFirstResponseRole
+      ? { firstResponseRole: form.firstResponseRole || null }
+      : {}),
+    firstResponseAt: form.firstResponseAt ? new Date(form.firstResponseAt).toISOString() : null,
+    note: form.note || null,
+    result: form.result || null,
+    resultClarification: form.resultClarification || null,
+  };
+}
+
 /** The follow-up block opens by itself once arrival on scene (t2) has a recorded time. */
 // eslint-disable-next-line react-refresh/only-export-components -- Pure helper exported for deterministic tests.
 export function isFollowUpOpen(dispatch: { t2At: string | Date | null }) {
@@ -761,6 +962,7 @@ export function EfaDispatchStepper({
   episodeId,
   episodeLabel,
   currentUserId,
+  episodeOwnerUserId,
   canWrite,
   episodeCanEdit,
   initialPosition,
@@ -769,6 +971,8 @@ export function EfaDispatchStepper({
   episodeId: string;
   episodeLabel: string;
   currentUserId: string;
+  /** Owner of the episode; only the owner gets the draft created on "Siguiente". */
+  episodeOwnerUserId?: string | undefined;
   canWrite: boolean;
   episodeCanEdit: boolean;
   /** Remembered dispatch and step, restored once after the dispatches load when still editable. */
@@ -813,6 +1017,12 @@ export function EfaDispatchStepper({
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
   const [finalizeConfirmationTarget, setFinalizeConfirmationTarget] = useState<string | null>(null);
+  // Asked when the dispatch in the editor still has unsaved typing and another one replaces it.
+  const [switchConfirmation, setSwitchConfirmation] = useState<{
+    key: string;
+    apply: () => void;
+  } | null>(null);
+  const [switchSequence] = useState(createRecordSwitchSequence);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
   const [errorSurface, setErrorSurface] = useState<DispatchErrorSurface>("global");
@@ -872,7 +1082,11 @@ export function EfaDispatchStepper({
   const episodeCanEditRef = useRef(episodeCanEdit);
   const rowsRef = useRef(rows);
   const supportRequestsRef = useRef(supportRequests);
-  const editorSnapshots = useRef(new Map<string, { selectedId: string | null; form: string }>());
+  // The editor and values each operation sent, to keep typing done while it was in flight.
+  const editorSnapshots = useRef(
+    new Map<string, { selectedId: string | null; snapshot: SaveSnapshot<DispatchForm> }>(),
+  );
+  const markSavedRef = useRef<() => void>(() => {});
   const retryQueueRef = useRef<() => Promise<void>>(async () => {});
   const selectedQueueRef = useRef<string | null>(null);
   const inFlightOperations = useRef(new Set<string>());
@@ -890,12 +1104,34 @@ export function EfaDispatchStepper({
   const selectedQueueEntry =
     queueEntries.find((entry) => entry.operationId === selectedQueueId) ?? null;
   const editable = canWrite && (selected ? selected.canEdit : episodeCanEdit);
+  // Actions (save, finalize, lifecycle, new dispatch) wait for the queue; typing never does.
   const queueLocked = storageRetry !== null || queueEntries.length > 0;
-  const dirty = selected ? dispatchFormChanged(form, restoreDispatchForm(selected)) : false;
+  const hasLiveQueueEntry = storageRetry !== null || queueEntries.some(isLiveDispatchQueueEntry);
+  const dirty = dispatchEditorDirty({
+    selectedId,
+    form,
+    record: selected ? restoreDispatchForm(selected) : null,
+  });
   const editorRef = useRef({ selectedId, form, dirty });
   const selectedIdRef = useRef(selectedId);
   editorRef.current = { selectedId, form, dirty };
   selectedIdRef.current = selectedId;
+  // Read by `save()` and the autosave gate, so a save right after a confirmation sees the queue
+  // as it is now, not as it was rendered while that save ran.
+  const queueEntriesRef = useRef(queueEntries);
+  const storageRetryRef = useRef(storageRetry);
+  queueEntriesRef.current = queueEntries;
+  storageRetryRef.current = storageRetry;
+  const setQueueEntriesTracked = (next: DispatchQueueEntry[]) => {
+    queueEntriesRef.current = next;
+    setQueueEntries(next);
+  };
+  const setStorageRetryTracked = (next: DispatchQueueEntry | null) => {
+    storageRetryRef.current = next;
+    setStorageRetry(next);
+  };
+  const liveQueueBlocks = () =>
+    storageRetryRef.current !== null || queueEntriesRef.current.some(isLiveDispatchQueueEntry);
   const setForm = (value: DispatchForm | ((current: DispatchForm) => DispatchForm)) => {
     const next = typeof value === "function" ? value(editorRef.current.form) : value;
     const currentId = selectedIdRef.current;
@@ -903,7 +1139,11 @@ export function EfaDispatchStepper({
     editorRef.current = {
       selectedId: currentId,
       form: next,
-      dirty: currentRecord ? dispatchFormChanged(next, restoreDispatchForm(currentRecord)) : false,
+      dirty: dispatchEditorDirty({
+        selectedId: currentId,
+        form: next,
+        record: currentRecord ? restoreDispatchForm(currentRecord) : null,
+      }),
     };
     setFormState(next);
   };
@@ -1104,7 +1344,7 @@ export function EfaDispatchStepper({
     if (!editorSnapshots.current.has(operationId))
       editorSnapshots.current.set(operationId, {
         selectedId: editorRef.current.selectedId,
-        form: JSON.stringify(editorRef.current.form),
+        snapshot: createSaveSnapshot(editorRef.current.form),
       });
     let entry: DispatchQueueEntry = {
       ownerUserId: targetOwner,
@@ -1129,15 +1369,13 @@ export function EfaDispatchStepper({
         payload,
       });
       await (await loadQueue()).persistDispatchOperation(queueStore.current, entry);
-      setStorageRetry(null);
-      setQueueEntries((existing) =>
-        existing.some((item) => item.operationId === entry.operationId)
-          ? existing
-          : [...existing, entry],
-      );
+      setStorageRetryTracked(null);
+      const existing = queueEntriesRef.current;
+      if (!existing.some((item) => item.operationId === entry.operationId))
+        setQueueEntriesTracked([...existing, entry]);
       await runEntry(entry, dispatchErrorSurfaceForKind(kind));
     } catch (reason) {
-      setStorageRetry(entry);
+      setStorageRetryTracked(entry);
       setError(
         `No se pudo guardar la solicitud local. Conservamos la operación ${operationId}; reintenta exactamente la misma solicitud cuando se restablezca el almacenamiento.`,
       );
@@ -1362,31 +1600,34 @@ export function EfaDispatchStepper({
           !inFlightOperations.current.has(operationKey)
         )
           return;
-        setMessage("El despacho quedó confirmado.");
         const now = editorRef.current;
         const previous = rowsRef.current.find((row) => row.id === mutationDto.id) ?? null;
         const confirmed = helpers.normalizeConfirmedDispatch(mutationDto, previous);
+        rowsRef.current = [...rowsRef.current.filter((row) => row.id !== confirmed.id), confirmed];
         setRows((existing) => [...existing.filter((row) => row.id !== confirmed.id), confirmed]);
-        if (
-          submitted &&
-          helpers.canApplyConfirmedMutation({
-            mounted: mounted.current,
-            ownerMatches: owner.current === targetOwner,
-            episodeMatches: episodeId === ticketEpisode,
-            operationInFlight: inFlightOperations.current.has(operationKey),
-            kind: entry.kind,
-            dispatchId: confirmed.id,
-            submitted,
-            currentSelectedId: now.selectedId,
-            currentForm: JSON.stringify(now.form),
-          })
-        ) {
-          const restored = restoreDispatchForm(confirmed);
-          editorRef.current = { selectedId: confirmed.id, form: restored, dirty: false };
+        // The editor still shows what this operation sent: the new dispatch it created, or the
+        // dispatch it changed. Values typed after the snapshot stay in the form.
+        const targetsEditor =
+          submitted !== undefined &&
+          (entry.kind === "create"
+            ? submitted.selectedId === null && now.selectedId === null
+            : submitted.selectedId === confirmed.id && now.selectedId === confirmed.id);
+        if (submitted && targetsEditor) {
+          const merge = mergeConfirmedDispatch(
+            submitted.snapshot,
+            now.form,
+            restoreDispatchForm(confirmed),
+          );
+          editorRef.current = { selectedId: confirmed.id, form: merge.form, dirty: merge.dirty };
           selectedIdRef.current = confirmed.id;
           setSelectedId(confirmed.id);
-          setForm(restored);
+          if (!merge.keepLocal) setFormState(merge.form);
+          if (entry.kind === "create" || entry.kind === "update" || entry.kind === "finalize")
+            markSavedRef.current();
         }
+        // A plain confirmed save is announced by the status line ("Guardado HH:MM") only.
+        if (!targetsEditor || (entry.kind !== "create" && entry.kind !== "update"))
+          setMessage("El despacho quedó confirmado.");
       } else {
         setMessage("La operación quedó confirmada.");
       }
@@ -1418,7 +1659,7 @@ export function EfaDispatchStepper({
           JSON.stringify([targetOwner, ticketEpisode, entry.operationId]),
         )
       )
-        setQueueEntries(remaining);
+        setQueueEntriesTracked(remaining);
     } catch {
       /* Keep the frozen form and existing queue state. */
     }
@@ -1605,7 +1846,7 @@ export function EfaDispatchStepper({
       selectedQueueRef.current !== entry.operationId
     )
       return;
-    setQueueEntries(remaining);
+    setQueueEntriesTracked(remaining);
     selectedQueueRef.current = null;
     setSelectedQueueId(null);
     setConflictSnapshot(null);
@@ -1705,7 +1946,33 @@ export function EfaDispatchStepper({
         setError("El registro ya no admite cambios; no se rebasó la solicitud.");
         return;
       }
-      const rebased = helpers.rebaseDispatchQueueEntry(entry, nextVersion, nextOperationId);
+      const editor = editorRef.current;
+      // An update rebased from the dispatch on screen sends the current form, including what was
+      // typed while the conflict was paused; other operations keep their stored payload.
+      const useCurrentForm =
+        entry.kind === "update" &&
+        snapshot.dispatch !== undefined &&
+        editor.selectedId === snapshot.dispatch.id;
+      const rebasedEntry = helpers.rebaseDispatchQueueEntry(entry, nextVersion, nextOperationId);
+      const rebased: DispatchQueueEntry =
+        useCurrentForm && snapshot.dispatch
+          ? {
+              ...rebasedEntry,
+              payload: Object.freeze({
+                dispatchId: snapshot.dispatch.id,
+                expectedVersion: nextVersion,
+                operationId: nextOperationId,
+                ...dispatchSaveFields(editor.form, snapshot.dispatch),
+              }) as unknown as DispatchQueueEntry["payload"],
+            }
+          : rebasedEntry;
+      const previousSnapshot = editorSnapshots.current.get(entry.operationId);
+      if (useCurrentForm)
+        editorSnapshots.current.set(nextOperationId, {
+          selectedId: editor.selectedId,
+          snapshot: createSaveSnapshot(editor.form),
+        });
+      else if (previousSnapshot) editorSnapshots.current.set(nextOperationId, previousSnapshot);
       await (await loadQueue()).persistDispatchOperation(queueStore.current!, rebased);
       if (
         !mounted.current ||
@@ -1731,12 +1998,14 @@ export function EfaDispatchStepper({
         !canWriteRef.current
       )
         return;
-      setQueueEntries(remaining);
+      setQueueEntriesTracked(remaining);
       selectedQueueRef.current = nextOperationId;
       setSelectedQueueId(nextOperationId);
       setConflictSnapshot(null);
       setMessage(
-        "Se confirmó el rebase explícito con una identidad nueva; la solicitud anterior fue reemplazada sin editar su payload.",
+        useCurrentForm
+          ? "Se confirmó el rebase explícito con una identidad nueva y los valores actuales del formulario."
+          : "Se confirmó el rebase explícito con una identidad nueva; la solicitud anterior fue reemplazada sin editar su payload.",
       );
       await runEntry(rebased);
     } catch (reason) {
@@ -1774,57 +2043,41 @@ export function EfaDispatchStepper({
     return () => window.removeEventListener("online", onOnline);
   }, []);
 
-  const save = async () => {
-    if (!editable || busy || !ready || !queueReady || !form.baseId) return;
-    const source = selected ?? {
-      t0At: null,
-      t1At: null,
-      t2At: null,
-      t3At: null,
-      t4At: null,
-      t5At: null,
-      t6At: null,
-    };
-    const times = dispatchFormTimes(form, source);
-    const preserveLegacyFirstResponseRole =
-      selected &&
-      !!selected.firstResponseRole &&
-      !firstResponseRoleValues.some((role) => role === selected.firstResponseRole) &&
-      form.firstResponseRole === selected.firstResponseRole;
-    const fields = {
-      baseId: form.baseId,
-      institutionId: form.institutionId || null,
-      communicationId: form.communicationId || null,
-      priority: form.priority || null,
-      ...times,
-      t0Status: form.t0Status,
-      t1Status: form.t1Status,
-      t2Status: form.t2Status,
-      t3Status: form.t3Status,
-      t4Status: form.t4Status,
-      t5Status: form.t5Status,
-      t6Status: form.t6Status,
-      ...(!preserveLegacyFirstResponseRole
-        ? { firstResponseRole: form.firstResponseRole || null }
-        : {}),
-      firstResponseAt: form.firstResponseAt ? new Date(form.firstResponseAt).toISOString() : null,
-      note: form.note || null,
-      result: form.result || null,
-      resultClarification: form.resultClarification || null,
-    };
-    if (selected)
+  /**
+   * Sends a snapshot of the form while typing continues. Resolves `true` only when the server
+   * confirmed this save; `false` when nothing changed, it was refused, failed or stayed queued.
+   */
+  const save = async (): Promise<boolean> => {
+    const editor = editorRef.current;
+    const record = editor.selectedId
+      ? (rowsRef.current.find((row) => row.id === editor.selectedId) ?? null)
+      : null;
+    if (
+      !editable ||
+      busyRef.current ||
+      !ready ||
+      !queueReady ||
+      !editor.form.baseId ||
+      liveQueueBlocks() ||
+      (editor.selectedId !== null && (!record || !editor.dirty))
+    )
+      return false;
+    const operationId = crypto.randomUUID();
+    const fields = dispatchSaveFields(editor.form, record);
+    if (record)
       await freeze("update", {
-        dispatchId: selected.id,
-        expectedVersion: selected.version,
-        operationId: crypto.randomUUID(),
+        dispatchId: record.id,
+        expectedVersion: record.version,
+        operationId,
         ...fields,
       } as unknown as DispatchQueueEntry["payload"]);
     else
       await freeze("create", {
-        clientCreationKey: crypto.randomUUID(),
+        clientCreationKey: operationId,
         episodeId,
         ...fields,
       } as unknown as DispatchQueueEntry["payload"]);
+    return confirmedOperations.current.delete(operationId);
   };
 
   const finalize = async (confirmedTargetKey: string) => {
@@ -1916,6 +2169,113 @@ export function EfaDispatchStepper({
     }
   };
 
+  const access = dispatchEditorAccess({ editable, queueLocked, busy });
+  const autosave = useEfaAutosave({
+    enabled: canWrite,
+    conditions: dispatchAutosaveConditions({
+      canWrite,
+      episodeCanEdit,
+      selected,
+      currentUserId,
+      dirty,
+      queueEntries,
+      storageRetry: storageRetry !== null,
+      queueUsable: ready && queueReady && queueStore.current !== null,
+      busy,
+    }),
+    // The same conditions from refs, read when a save would fire (a confirmation updates them).
+    getConditions: () =>
+      dispatchAutosaveConditions({
+        canWrite: canWriteRef.current,
+        episodeCanEdit: episodeCanEditRef.current,
+        selected: rowsRef.current.find((row) => row.id === editorRef.current.selectedId) ?? null,
+        currentUserId: owner.current,
+        dirty: editorRef.current.dirty,
+        queueEntries: queueEntriesRef.current,
+        storageRetry: storageRetryRef.current !== null,
+        queueUsable: ready && queueReady && queueStore.current !== null,
+        busy: busyRef.current,
+      }),
+    save,
+    changeKey: JSON.stringify(form),
+    isDirty: () => editorRef.current.dirty,
+  });
+  markSavedRef.current = autosave.markSaved;
+  const saveStatus = dispatchSaveStatus({
+    autosave: autosave.status,
+    pendingStatus: dispatchEditorPendingStatus(
+      storageRetry ? [...queueEntries, storageRetry] : queueEntries,
+      selectedId,
+    ),
+    busy,
+    dirty,
+    savedAt: selected?.updatedAt ?? null,
+  });
+
+  /**
+   * Saves before every step change and then always moves; the status line shows "Sin guardar"
+   * when the save failed or could not run. "Siguiente" also creates the draft of a new dispatch.
+   */
+  const navigateToStep = async (nextStep: number, via: "previous" | "next" | "direct") => {
+    const targetOwner = currentUserId;
+    const targetEpisode = episodeId;
+    const editor = editorRef.current;
+    const createDraft =
+      via === "next" &&
+      shouldCreateDispatchDraftOnNext({
+        hasRecord: editor.selectedId !== null,
+        canCreate: canWrite && episodeCanEdit && ready && queueReady,
+        editorIsOwner: episodeOwnerUserId === currentUserId,
+        baseChosen: Boolean(editor.form.baseId),
+        pristine: !dispatchFormChanged(editor.form, emptyDispatchForm()),
+        pending: hasLiveQueueEntry || busyRef.current,
+      });
+    if (createDraft) await autosave.runExclusive(save);
+    else await autosave.flush();
+    if (!mounted.current || owner.current !== targetOwner || episodeId !== targetEpisode) return;
+    setStep(Math.min(Math.max(nextStep, 0), dispatchStepTitles.length - 1));
+  };
+
+  const editorKey = (dispatchId: string | null) =>
+    `${currentUserId}:${episodeId}:${dispatchId ?? "new"}`;
+  /**
+   * Replaces the dispatch in the editor only after saving the current one. When typing could not
+   * be saved (new dispatch, another user's record, offline, pending or a failed save) it asks
+   * before discarding it.
+   */
+  const requestEditorSwitch = async (apply: () => void) => {
+    const targetOwner = currentUserId;
+    const fromId = editorRef.current.selectedId;
+    const isLatest = switchSequence.begin();
+    const decision = await prepareRecordSwitch({
+      flush: autosave.flush,
+      isDirty: () => editorRef.current.dirty,
+      isCurrent: () =>
+        isLatest() &&
+        mounted.current &&
+        owner.current === targetOwner &&
+        editorRef.current.selectedId === fromId,
+    });
+    if (decision === "switch") apply();
+    else if (decision === "confirm") setSwitchConfirmation({ key: editorKey(fromId), apply });
+  };
+  const openDispatch = (dispatchId: string) => {
+    const row = rowsRef.current.find((item) => item.id === dispatchId);
+    if (!row) return;
+    selectedIdRef.current = row.id;
+    setSelectedId(row.id);
+    setForm(restoreDispatchForm(row));
+    setStep(0);
+  };
+  const startNewDispatch = () => {
+    selectedIdRef.current = null;
+    editorRef.current = { selectedId: null, form: emptyDispatchForm(), dirty: false };
+    setSelectedId(null);
+    setForm(emptyDispatchForm());
+    setStep(0);
+  };
+  const switchCopy = recordSwitchConfirmationCopy("despacho");
+
   const quickTime = (key: keyof DispatchForm) => {
     const time = captureDispatchTime(new Date());
     const statusKey = `${String(key).slice(0, 2)}Status` as keyof DispatchForm;
@@ -1970,10 +2330,9 @@ export function EfaDispatchStepper({
               className="min-h-11 w-full min-w-0 rounded border p-3 text-left"
               aria-pressed={selectedId === row.id}
               onClick={() => {
-                selectedIdRef.current = row.id;
-                setSelectedId(row.id);
-                setForm(restoreDispatchForm(row));
-                setStep(0);
+                // The dispatch already in the editor keeps its typing; it only returns to step 1.
+                if (row.id === editorRef.current.selectedId) void navigateToStep(0, "direct");
+                else void requestEditorSwitch(() => openDispatch(row.id));
               }}
             >
               <span className="font-medium">
@@ -2073,13 +2432,7 @@ export function EfaDispatchStepper({
             type="button"
             className="min-h-11 rounded border px-4"
             disabled={queueLocked}
-            onClick={() => {
-              selectedIdRef.current = null;
-              editorRef.current = { selectedId: null, form: emptyDispatchForm(), dirty: false };
-              setSelectedId(null);
-              setForm(emptyDispatchForm());
-              setStep(0);
-            }}
+            onClick={() => void requestEditorSwitch(startNewDispatch)}
           >
             Nuevo despacho independiente
           </button>
@@ -2139,7 +2492,7 @@ export function EfaDispatchStepper({
           <div className="min-w-0 border-t pb-3 pt-3">
             <DispatchStepNavigation
               step={step}
-              onStepChange={setStep}
+              onStepChange={(nextStep) => void navigateToStep(nextStep, "direct")}
               action={
                 followUpButton === "hidden" ? null : (
                   <FollowUpOpenButton
@@ -2157,7 +2510,7 @@ export function EfaDispatchStepper({
           </div>
         )}
         {editable && (
-          <fieldset disabled={queueLocked} className="min-w-0 space-y-3">
+          <fieldset disabled={!access.fieldsEditable} className="min-w-0 space-y-3">
             {step === 0 && (
               <div className="space-y-3">
                 <label className="block">
@@ -2340,7 +2693,7 @@ export function EfaDispatchStepper({
                       <button
                         type="button"
                         className="ml-1 inline-flex min-h-11 items-center px-1 underline"
-                        onClick={() => setStep(0)}
+                        onClick={() => void navigateToStep(0, "direct")}
                       >
                         Ir a Base
                       </button>
@@ -2352,7 +2705,7 @@ export function EfaDispatchStepper({
                       <button
                         type="button"
                         className="ml-1 inline-flex min-h-11 items-center px-1 underline"
-                        onClick={() => setStep(0)}
+                        onClick={() => void navigateToStep(0, "direct")}
                       >
                         Ir a Base
                       </button>
@@ -2364,7 +2717,7 @@ export function EfaDispatchStepper({
                       <button
                         type="button"
                         className="ml-1 inline-flex min-h-11 items-center px-1 underline"
-                        onClick={() => setStep(dispatchPriorityStep)}
+                        onClick={() => void navigateToStep(dispatchPriorityStep, "direct")}
                       >
                         Ir a Prioridad
                       </button>
@@ -2376,13 +2729,13 @@ export function EfaDispatchStepper({
                       <button
                         type="button"
                         className="ml-1 inline-flex min-h-11 items-center px-1 underline"
-                        onClick={() => setStep(dispatchResultStep)}
+                        onClick={() => void navigateToStep(dispatchResultStep, "direct")}
                       >
                         Ir a Resultado
                       </button>
                     </li>
                   )}
-                  {dirty && <li>Guarda los cambios antes de finalizar.</li>}
+                  {selected && dirty && <li>Guarda los cambios antes de finalizar.</li>}
                   {queueLocked && <li>Hay operaciones pendientes en la cola local.</li>}
                   {busy && <li>Espera a que termine la operación en curso.</li>}
                   {!ready && <li>Espera a que se carguen los despachos.</li>}
@@ -2407,7 +2760,7 @@ export function EfaDispatchStepper({
                 type="button"
                 disabled={step === 0}
                 className="min-h-11 min-w-0 rounded border px-2 text-sm sm:px-4"
-                onClick={() => setStep((value) => Math.max(0, value - 1))}
+                onClick={() => void navigateToStep(step - 1, "previous")}
               >
                 Anterior
               </button>
@@ -2415,17 +2768,23 @@ export function EfaDispatchStepper({
                 type="button"
                 disabled={step === dispatchLastStep}
                 className="min-h-11 min-w-0 rounded bg-primary px-2 text-sm text-primary-foreground sm:px-4"
-                onClick={() => setStep((value) => Math.min(dispatchLastStep, value + 1))}
+                onClick={() => void navigateToStep(Math.min(dispatchLastStep, step + 1), "next")}
               >
                 Siguiente
               </button>
             </div>
+            <EfaAutosaveStatus status={saveStatus} />
             <div className="flex min-w-0 items-center gap-2">
               <button
                 type="button"
                 className={`min-h-11 rounded bg-primary text-sm text-primary-foreground ${isDispatchReviewStep(step) && selected?.state !== "finalized" ? "min-w-0 flex-1 px-2" : "shrink-0 px-4"}`}
-                disabled={busy || !queueReady || !form.baseId}
-                onClick={() => void save()}
+                disabled={
+                  !access.actionsEnabled ||
+                  !queueReady ||
+                  !form.baseId ||
+                  (selected !== null && !dirty)
+                }
+                onClick={() => void autosave.runExclusive(save)}
               >
                 {selected ? "Guardar cambios" : "Guardar borrador"}
               </button>
@@ -2694,7 +3053,9 @@ export function EfaDispatchStepper({
                         ?.remove(targetOwner, episodeId, entry.operationId)
                         .then(async () => {
                           if (!mounted.current || owner.current !== targetOwner) return;
-                          setQueueEntries(await queueStore.current!.list(targetOwner, episodeId));
+                          setQueueEntriesTracked(
+                            await queueStore.current!.list(targetOwner, episodeId),
+                          );
                           setMessage(
                             "Se descartó la solicitud rechazada; el registro del servidor no se modificó.",
                           );
@@ -2802,6 +3163,22 @@ export function EfaDispatchStepper({
           description="El despacho pasará a estado finalizado con el resultado registrado."
           confirmLabel="Finalizar despacho"
           onConfirm={(targetKey) => void finalize(targetKey)}
+        />
+        <EfaActionConfirmation
+          open={switchConfirmation !== null}
+          onOpenChange={(open) => {
+            if (!open) setSwitchConfirmation(null);
+          }}
+          capturedTargetKey={switchConfirmation?.key ?? null}
+          currentTargetKey={editorKey(selectedId)}
+          title={switchCopy.title}
+          description={switchCopy.description}
+          confirmLabel={switchCopy.confirmLabel}
+          onConfirm={() => {
+            const pendingSwitch = switchConfirmation;
+            setSwitchConfirmation(null);
+            pendingSwitch?.apply();
+          }}
         />
       </section>
     </div>

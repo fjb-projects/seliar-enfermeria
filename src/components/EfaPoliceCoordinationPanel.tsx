@@ -20,6 +20,18 @@ import {
 import { listEfaDispatchesForEpisode } from "@/lib/efa-dispatches.functions";
 import { getEfaEpisode } from "@/lib/efa-episodes.functions";
 import { formatObservedDateTime, policeEventLabel, timeStatusLabel } from "@/lib/efa-labels";
+import type { AutosaveInput, AutosaveStatus } from "@/lib/efa-autosave";
+import type { PoliceQueueEntry, PoliceQueueKind } from "@/lib/efa-police-coordination.queue";
+import { useEfaAutosave } from "@/lib/use-efa-autosave";
+import {
+  DISCARD_SWITCH_SETTLE_MS,
+  confirmDiscardSwitch,
+  createRecordSwitchSequence,
+  prepareRecordSwitch,
+  recordSwitchConfirmationCopy,
+} from "@/lib/efa-record-switch";
+import { EfaAutosaveStatus } from "@/components/EfaAutosaveStatus";
+import { EfaActionConfirmation } from "@/components/EfaActionConfirmation";
 
 const loadQueue = createClientOnlyFn(() => import("@/lib/efa-police-coordination.queue"));
 type DispatchChoice = {
@@ -364,9 +376,11 @@ export function completePoliceQueueOutcome<
   const entry = outcome.entry;
   const matchesContext =
     entry.ownerUserId === state.ownerUserId && entry.episodeId === state.episodeId;
+  // The held operation always stops locking the panel once it is cleaned up, even when another
+  // coordination is open now; only the editor that still shows it adopts or clears the record.
+  const releasesLock = matchesContext && state.pendingOperationId === entry.operationId;
   const releasesEditor =
-    matchesContext &&
-    state.pendingOperationId === entry.operationId &&
+    releasesLock &&
     (entry.kind === "create" ? state.selectedId === "" : state.selectedId === entry.entityId);
   return {
     ...state,
@@ -381,7 +395,7 @@ export function completePoliceQueueOutcome<
             ),
         )
       : state.entries,
-    pendingOperationId: releasesEditor ? "" : state.pendingOperationId,
+    pendingOperationId: releasesLock ? "" : state.pendingOperationId,
     completedCreate: releasesEditor && entry.kind === "create",
   };
 }
@@ -394,6 +408,166 @@ export function resolvePoliceCreateCleanup(
   const creationKey = String(entry.payload["clientCreationKey"] ?? "");
   const record = records.find((item) => item.clientCreationKey === creationKey);
   return record ? { kind: "adopt" as const, record } : { kind: "clear" as const };
+}
+
+/** The coordination fields as the create and update endpoints expect them. */
+function coordinationFieldsPayload(form: CoordinationForm) {
+  return {
+    initiator: form.initiator,
+    initiatingDispatchId: form.initiatingDispatchId || null,
+    placeType: form.placeType,
+    meetingReference: form.meetingReference || null,
+    notes: form.notes || null,
+  };
+}
+
+/** A queue entry that still has to reach the server; a confirmed one only waits for cleanup. */
+function isLivePoliceQueueEntry(entry: { status: string }) {
+  return entry.status !== "confirmed-cleanup-failed";
+}
+
+/**
+ * Maps the panel to the autosave conditions; the online flag is tracked by the hook. Only an
+ * existing coordination owned by the editor autosaves: creating one stays a manual save. Police
+ * coordinations have no draft lifecycle, so they count as drafts while they are not finalized.
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- Pure helper exported for deterministic tests.
+export function policeAutosaveConditions(input: {
+  writeAllowed: boolean;
+  coordination: Pick<PoliceCoordinationView, "ownerUserId" | "canEdit" | "state"> | null;
+  currentUserId: string;
+  dirty: boolean;
+  /** The operation the panel holds; saves refuse while one exists (one pending at a time). */
+  pendingOperationId: string;
+  /** An operation that could not be stored locally and waits for a retry. */
+  unpersisted: boolean;
+  queueEntries: readonly Pick<PoliceQueueEntry, "status">[];
+  queueUsable: boolean;
+  busy: boolean;
+}): Omit<AutosaveInput, "online"> {
+  const { coordination } = input;
+  return {
+    canWrite: input.writeAllowed && (coordination ? coordination.canEdit : true),
+    recordExists: coordination !== null,
+    isDraft: coordination !== null && coordination.state !== "finalized",
+    editorIsOwner: coordination?.ownerUserId === input.currentUserId,
+    dirty: input.dirty,
+    pending:
+      input.pendingOperationId !== "" ||
+      input.unpersisted ||
+      input.queueEntries.some(isLivePoliceQueueEntry),
+    queueUsable: input.queueUsable,
+    busy: input.busy,
+  };
+}
+
+/**
+ * The single autosave saves one unit per cycle: the coordination fields first, then the links on
+ * the next cycle. Event corrections are append-only records and always stay a manual save.
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- Pure helper exported for deterministic tests.
+export function nextPoliceAutosaveUnit(dirty: {
+  coordinationDirty: boolean;
+  dispatchesDirty: boolean;
+  eventDirty: boolean;
+}): "coordination" | "links" | null {
+  if (dirty.coordinationDirty) return "coordination";
+  if (dirty.dispatchesDirty) return "links";
+  return null;
+}
+
+/** Whether switching to another coordination would lose typing, including an edited event. */
+// eslint-disable-next-line react-refresh/only-export-components -- Pure helper exported for deterministic tests.
+export function policeHasUnsavedChanges(dirty: {
+  coordinationDirty: boolean;
+  dispatchesDirty: boolean;
+  eventDirty: boolean;
+}) {
+  return dirty.coordinationDirty || dirty.dispatchesDirty || dirty.eventDirty;
+}
+
+/**
+ * The new payload for "conservar mis cambios" after a conflict: it targets the current server
+ * versions and, for coordination fields and links, sends what the form holds now (including
+ * typing done after the conflicted save) instead of the frozen payload. `null` when the corrected
+ * event no longer exists.
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- Pure helper exported for deterministic tests.
+export function rebasePoliceConflictPayload(
+  previous: { kind: PoliceQueueKind; payload: Readonly<Record<string, unknown>> },
+  remote: { version: number; events: readonly { id: string; version: number }[] },
+  current: { form: CoordinationForm; dispatchIds: readonly string[] },
+  operationId: string,
+): Record<string, unknown> | null {
+  const payload: Record<string, unknown> = { ...previous.payload };
+  if (previous.kind === "event-update") {
+    const remoteEvent = remote.events.find((event) => event.id === payload["eventId"]);
+    if (!remoteEvent) return null;
+    payload["expectedVersion"] = remoteEvent.version;
+    payload["expectedCoordinationVersion"] = remote.version;
+  } else {
+    payload["expectedVersion"] = remote.version;
+  }
+  if (previous.kind === "update") Object.assign(payload, coordinationFieldsPayload(current.form));
+  if (previous.kind === "dispatches") payload["dispatchIds"] = [...current.dispatchIds];
+  payload["operationId"] = operationId;
+  return payload;
+}
+
+/**
+ * The fields and links of an existing coordination follow permission only, so a pending, running
+ * or paused save never freezes typing. The create form keeps its freeze while anything is pending,
+ * because a new coordination is a manual first save.
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- Pure helper exported for deterministic tests.
+export function policeCoordinationFieldsEditable(input: {
+  canWrite: boolean;
+  hasRecord: boolean;
+  pending: boolean;
+  busy: boolean;
+}) {
+  if (!input.canWrite) return false;
+  return input.hasRecord || (!input.pending && !input.busy);
+}
+
+/** Status of the live queued coordination or links save of the selected coordination. */
+// eslint-disable-next-line react-refresh/only-export-components -- Pure helper exported for deterministic tests.
+export function policeEditorPendingStatus(
+  entries: readonly { entityId: string; kind: string; status: string }[],
+  coordinationId: string,
+): string | null {
+  const entry = entries.find(
+    (item) =>
+      item.entityId === coordinationId &&
+      (item.kind === "update" || item.kind === "dispatches") &&
+      isLivePoliceQueueEntry(item),
+  );
+  return entry ? entry.status : null;
+}
+
+/**
+ * Status line for the coordination editor: a queued save outranks the autosave state, and a clean
+ * coordination shows the time the server last saved it.
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- Pure helper exported for deterministic tests.
+export function policeSaveStatus(input: {
+  autosave: AutosaveStatus;
+  pendingStatus: string | null;
+  busy: boolean;
+  dirty: boolean;
+  savedAt: string | null;
+}): AutosaveStatus {
+  if (input.pendingStatus) {
+    if (input.busy) return { kind: "saving" };
+    if (input.autosave.kind === "offline") return input.autosave;
+    return { kind: "blocked", reason: "pending" };
+  }
+  if (input.autosave.kind !== "idle" && input.autosave.kind !== "saved") return input.autosave;
+  if (input.dirty) return { kind: "dirty" };
+  const savedAt = input.savedAt ? new Date(input.savedAt) : null;
+  return savedAt && Number.isFinite(savedAt.getTime())
+    ? { kind: "saved", at: savedAt }
+    : input.autosave;
 }
 
 export function EfaPoliceCoordinationPanel({
@@ -438,6 +612,12 @@ export function EfaPoliceCoordinationPanel({
   const [dirtyEventId, setDirtyEventId] = useState("");
   const [eventEdits, setEventEdits] = useState<Record<string, EventForm>>({});
   const [auditRows, setAuditRows] = useState<Array<Record<string, unknown>>>([]);
+  // Asked when the coordination in the editor still has unsaved typing and another one replaces it.
+  const [switchConfirmation, setSwitchConfirmation] = useState<{
+    key: string;
+    apply: () => void;
+  } | null>(null);
+  const [switchSequence] = useState(createRecordSwitchSequence);
   const [activeStep, setActiveStep] = useState(0);
   const activeStepTargetRef = useRef<HTMLElement>(null);
   const previousActiveStepRef = useRef(activeStep);
@@ -476,7 +656,9 @@ export function EfaPoliceCoordinationPanel({
   const dispatchIdsRef = useRef(links);
   const coordinationDirtyRef = useRef(coordinationDirty);
   const dispatchesDirtyRef = useRef(dispatchesDirty);
+  const dirtyEventIdRef = useRef(dirtyEventId);
   const pendingOperationIdRef = useRef(pendingOperationId);
+  const unpersistedRef = useRef(unpersisted);
   const busyRef = useRef(false);
   const storeRef = useRef<import("@/lib/efa-police-coordination.queue").PoliceQueueStore | null>(
     null,
@@ -486,16 +668,36 @@ export function EfaPoliceCoordinationPanel({
   >(async () => {});
   const selectedRef = useRef(selectedId);
   const entriesRef = useRef(queueEntries);
+  // Read by saves, so a save right after a confirmation sends the confirmed version.
+  const itemsRef = useRef(items);
+  // Operations the server confirmed, read once by the save that sent them.
+  const confirmedOperations = useRef(new Set<string>());
   const writeAllowed = canWrite && episodeCanEdit;
   context.current = { currentUserId, episodeId, canWrite, episodeCanEdit };
   selectedRef.current = selectedId;
   entriesRef.current = queueEntries;
+  itemsRef.current = items;
   formDirtyRef.current = dirty;
   coordinationFormRef.current = form;
   dispatchIdsRef.current = links;
   coordinationDirtyRef.current = coordinationDirty;
   dispatchesDirtyRef.current = dispatchesDirty;
+  dirtyEventIdRef.current = dirtyEventId;
   pendingOperationIdRef.current = pendingOperationId;
+  unpersistedRef.current = unpersisted;
+  // Saves and the autosave gate read these refs, so they change together with the state.
+  const setPendingOperationIdTracked = (value: string) => {
+    pendingOperationIdRef.current = value;
+    setPendingOperationId(value);
+  };
+  const setQueueEntriesTracked = (rows: PoliceQueueEntry[]) => {
+    entriesRef.current = rows;
+    setQueueEntries(rows);
+  };
+  const setUnpersistedTracked = (entry: PoliceQueueEntry | null) => {
+    unpersistedRef.current = entry;
+    setUnpersisted(entry);
+  };
   const setCoordinationDirtyTracked = (value: boolean) => {
     coordinationDirtyRef.current = value;
     setCoordinationDirty(value);
@@ -605,6 +807,7 @@ export function EfaPoliceCoordinationPanel({
           return;
         setItems(rows as PoliceCoordinationView[]);
         setNotices(noticeRows as typeof notices);
+        entriesRef.current = pending;
         setQueueEntries(pending);
         setLoading(false);
       } catch (error) {
@@ -655,7 +858,7 @@ export function EfaPoliceCoordinationPanel({
     acknowledgement: { coordination: PoliceCoordinationMutation; event?: PoliceEventView | null },
   ) => {
     const raw = acknowledgement.coordination;
-    setItems((current) => {
+    const merge = (current: PoliceCoordinationView[]) => {
       const existing = current.find((item) => item.id === coordinationId);
       if (!existing)
         return [
@@ -669,7 +872,9 @@ export function EfaPoliceCoordinationPanel({
       return current.map((item) =>
         item.id === coordinationId ? mergePoliceMutationResult(item, acknowledgement) : item,
       );
-    });
+    };
+    itemsRef.current = merge(itemsRef.current);
+    setItems(merge);
   };
 
   const sendEntry = async (
@@ -841,9 +1046,9 @@ export function EfaPoliceCoordinationPanel({
             },
             { status: "cleaned", entry },
           );
-          setQueueEntries(state.entries);
+          setQueueEntriesTracked(state.entries);
           if (state.pendingOperationId !== pendingOperationIdRef.current)
-            setPendingOperationId(state.pendingOperationId);
+            setPendingOperationIdTracked(state.pendingOperationId);
           if (state.completedCreate) {
             const resolution = resolvePoliceCreateCleanup(
               { kind: entry.kind, payload: entry.payload as Record<string, unknown> },
@@ -888,7 +1093,9 @@ export function EfaPoliceCoordinationPanel({
           event?: PoliceEventView | null;
         };
         const raw = acknowledgement.coordination;
+        confirmedOperations.current.add(entry.operationId);
         applyAcknowledgement(raw.id, acknowledgement);
+        // Compares the form now with the frozen payload, so typing done while it was queued stays.
         const nextDirty = acknowledgePoliceCoordinationSave(
           {
             coordination: coordinationDirtyRef.current,
@@ -936,9 +1143,17 @@ export function EfaPoliceCoordinationPanel({
             return next;
           });
         }
-        if (pendingOperationIdRef.current === entry.operationId) setPendingOperationId("");
+        // Cleared at once (not on the next render): a flush right after this save may run now.
+        if (pendingOperationIdRef.current === entry.operationId) setPendingOperationIdTracked("");
+        // A plain confirmed save of the edited coordination is announced by its status line only.
+        const announcedByStatus =
+          result.status === "confirmed" &&
+          (entry.kind === "update" || entry.kind === "dispatches") &&
+          selectedRef.current === raw.id;
         setMessage(
-          `${result.status === "confirmed" ? "Cambios confirmados." : "Cambios confirmados; la limpieza local quedó pendiente."}${nextDirty.coordination || nextDirty.dispatches ? " Los demás cambios siguen sin guardar." : ""}`,
+          announcedByStatus
+            ? ""
+            : `${result.status === "confirmed" ? "Cambios confirmados." : "Cambios confirmados; la limpieza local quedó pendiente."}${nextDirty.coordination || nextDirty.dispatches ? " Los demás cambios siguen sin guardar." : ""}`,
         );
         const currentEntries = await storeRef.current
           .list(expected.ownerUserId, expected.episodeId)
@@ -948,7 +1163,7 @@ export function EfaPoliceCoordinationPanel({
           context.current.currentUserId === expected.ownerUserId &&
           context.current.episodeId === expected.episodeId
         )
-          setQueueEntries(currentEntries);
+          setQueueEntriesTracked(currentEntries);
         try {
           await refreshLists();
         } catch {
@@ -983,7 +1198,7 @@ export function EfaPoliceCoordinationPanel({
               context.current.episodeId !== expected.episodeId
             )
               return;
-            setQueueEntries(latest);
+            setQueueEntriesTracked(latest);
             setConflict({
               operationId: entry.operationId,
               entry: { ...entry, status: result.queueStatus },
@@ -1000,7 +1215,7 @@ export function EfaPoliceCoordinationPanel({
           context.current.currentUserId === expected.ownerUserId &&
           context.current.episodeId === expected.episodeId
         ) {
-          setQueueEntries(latest);
+          setQueueEntriesTracked(latest);
           setMessage("La operación quedó pausada porque ya no hay permisos vigentes para editar.");
         }
       } else if (result.status === "stored") setMessage(result.error);
@@ -1027,16 +1242,17 @@ export function EfaPoliceCoordinationPanel({
   };
   processEntryRef.current = processEntry;
 
+  /** Queues and sends one operation; resolves `true` only when the server confirmed it. */
   const submit = async (
     kind: import("@/lib/efa-police-coordination.queue").PoliceQueueKind,
     entityId: string,
     payload: Record<string, unknown>,
     opId = nextId(),
-  ) => {
-    if (!writeAllowed || busyRef.current || !storeRef.current) return;
+  ): Promise<boolean> => {
+    if (!writeAllowed || busyRef.current || !storeRef.current) return false;
     busyRef.current = true;
     setBusy(true);
-    setPendingOperationId(opId);
+    setPendingOperationIdTracked(opId);
     let frozenEntry: import("@/lib/efa-police-coordination.queue").PoliceQueueEntry | null = null;
     try {
       const queue = await loadQueue();
@@ -1052,27 +1268,29 @@ export function EfaPoliceCoordinationPanel({
       };
       frozenEntry = entry;
       await queue.persistPoliceOperation(storeRef.current, entry);
-      setUnpersisted(null);
+      setUnpersistedTracked(null);
       const entries = await storeRef.current.list(currentUserId, episodeId);
       if (
         !mounted.current ||
         context.current.currentUserId !== currentUserId ||
         context.current.episodeId !== episodeId
       )
-        return;
-      setQueueEntries(entries);
+        return false;
+      setQueueEntriesTracked(entries);
       await processEntry(entry, true);
+      return confirmedOperations.current.delete(opId);
     } catch (error) {
       if (
         mounted.current &&
         context.current.currentUserId === currentUserId &&
         context.current.episodeId === episodeId
       ) {
-        if (frozenEntry) setUnpersisted(frozenEntry);
+        if (frozenEntry) setUnpersistedTracked(frozenEntry);
         setMessage(
           `La operación no se guardó localmente; conserva el formulario y reintenta con la misma identidad. ${error instanceof Error ? error.message : ""}`,
         );
       }
+      return false;
     } finally {
       busyRef.current = false;
       if (
@@ -1159,43 +1377,54 @@ export function EfaPoliceCoordinationPanel({
     updateDispatchLinks(current.dispatchIds);
     setDispatchesDirtyTracked(false);
   };
-  const saveCoordination = () => {
-    if (!writeAllowed || busy || pendingOperationId || !coordinationDirty) return;
-    const current = items.find((item) => item.id === selectedId);
-    if (!current) {
+  /**
+   * Sends the coordination fields as they are now while typing continues (read from refs, so an
+   * autosave right after a confirmation targets the confirmed version). Only the manual button
+   * may create a coordination. Resolves `true` only when the server confirmed the save.
+   */
+  const saveCoordination = (options: { allowCreate: boolean }): Promise<boolean> => {
+    if (
+      !writeAllowed ||
+      busyRef.current ||
+      pendingOperationIdRef.current ||
+      !coordinationDirtyRef.current
+    )
+      return Promise.resolve(false);
+    const record = itemsRef.current.find((item) => item.id === selectedRef.current);
+    const fields = coordinationFieldsPayload(coordinationFormRef.current);
+    if (!record) {
+      if (!options.allowCreate) return Promise.resolve(false);
       const clientCreationKey = nextId();
-      void submit("create", `create:${clientCreationKey}`, {
+      return submit("create", `create:${clientCreationKey}`, {
         episodeId,
         clientCreationKey,
         operationId: "",
-        initiator: form.initiator,
-        initiatingDispatchId: form.initiatingDispatchId || null,
-        placeType: form.placeType,
-        meetingReference: form.meetingReference || null,
-        notes: form.notes || null,
-        dispatchIds: links,
+        ...fields,
+        dispatchIds: [...dispatchIdsRef.current],
       });
-      return;
     }
-    void submit("update", current.id, {
-      coordinationId: current.id,
-      expectedVersion: current.version,
+    return submit("update", record.id, {
+      coordinationId: record.id,
+      expectedVersion: record.version,
       operationId: "",
-      initiator: form.initiator,
-      initiatingDispatchId: form.initiatingDispatchId || null,
-      placeType: form.placeType,
-      meetingReference: form.meetingReference || null,
-      notes: form.notes || null,
+      ...fields,
     });
   };
-  const saveLinks = () => {
-    const current = items.find((item) => item.id === selectedId);
-    if (!current || !writeAllowed || !dispatchesDirty) return;
-    void submit("dispatches", current.id, {
-      coordinationId: current.id,
-      expectedVersion: current.version,
+  const saveLinks = (): Promise<boolean> => {
+    const record = itemsRef.current.find((item) => item.id === selectedRef.current);
+    if (
+      !record ||
+      !writeAllowed ||
+      busyRef.current ||
+      pendingOperationIdRef.current ||
+      !dispatchesDirtyRef.current
+    )
+      return Promise.resolve(false);
+    return submit("dispatches", record.id, {
+      coordinationId: record.id,
+      expectedVersion: record.version,
       operationId: "",
-      dispatchIds: links,
+      dispatchIds: [...dispatchIdsRef.current],
     });
   };
   const addEvent = () => {
@@ -1271,8 +1500,8 @@ export function EfaPoliceCoordinationPanel({
         context.current.episodeId !== unpersisted.episodeId
       )
         return;
-      setQueueEntries(latest);
-      setUnpersisted(null);
+      setQueueEntriesTracked(latest);
+      setUnpersistedTracked(null);
       await processEntry(unpersisted, true);
     } catch (error) {
       if (
@@ -1369,11 +1598,13 @@ export function EfaPoliceCoordinationPanel({
         return;
       }
     }
-    setPendingOperationId(entry.operationId);
+    setPendingOperationIdTracked(entry.operationId);
     setCoordinationDirtyTracked(false);
     setDispatchesDirtyTracked(false);
     setMessage(
-      "Se restauró la solicitud exacta; sus campos quedan bloqueados hasta confirmar o resolverla.",
+      entry.kind === "update" || entry.kind === "dispatches"
+        ? "Se restauró la solicitud exacta. Podés seguir editando; los cambios nuevos se guardan después de confirmarla o resolverla."
+        : "Se restauró la solicitud exacta; sus campos quedan bloqueados hasta confirmar o resolverla.",
     );
   };
 
@@ -1387,21 +1618,17 @@ export function EfaPoliceCoordinationPanel({
     )
       return;
     const previous = conflict.entry;
-    const payload = { ...(previous.payload as Record<string, unknown>) };
     const nextId = crypto.randomUUID();
-    if (previous.kind === "event-update") {
-      const remoteEvent = conflict.remote.events.find((event) => event.id === payload["eventId"]);
-      if (!remoteEvent) {
-        setMessage("El evento ya no está disponible; conserva la solicitud para revisión.");
-        return;
-      }
-      payload["expectedVersion"] = remoteEvent.version;
-      payload["expectedCoordinationVersion"] = conflict.remote.version;
-    } else {
-      payload["expectedVersion"] = conflict.remote.version;
-      if (previous.kind === "event-create") payload["expectedVersion"] = conflict.remote.version;
+    const payload = rebasePoliceConflictPayload(
+      previous,
+      conflict.remote,
+      { form: coordinationFormRef.current, dispatchIds: dispatchIdsRef.current },
+      nextId,
+    );
+    if (!payload) {
+      setMessage("El evento ya no está disponible; conserva la solicitud para revisión.");
+      return;
     }
-    payload["operationId"] = nextId;
     const rebased = {
       ...previous,
       operationId: nextId,
@@ -1439,9 +1666,9 @@ export function EfaPoliceCoordinationPanel({
       );
       const rows = await storeRef.current.list(previous.ownerUserId, previous.episodeId);
       if (!mounted.current || selectedRef.current !== conflict.remote.id) return;
-      setQueueEntries(rows);
+      setQueueEntriesTracked(rows);
       setConflict(null);
-      setPendingOperationId(nextId);
+      setPendingOperationIdTracked(nextId);
       await processEntry(rebased, true);
     } catch (error) {
       setMessage(
@@ -1455,6 +1682,127 @@ export function EfaPoliceCoordinationPanel({
 
   const current = items.find((item) => item.id === selectedId) ?? null;
   const pending = queueEntries;
+  const fieldsEditable = policeCoordinationFieldsEditable({
+    canWrite: writeAllowed && (current ? current.canEdit : true),
+    hasRecord: current !== null,
+    pending: Boolean(pendingOperationId),
+    busy,
+  });
+  const autosave = useEfaAutosave({
+    enabled: writeAllowed && current !== null,
+    conditions: policeAutosaveConditions({
+      writeAllowed,
+      coordination: current,
+      currentUserId,
+      dirty,
+      pendingOperationId,
+      unpersisted: unpersisted !== null,
+      queueEntries,
+      queueUsable: !loading && storeRef.current !== null,
+      busy,
+    }),
+    // The same conditions from refs, read when a save would fire (a confirmation updates them).
+    getConditions: () =>
+      policeAutosaveConditions({
+        writeAllowed,
+        coordination: itemsRef.current.find((item) => item.id === selectedRef.current) ?? null,
+        currentUserId: context.current.currentUserId,
+        dirty: coordinationDirtyRef.current || dispatchesDirtyRef.current,
+        pendingOperationId: pendingOperationIdRef.current,
+        unpersisted: unpersistedRef.current !== null,
+        queueEntries: entriesRef.current,
+        queueUsable: !loading && storeRef.current !== null,
+        busy: busyRef.current,
+      }),
+    // One save per cycle; the controller re-arms while the links are still dirty.
+    save: () => {
+      const unit = nextPoliceAutosaveUnit({
+        coordinationDirty: coordinationDirtyRef.current,
+        dispatchesDirty: dispatchesDirtyRef.current,
+        eventDirty: dirtyEventIdRef.current !== "",
+      });
+      if (unit === "coordination") return saveCoordination({ allowCreate: false });
+      if (unit === "links") return saveLinks();
+      return Promise.resolve(true);
+    },
+    changeKey: JSON.stringify([form, links]),
+    // Read from refs: a confirmed save updates them before the next render.
+    isDirty: () => coordinationDirtyRef.current || dispatchesDirtyRef.current,
+  });
+  const saveStatus = policeSaveStatus({
+    autosave: autosave.status,
+    pendingStatus: current
+      ? policeEditorPendingStatus(
+          unpersisted ? [...queueEntries, unpersisted] : queueEntries,
+          current.id,
+        )
+      : null,
+    busy,
+    dirty,
+    savedAt: current?.updatedAt ?? null,
+  });
+  /** Every step change saves first and then always moves; it never creates a coordination. */
+  const changeStep = async (step: number) => {
+    await autosave.flush().catch(() => false);
+    if (mounted.current) setActiveStep(step);
+  };
+  const stepChange = (step: number) => void changeStep(step);
+  const editorKey = (coordinationId: string) =>
+    `${currentUserId}:${episodeId}:${coordinationId || "new"}`;
+  /**
+   * Replaces the coordination in the editor only after saving the current one (fields, then
+   * links: the autosave saves one unit per cycle). When typing could not be saved (new
+   * coordination, an edited event, another user's record, offline, pending or a failed save) it
+   * asks before discarding it.
+   */
+  const requestEditorSwitch = async (apply: () => void) => {
+    const targetUser = currentUserId;
+    const fromId = selectedRef.current;
+    const isLatest = switchSequence.begin();
+    const decision = await prepareRecordSwitch({
+      flush: async () => (await autosave.flush()) && autosave.flush(),
+      isDirty: () =>
+        policeHasUnsavedChanges({
+          coordinationDirty: coordinationDirtyRef.current,
+          dispatchesDirty: dispatchesDirtyRef.current,
+          eventDirty: dirtyEventIdRef.current !== "",
+        }),
+      isCurrent: () =>
+        isLatest() &&
+        mounted.current &&
+        context.current.currentUserId === targetUser &&
+        selectedRef.current === fromId,
+    });
+    if (decision === "switch") apply();
+    else if (decision === "confirm")
+      setSwitchConfirmation({
+        key: editorKey(fromId),
+        apply: () => void confirmDiscardAndSwitch(fromId, targetUser, apply),
+      });
+  };
+  /**
+   * "Descartar y cambiar" always switches: it waits a bounded time for a save still running, then
+   * switches. An operation still held afterwards (queued offline, paused or still running) stays
+   * under "Operaciones pendientes en este dispositivo", where it can be restored, and stops
+   * locking the editor, like the dispatch panel lets a queued entry resolve on its own.
+   */
+  const confirmDiscardAndSwitch = async (fromId: string, targetUser: string, apply: () => void) => {
+    const isLatest = switchSequence.begin();
+    const decision = await confirmDiscardSwitch({
+      settle: () => autosave.settle(DISCARD_SWITCH_SETTLE_MS),
+      isCurrent: () =>
+        isLatest() &&
+        mounted.current &&
+        context.current.currentUserId === targetUser &&
+        selectedRef.current === fromId,
+      heldOperationId: () => pendingOperationIdRef.current,
+    });
+    if (decision.kind === "stale") return;
+    if (decision.releaseOperationId === pendingOperationIdRef.current)
+      setPendingOperationIdTracked("");
+    apply();
+  };
+  const switchCopy = recordSwitchConfirmationCopy("coordinación");
 
   return (
     <Card className="min-w-0 border-0 bg-transparent p-0 shadow-none">
@@ -1480,8 +1828,8 @@ export function EfaPoliceCoordinationPanel({
               type="button"
               variant={selectedId ? "outline" : "secondary"}
               className="min-h-11"
-              disabled={!writeAllowed || busy || dirty || Boolean(pendingOperationId)}
-              onClick={beginCreate}
+              disabled={!writeAllowed || busy || Boolean(pendingOperationId)}
+              onClick={() => void requestEditorSwitch(beginCreate)}
             >
               Nueva coordinación
             </Button>
@@ -1491,8 +1839,8 @@ export function EfaPoliceCoordinationPanel({
                 key={item.id}
                 variant={selectedId === item.id ? "secondary" : "outline"}
                 className="min-h-11"
-                disabled={busy || dirty || Boolean(pendingOperationId)}
-                onClick={() => void selectCoordination(item.id)}
+                disabled={busy || Boolean(pendingOperationId)}
+                onClick={() => void requestEditorSwitch(() => void selectCoordination(item.id))}
               >
                 {item.placeType === "incident" ? "Incidente" : "Punto de encuentro"} · v
                 {item.version}
@@ -1573,11 +1921,11 @@ export function EfaPoliceCoordinationPanel({
               type="button"
               variant="outline"
               className="min-h-11"
-              onClick={() => setActiveStep(0)}
+              onClick={() => stepChange(0)}
             >
               Volver a Datos
             </Button>
-            <CoordinationStepNavigation activeStep={activeStep} onStepChange={setActiveStep} />
+            <CoordinationStepNavigation activeStep={activeStep} onStepChange={stepChange} />
           </section>
         )}
         {message && activeStep === 2 && !current && (
@@ -1598,7 +1946,7 @@ export function EfaPoliceCoordinationPanel({
             >
               {current ? "Editar coordinación" : "Nueva coordinación"}
             </h3>
-            <fieldset disabled={busy || Boolean(pendingOperationId)} className="space-y-4">
+            <fieldset disabled={!fieldsEditable} className="space-y-4">
               <div className="grid min-w-0 grid-cols-1 gap-3 min-[380px]:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="police-initiator">Iniciador</Label>
@@ -1607,12 +1955,10 @@ export function EfaPoliceCoordinationPanel({
                     className="min-h-11 w-full min-w-0 max-w-full rounded-md border bg-background px-3"
                     value={form.initiator}
                     onChange={(e) => {
-                      const next = {
-                        ...form,
+                      updateCoordinationForm({
+                        ...coordinationFormRef.current,
                         initiator: e.target.value as CoordinationForm["initiator"],
-                      };
-                      coordinationFormRef.current = next;
-                      setForm(next);
+                      });
                       setCoordinationDirtyTracked(true);
                     }}
                   >
@@ -1627,12 +1973,10 @@ export function EfaPoliceCoordinationPanel({
                     className="min-h-11 w-full min-w-0 max-w-full rounded-md border bg-background px-3"
                     value={form.placeType}
                     onChange={(e) => {
-                      const next = {
-                        ...form,
+                      updateCoordinationForm({
+                        ...coordinationFormRef.current,
                         placeType: e.target.value as CoordinationForm["placeType"],
-                      };
-                      coordinationFormRef.current = next;
-                      setForm(next);
+                      });
                       setCoordinationDirtyTracked(true);
                     }}
                   >
@@ -1647,9 +1991,10 @@ export function EfaPoliceCoordinationPanel({
                     className="min-h-11 w-full min-w-0 max-w-full rounded-md border bg-background px-3"
                     value={form.initiatingDispatchId}
                     onChange={(e) => {
-                      const next = { ...form, initiatingDispatchId: e.target.value };
-                      coordinationFormRef.current = next;
-                      setForm(next);
+                      updateCoordinationForm({
+                        ...coordinationFormRef.current,
+                        initiatingDispatchId: e.target.value,
+                      });
                       setCoordinationDirtyTracked(true);
                     }}
                   >
@@ -1677,9 +2022,10 @@ export function EfaPoliceCoordinationPanel({
                       value={form.meetingReference}
                       maxLength={500}
                       onChange={(e) => {
-                        const next = { ...form, meetingReference: e.target.value };
-                        coordinationFormRef.current = next;
-                        setForm(next);
+                        updateCoordinationForm({
+                          ...coordinationFormRef.current,
+                          meetingReference: e.target.value,
+                        });
                         setCoordinationDirtyTracked(true);
                       }}
                     />
@@ -1691,9 +2037,10 @@ export function EfaPoliceCoordinationPanel({
                       value={form.notes}
                       maxLength={2000}
                       onChange={(e) => {
-                        const next = { ...form, notes: e.target.value };
-                        coordinationFormRef.current = next;
-                        setForm(next);
+                        updateCoordinationForm({
+                          ...coordinationFormRef.current,
+                          notes: e.target.value,
+                        });
                         setCoordinationDirtyTracked(true);
                       }}
                     />
@@ -1705,7 +2052,13 @@ export function EfaPoliceCoordinationPanel({
                   type="button"
                   className="min-h-11"
                   disabled={!coordinationDirty || busy || Boolean(pendingOperationId)}
-                  onClick={saveCoordination}
+                  onClick={() =>
+                    void autosave
+                      .runExclusive(() => saveCoordination({ allowCreate: true }))
+                      .then((saved) => {
+                        if (saved) autosave.markSaved();
+                      })
+                  }
                 >
                   {current ? "Guardar cambios" : "Guardar coordinación"}
                 </Button>
@@ -1720,9 +2073,10 @@ export function EfaPoliceCoordinationPanel({
                     Descartar cambios
                   </Button>
                 )}
+                {current && <EfaAutosaveStatus status={saveStatus} />}
               </div>
             </fieldset>
-            <CoordinationStepNavigation activeStep={activeStep} onStepChange={setActiveStep} />
+            <CoordinationStepNavigation activeStep={activeStep} onStepChange={stepChange} />
           </section>
         ) : null}
         {!current && activeStep > 0 && (
@@ -1744,7 +2098,7 @@ export function EfaPoliceCoordinationPanel({
               type="button"
               variant="outline"
               className="min-h-11"
-              onClick={() => setActiveStep(0)}
+              onClick={() => stepChange(0)}
             >
               Volver a Datos
             </Button>
@@ -1753,7 +2107,7 @@ export function EfaPoliceCoordinationPanel({
         {activeStep === 0 &&
           (selectedId === "" || current) &&
           (!writeAllowed || Boolean(current && !current.canEdit)) && (
-            <CoordinationStepNavigation activeStep={activeStep} onStepChange={setActiveStep} />
+            <CoordinationStepNavigation activeStep={activeStep} onStepChange={stepChange} />
           )}
         {message && activeStep === 0 && (
           <p role="status" className="bg-muted p-2 text-sm" aria-live="polite">
@@ -1762,7 +2116,7 @@ export function EfaPoliceCoordinationPanel({
         )}
         {current && activeStep === 1 && (
           <section className="min-w-0 space-y-3 border-t pt-3">
-            <fieldset disabled={busy || Boolean(pendingOperationId)} className="min-w-0 space-y-2">
+            <fieldset disabled={!fieldsEditable} className="min-w-0 space-y-2">
               <legend
                 ref={(node) => {
                   activeStepTargetRef.current = node;
@@ -1800,27 +2154,40 @@ export function EfaPoliceCoordinationPanel({
                 </label>
               ))}
             </fieldset>
-            <Button
-              type="button"
-              variant="outline"
-              className="min-h-11"
-              disabled={!dispatchesDirty || busy || !current.canEdit || !writeAllowed}
-              onClick={saveLinks}
-            >
-              Guardar asociaciones
-            </Button>
-            {dispatchesDirty && (
+            <div className="flex flex-wrap items-center gap-2">
               <Button
                 type="button"
                 variant="outline"
                 className="min-h-11"
-                disabled={busy}
-                onClick={discardDispatchChanges}
+                disabled={
+                  !dispatchesDirty ||
+                  busy ||
+                  Boolean(pendingOperationId) ||
+                  !current.canEdit ||
+                  !writeAllowed
+                }
+                onClick={() =>
+                  void autosave.runExclusive(saveLinks).then((saved) => {
+                    if (saved) autosave.markSaved();
+                  })
+                }
               >
-                Descartar cambios de asociación
+                Guardar asociaciones
               </Button>
-            )}
-            <CoordinationStepNavigation activeStep={activeStep} onStepChange={setActiveStep} />
+              {dispatchesDirty && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="min-h-11"
+                  disabled={busy || Boolean(pendingOperationId)}
+                  onClick={discardDispatchChanges}
+                >
+                  Descartar cambios de asociación
+                </Button>
+              )}
+              <EfaAutosaveStatus status={saveStatus} />
+            </div>
+            <CoordinationStepNavigation activeStep={activeStep} onStepChange={stepChange} />
           </section>
         )}
         {message && activeStep === 1 && (
@@ -2008,7 +2375,7 @@ export function EfaPoliceCoordinationPanel({
                 </fieldset>
               )}
             </section>
-            <CoordinationStepNavigation activeStep={activeStep} onStepChange={setActiveStep} />
+            <CoordinationStepNavigation activeStep={activeStep} onStepChange={stepChange} />
             {message && (
               <p role="status" className="bg-muted p-2 text-sm" aria-live="polite">
                 {message}
@@ -2332,7 +2699,7 @@ export function EfaPoliceCoordinationPanel({
                   setCoordinationDirtyTracked(false);
                   setDispatchesDirtyTracked(false);
                   if (conflict.entry.status === "paused-conflict") {
-                    setPendingOperationId("");
+                    setPendingOperationIdTracked("");
                     setConflict(null);
                     setMessage(
                       "Se cargó la versión actual y se descartó únicamente la operación rechazada por conflicto.",
@@ -2384,9 +2751,9 @@ export function EfaPoliceCoordinationPanel({
                     selectedRef.current !== conflict.entry.entityId
                   )
                     return;
-                  setQueueEntries(rows);
+                  setQueueEntriesTracked(rows);
                   setConflict(null);
-                  setPendingOperationId(conflict.entry.operationId);
+                  setPendingOperationIdTracked(conflict.entry.operationId);
                   void processEntry({ ...conflict.entry, status: "pending" });
                 }}
               >
@@ -2395,6 +2762,22 @@ export function EfaPoliceCoordinationPanel({
             )}
           </section>
         )}
+        <EfaActionConfirmation
+          open={switchConfirmation !== null}
+          onOpenChange={(open) => {
+            if (!open) setSwitchConfirmation(null);
+          }}
+          capturedTargetKey={switchConfirmation?.key ?? null}
+          currentTargetKey={editorKey(selectedId)}
+          title={switchCopy.title}
+          description={switchCopy.description}
+          confirmLabel={switchCopy.confirmLabel}
+          onConfirm={() => {
+            const pendingSwitch = switchConfirmation;
+            setSwitchConfirmation(null);
+            pendingSwitch?.apply();
+          }}
+        />
       </CardContent>
     </Card>
   );

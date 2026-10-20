@@ -7,7 +7,11 @@ import {
   dispatchObservationRebasedEntry,
   observationCanCreate,
   observationContextSelectionFromPayload,
+  observationEffectiveContextKind,
+  observationFormDefaults,
   observationFrozenOperationMatches,
+  observationSelectionFitsLock,
+  observationShowsContextPickers,
   observationFeedbackNeedsGlobalFallback,
   observationQueueEntryCanContinue,
   observationRootScopeKey,
@@ -74,10 +78,64 @@ describe("EfaObservationPanel", () => {
     });
   });
 
+  it("fixes a locked guard context: no context pickers and only guard-level records", () => {
+    const root = { guardId: "guard-1" };
+    expect(observationShowsContextPickers({ lockGuardContext: true, root })).toBe(false);
+    expect(observationShowsContextPickers({ lockGuardContext: false, root })).toBe(true);
+    expect(
+      observationShowsContextPickers({
+        lockGuardContext: false,
+        root: { guardId: "guard-1", episodeId: "episode-1" },
+      }),
+    ).toBe(false);
+
+    expect(observationEffectiveContextKind(true, "episode")).toBe("guard");
+    expect(observationEffectiveContextKind(false, "episode")).toBe("episode");
+    expect(observationEffectiveContextKind(true, "dispatch")).toBe("guard");
+    // A locked panel always posts the guard-level context.
+    expect(buildObservationContext(root, { kind: "guard" })).toEqual({
+      contextType: "guard",
+      guardId: "guard-1",
+    });
+
+    expect(observationSelectionFitsLock(true, { kind: "guard" })).toBe(true);
+    expect(observationSelectionFitsLock(true, { kind: "episode", episodeId: "episode-1" })).toBe(
+      false,
+    );
+    expect(observationSelectionFitsLock(false, { kind: "episode", episodeId: "episode-1" })).toBe(
+      true,
+    );
+    expect(observationSelectionFitsLock(true, null)).toBe(false);
+  });
+
+  it("renders a locked guard panel without the context selector or the service picker", () => {
+    const html = renderToStaticMarkup(
+      <EfaObservationPanel
+        root={{ guardId: "guard-1", ownerUserId: "user-1", guardEndedAt: null }}
+        title="Registrar conducta"
+        currentUserId="user-1"
+        canWrite
+        isAdmin={false}
+        lockGuardContext
+      />,
+    );
+    expect(html).not.toContain("Tipo de contexto");
+    expect(html).not.toContain("Episodio de esta guardia");
+  });
+
   it("captures observed time at the quick-action click instant", () => {
     expect(captureObservationNow(() => new Date("2026-10-07T12:34:56.789Z"))).toBe(
       "2026-10-07T12:34:56.789Z",
     );
+  });
+
+  it("prefills the observed time with the opening instant only for the locked guard sheet", () => {
+    const now = () => new Date("2026-10-19T12:34:56.789Z");
+    const locked = observationFormDefaults({ prefillObservedAtNow: true, now });
+    // datetime-local carries the browser's local time, so it round-trips to the same instant.
+    expect(new Date(locked.observedAt).toISOString()).toBe("2026-10-19T12:34:56.789Z");
+    expect(locked).toMatchObject({ catalogItemKey: "", classification: "adequate", comment: "" });
+    expect(observationFormDefaults({ prefillObservedAtNow: false, now }).observedAt).toBe("");
   });
 
   it("keeps equivalent root scopes stable and distinguishes meaningful scope changes", () => {

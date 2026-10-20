@@ -180,7 +180,8 @@ describe("EfaGuardPanel", () => {
     expect(activeGuard).not.toMatch(/<details[^>]*\bopen(?:="")?/);
     // A single region named "Móviles": the guard panel's section, labelled by its heading.
     expect(html).not.toContain('aria-label="Móviles"');
-    expect((activeGuard.match(/<section[^>]*aria-labelledby=/g) ?? []).length).toBe(1);
+    // "Móviles" and "Cronología de la guardia", each labelled by its heading.
+    expect((activeGuard.match(/<section[^>]*aria-labelledby=/g) ?? []).length).toBe(2);
   });
 
   it("lists the catalog as toggle chips and renders only the selected mobiles", () => {
@@ -232,7 +233,8 @@ describe("EfaGuardPanel", () => {
     expect(activeGuard).not.toContain("Guardar bases");
     expect((html.match(/Registrar atenciones/g) ?? []).length).toBe(1);
     expect(html).not.toContain('aria-label="Móviles"');
-    expect((activeGuard.match(/<section[^>]*aria-labelledby=/g) ?? []).length).toBe(1);
+    // "Móviles" and "Cronología de la guardia", each labelled by its heading.
+    expect((activeGuard.match(/<section[^>]*aria-labelledby=/g) ?? []).length).toBe(2);
     expect(activeGuard).not.toContain("<details");
   });
 
@@ -454,6 +456,70 @@ describe("EfaGuardPanel", () => {
     expect(html).not.toContain("Registrar atenciones");
   });
 
+  describe("guard-level conduct entry", () => {
+    const helper =
+      "Sin servicio asociado: problemas u oportunidades de mejora que observes en la guardia.";
+    const ownOpenGuard: GuardView = {
+      id: "own-open-guard",
+      ownerUserId: "current-user",
+      startedAt: "2026-10-07T08:00:00.000Z",
+      endedAt: null,
+      declaredAtCentral: true,
+      version: 1,
+      bases: [],
+      baseEvents: [],
+    };
+    const render = (guards: GuardView[], canWrite: boolean) =>
+      renderToStaticMarkup(
+        <EfaGuardPanel
+          initialGuards={guards}
+          activeBases={[]}
+          initialStaffing={{}}
+          currentUserId="current-user"
+          isAdmin={false}
+          canWrite={canWrite}
+        />,
+      );
+
+    it("offers a secondary 'Registrar conducta' action under 'Registrar atenciones' for a writer", () => {
+      const html = render([ownOpenGuard], true);
+      const conduct = html.indexOf(">Registrar conducta<");
+      expect(conduct).toBeGreaterThan(html.indexOf("Registrar atenciones"));
+      expect(conduct).toBeLessThan(html.indexOf("Móviles"));
+      expect(html).toContain(helper);
+      const button =
+        html.match(/<button[^>]*>(?:(?!<\/button>)[\s\S])*Registrar conducta<\/button>/)?.[0] ?? "";
+      expect(button).toMatch(/aria-describedby="[^"]+"/);
+      expect(button).not.toContain("bg-indigo-400");
+      expect(button).toMatch(/<svg[^>]*aria-hidden="true"/);
+      // The sheet mounts the form only while open.
+      expect(html).not.toContain("Cargando catálogo e historial");
+    });
+
+    it("shows the guard chronology after the mobiles and before the end of the guard", () => {
+      for (const canWrite of [true, false]) {
+        const html = render([ownOpenGuard], canWrite);
+        const chronology = html.indexOf("Cronología de la guardia");
+        expect(chronology).toBeGreaterThan(html.indexOf("Móviles"));
+        expect(chronology).toBeLessThan(html.indexOf("Terminar guardia"));
+        // The data loads on the client, so the server render shows the loading state.
+        expect(html).toContain("Cargando la cronología…");
+      }
+      expect(render([], true)).not.toContain("Cronología de la guardia");
+    });
+
+    it("hides the action from read-only users and users without an open own guard", () => {
+      expect(render([ownOpenGuard], false)).not.toContain(">Registrar conducta<");
+      expect(render([], true)).not.toContain(">Registrar conducta<");
+      expect(
+        render([{ ...ownOpenGuard, id: "other-guard", ownerUserId: "other-user" }], true),
+      ).not.toContain(">Registrar conducta<");
+      expect(
+        render([{ ...ownOpenGuard, endedAt: "2026-10-07T12:00:00.000Z" }], true),
+      ).not.toContain(helper);
+    });
+  });
+
   describe("start block as a shift time clock", () => {
     const renderStart = (canWrite: boolean) =>
       renderToStaticMarkup(
@@ -496,13 +562,14 @@ describe("EfaGuardPanel", () => {
       const html = startBlock(renderStart(true));
       const button = html.indexOf("Iniciar guardia");
 
-      expect(html).toContain("Guardia EFA");
+      expect(html).toMatch(/>Mi guardia</);
+      expect(html).not.toMatch(/>Guardia EFA</);
       expect(button).toBeGreaterThan(-1);
       expect(button).toBeLessThan(
         html.indexOf("El inicio y el cierre son manuales. La presencia es declarada"),
       );
       expect(button).toBeLessThan(html.indexOf("Ver episodios de atención"));
-      expect(html.indexOf("Guardia EFA")).toBeLessThan(html.indexOf("Ver episodios de atención"));
+      expect(html.indexOf(">Mi guardia<")).toBeLessThan(html.indexOf("Ver episodios de atención"));
       expect(html).toContain("no usa GPS ni verifica ubicación");
       expect(html).toContain('href="/episodios-efa"');
     });
