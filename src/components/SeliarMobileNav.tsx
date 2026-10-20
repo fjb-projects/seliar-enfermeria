@@ -29,7 +29,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { isAdministrator } from "@/lib/private-ui";
+import { isAdministrator, safePrivateReturnPath } from "@/lib/private-ui";
+
+// /login requires `returnTo`; the login page falls back to this same destination when it is missing.
+const LOGIN_SEARCH = { returnTo: safePrivateReturnPath(undefined) };
 
 const NAV_REVEAL_EDGE_PX = 96;
 const NAV_TOP_THRESHOLD_PX = 8;
@@ -311,6 +314,7 @@ export function SeliarMobileNav() {
           {navigation.sessionStatus === "anonymous" && (
             <Link
               to="/login"
+              search={LOGIN_SEARCH}
               aria-current={pathname === "/login" ? "page" : undefined}
               className="col-start-2 row-start-1 flex min-h-11 items-center gap-1.5 rounded-lg px-3 text-sm font-semibold text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring xl:col-start-3 xl:row-start-auto"
             >
@@ -459,6 +463,7 @@ export function SeliarMobileNav() {
               {navigation.sessionStatus === "anonymous" && (
                 <Link
                   to="/login"
+                  search={LOGIN_SEARCH}
                   aria-current={pathname === "/login" ? "page" : undefined}
                   className={`flex min-h-14 flex-col items-center justify-center gap-0.5 rounded-lg px-2 text-xs font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${pathname === "/login" ? "bg-secondary text-secondary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
                 >

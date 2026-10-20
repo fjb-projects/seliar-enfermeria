@@ -8,11 +8,19 @@ const navigationState = vi.hoisted(() => ({ current: {} as Record<string, unknow
 
 vi.mock("@tanstack/react-start", () => ({ useServerFn: () => vi.fn(async () => []) }));
 vi.mock("@tanstack/react-router", () => ({
-  Link: ({ children, to, ...props }: ComponentProps<"a"> & { to: string }) => (
-    <a href={to} {...props}>
-      {children}
-    </a>
-  ),
+  Link: ({
+    children,
+    to,
+    search,
+    ...props
+  }: ComponentProps<"a"> & { to: string; search?: Record<string, string> }) => {
+    const query = search ? new URLSearchParams(search).toString() : "";
+    return (
+      <a href={query ? `${to}?${query}` : to} {...props}>
+        {children}
+      </a>
+    );
+  },
   useLocation: () => ({ pathname: "/panel" }),
   useRouter: () => ({ invalidate: vi.fn() }),
 }));
@@ -75,5 +83,29 @@ describe("SeliarMobileNav open guard controls", () => {
     expect(html).not.toContain("quick-guard-end");
     expect(html).not.toContain("Guardia en curso");
     expect(html).toContain("<span>Logout</span>");
+  });
+});
+
+describe("SeliarMobileNav anonymous login links", () => {
+  it("sends both the top and bottom login links to the default private destination", () => {
+    navigationState.current = {
+      sessionStatus: "anonymous",
+      session: null,
+      summary: undefined,
+      openGuard: null,
+      quickGuardEnd: quickGuardEnd(false),
+      summaryLoading: false,
+      summaryError: false,
+      retrySession: vi.fn(),
+      retrySummary: vi.fn(),
+      logout: vi.fn(),
+      requestLogout: vi.fn(),
+      logoutPending: false,
+      logoutError: "",
+    };
+    const html = renderToStaticMarkup(<SeliarMobileNav />);
+
+    expect(html.match(/href="\/login\?returnTo=%2Fpanel"/g)).toHaveLength(2);
+    expect(html).not.toContain('href="/login"');
   });
 });
