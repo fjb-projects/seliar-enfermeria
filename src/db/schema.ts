@@ -1,4 +1,6 @@
 import { sql } from "drizzle-orm";
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
+import type { StaffAuditState } from "../lib/compensatory-bank.server";
 import {
   boolean,
   check,
@@ -430,6 +432,149 @@ export const efaMobileArrivalAudit = pgTable(
       "efa_mobile_arrival_audit_state_valid",
       sql`jsonb_typeof(${table.afterState}) = 'object' and (${table.beforeState} is null or jsonb_typeof(${table.beforeState}) = 'object') and (${table.afterState} - 'arrivedAt' - 'deletedAt') = '{}'::jsonb and (${table.beforeState} is null or (${table.beforeState} - 'arrivedAt' - 'deletedAt') = '{}'::jsonb)`,
     ),
+  ],
+);
+
+export const compensatoryStaff = pgTable(
+  "compensatory_staff",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    dni: text("dni").notNull(),
+    name: text("name").notNull(),
+    email: text("email"),
+    isActive: boolean("is_active").notNull().default(true),
+    monthlyLimitMinutes: integer("monthly_limit_minutes").notNull().default(1440),
+    version: integer("version").notNull().default(1),
+    balanceMinutes: integer("balance_minutes").notNull().default(0),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => [
+    unique("compensatory_staff_dni_unique").on(table.dni),
+    check("compensatory_staff_dni_canonical", sql`${table.dni} ~ '^[0-9]{7,8}$'`),
+    check(
+      "compensatory_staff_name_valid",
+      sql`char_length(btrim(${table.name})) between 1 and 160`,
+    ),
+    check("compensatory_staff_monthly_limit_positive", sql`${table.monthlyLimitMinutes} > 0`),
+    check("compensatory_staff_version_positive", sql`${table.version} > 0`),
+    check("compensatory_staff_balance_nonnegative", sql`${table.balanceMinutes} >= 0`),
+  ],
+);
+
+export const compensatoryLedger = pgTable(
+  "compensatory_ledger",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    staffId: uuid("staff_id")
+      .notNull()
+      .references(() => compensatoryStaff.id, { onDelete: "restrict" }),
+    kind: text("kind").notNull(),
+    minutes: integer("minutes").notNull(),
+    effectiveDate: text("effective_date").notNull(),
+    reason: text("reason").notNull(),
+    actorUserId: text("actor_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    actorName: text("actor_name").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    balanceBeforeMinutes: integer("balance_before_minutes").notNull(),
+    balanceAfterMinutes: integer("balance_after_minutes").notNull(),
+    reversesEntryId: uuid("reverses_entry_id").references(
+      (): AnyPgColumn => compensatoryLedger.id,
+      { onDelete: "restrict" },
+    ),
+  },
+  (table) => [
+    check(
+      "compensatory_ledger_kind_allowed",
+      sql`${table.kind} in ('opening','credit','debit','reversal')`,
+    ),
+    check("compensatory_ledger_minutes_nonzero", sql`${table.minutes} <> 0`),
+    check("compensatory_ledger_date_valid", sql`${table.effectiveDate} ~ '^\\d{4}-\\d{2}-\\d{2}$'`),
+    check(
+      "compensatory_ledger_reason_valid",
+      sql`char_length(btrim(${table.reason})) between 1 and 1000`,
+    ),
+    check(
+      "compensatory_ledger_balance_nonnegative",
+      sql`${table.balanceBeforeMinutes} >= 0 and ${table.balanceAfterMinutes} >= 0`,
+    ),
+    check(
+      "compensatory_ledger_balance_delta",
+      sql`${table.balanceAfterMinutes} = ${table.balanceBeforeMinutes} + ${table.minutes}`,
+    ),
+    check(
+      "compensatory_ledger_kind_sign",
+      sql`(${table.kind} in ('opening','credit') and ${table.minutes} > 0 and ${table.reversesEntryId} is null) or (${table.kind} = 'debit' and ${table.minutes} < 0 and ${table.reversesEntryId} is null) or (${table.kind} = 'reversal' and ${table.reversesEntryId} is not null)`,
+    ),
+    uniqueIndex("compensatory_ledger_reversal_once_unique")
+      .on(table.reversesEntryId)
+      .where(sql`${table.reversesEntryId} is not null`),
+    uniqueIndex("compensatory_ledger_opening_once_unique")
+      .on(table.staffId)
+      .where(sql`${table.kind} = 'opening'`),
+  ],
+);
+
+export const compensatoryStaffAudit = pgTable(
+  "compensatory_staff_audit",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    staffId: uuid("staff_id")
+      .notNull()
+      .references(() => compensatoryStaff.id, { onDelete: "restrict" }),
+    actorUserId: text("actor_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    actorName: text("actor_name").notNull(),
+    operationId: uuid("operation_id").notNull(),
+    action: text("action").notNull(),
+    versionBefore: integer("version_before"),
+    versionAfter: integer("version_after").notNull(),
+    occurredAt: timestamp("occurred_at").notNull().defaultNow(),
+    reason: text("reason").notNull(),
+    beforeState: jsonb("before_state").$type<StaffAuditState | null>(),
+    afterState: jsonb("after_state").$type<StaffAuditState>().notNull(),
+  },
+  (table) => [
+    unique("compensatory_staff_audit_operation_unique").on(table.actorUserId, table.operationId),
+    unique("compensatory_staff_audit_version_unique").on(table.staffId, table.versionAfter),
+    check("compensatory_staff_audit_action_allowed", sql`${table.action} in ('created','updated')`),
+    check(
+      "compensatory_staff_audit_version_transition",
+      sql`(${table.versionBefore} is null and ${table.versionAfter} = 1) or (${table.versionBefore} > 0 and ${table.versionAfter} = ${table.versionBefore} + 1)`,
+    ),
+    check(
+      "compensatory_staff_audit_states_objects",
+      sql`jsonb_typeof(${table.afterState}) = 'object' and (${table.beforeState} is null or jsonb_typeof(${table.beforeState}) = 'object')`,
+    ),
+    check(
+      "compensatory_staff_audit_reason_valid",
+      sql`char_length(btrim(${table.reason})) between 1 and 1000`,
+    ),
+  ],
+);
+
+export const compensatoryOperation = pgTable(
+  "compensatory_operation",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    actorUserId: text("actor_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    clientOperationId: uuid("client_operation_id").notNull(),
+    action: text("action").notNull(),
+    payloadHash: text("payload_hash").notNull(),
+    resultId: uuid("result_id").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    unique("compensatory_operation_actor_key_unique").on(
+      table.actorUserId,
+      table.clientOperationId,
+    ),
+    check("compensatory_operation_hash_sha256", sql`${table.payloadHash} ~ '^[0-9a-f]{64}$'`),
   ],
 );
 

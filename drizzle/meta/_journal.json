@@ -169,6 +169,13 @@
       "when": 1792035673220,
       "tag": "0023_efa_mobile_hygiene_periods",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1793138573632,
+      "tag": "0024_free_magus",
+      "breakpoints": true
     }
   ]
 }
