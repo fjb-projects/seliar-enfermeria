@@ -169,6 +169,9 @@ export function PrivateAccountShell({
                           <Link to="/admin-usuarios">Administrar cuentas</Link>
                         </Button>
                         <Button asChild variant="outline" className="min-h-11">
+                          <Link to="/coordinacion">Coordinación</Link>
+                        </Button>
+                        <Button asChild variant="outline" className="min-h-11">
                           <Link to="/coordinacion-efa">Coordinación EFA</Link>
                         </Button>
                       </>

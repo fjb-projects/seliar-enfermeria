@@ -14,6 +14,7 @@ import { Route as AdminUsuariosRouteImport } from './routes/admin-usuarios'
 import { Route as CambioGuardiaRouteImport } from './routes/cambio-guardia'
 import { Route as CompensatorioRouteImport } from './routes/compensatorio'
 import { Route as ControlGuardiaRouteImport } from './routes/control-guardia'
+import { Route as CoordinacionRouteImport } from './routes/coordinacion'
 import { Route as CoordinacionEfaRouteImport } from './routes/coordinacion-efa'
 import { Route as EpisodiosEfaRouteImport } from './routes/episodios-efa'
 import { Route as GuardiaEfaRouteImport } from './routes/guardia-efa'
@@ -22,6 +23,8 @@ import { Route as IngresoRouteImport } from './routes/ingreso'
 import { Route as LaoRouteImport } from './routes/lao'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as PanelRouteImport } from './routes/panel'
+import { Route as CoordinacionIndexRouteImport } from './routes/coordinacion.index'
+import { Route as CoordinacionCompensatoriosRouteImport } from './routes/coordinacion.compensatorios'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -46,6 +49,11 @@ const CompensatorioRoute = CompensatorioRouteImport.update({
 const ControlGuardiaRoute = ControlGuardiaRouteImport.update({
   id: '/control-guardia',
   path: '/control-guardia',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CoordinacionRoute = CoordinacionRouteImport.update({
+  id: '/coordinacion',
+  path: '/coordinacion',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CoordinacionEfaRoute = CoordinacionEfaRouteImport.update({
@@ -88,6 +96,17 @@ const PanelRoute = PanelRouteImport.update({
   path: '/panel',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CoordinacionIndexRoute = CoordinacionIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => CoordinacionRoute,
+} as any)
+const CoordinacionCompensatoriosRoute =
+  CoordinacionCompensatoriosRouteImport.update({
+    id: '/compensatorios',
+    path: '/compensatorios',
+    getParentRoute: () => CoordinacionRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -95,6 +114,7 @@ export interface FileRoutesByFullPath {
   '/cambio-guardia': typeof CambioGuardiaRoute
   '/compensatorio': typeof CompensatorioRoute
   '/control-guardia': typeof ControlGuardiaRoute
+  '/coordinacion': typeof CoordinacionRouteWithChildren
   '/coordinacion-efa': typeof CoordinacionEfaRoute
   '/episodios-efa': typeof EpisodiosEfaRoute
   '/guardia-efa': typeof GuardiaEfaRoute
@@ -103,6 +123,8 @@ export interface FileRoutesByFullPath {
   '/lao': typeof LaoRoute
   '/login': typeof LoginRoute
   '/panel': typeof PanelRoute
+  '/coordinacion/compensatorios': typeof CoordinacionCompensatoriosRoute
+  '/coordinacion/': typeof CoordinacionIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -118,6 +140,8 @@ export interface FileRoutesByTo {
   '/lao': typeof LaoRoute
   '/login': typeof LoginRoute
   '/panel': typeof PanelRoute
+  '/coordinacion/compensatorios': typeof CoordinacionCompensatoriosRoute
+  '/coordinacion': typeof CoordinacionIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -126,6 +150,7 @@ export interface FileRoutesById {
   '/cambio-guardia': typeof CambioGuardiaRoute
   '/compensatorio': typeof CompensatorioRoute
   '/control-guardia': typeof ControlGuardiaRoute
+  '/coordinacion': typeof CoordinacionRouteWithChildren
   '/coordinacion-efa': typeof CoordinacionEfaRoute
   '/episodios-efa': typeof EpisodiosEfaRoute
   '/guardia-efa': typeof GuardiaEfaRoute
@@ -134,6 +159,8 @@ export interface FileRoutesById {
   '/lao': typeof LaoRoute
   '/login': typeof LoginRoute
   '/panel': typeof PanelRoute
+  '/coordinacion/compensatorios': typeof CoordinacionCompensatoriosRoute
+  '/coordinacion/': typeof CoordinacionIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -143,6 +170,7 @@ export interface FileRouteTypes {
     | '/cambio-guardia'
     | '/compensatorio'
     | '/control-guardia'
+    | '/coordinacion'
     | '/coordinacion-efa'
     | '/episodios-efa'
     | '/guardia-efa'
@@ -151,6 +179,8 @@ export interface FileRouteTypes {
     | '/lao'
     | '/login'
     | '/panel'
+    | '/coordinacion/compensatorios'
+    | '/coordinacion/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -166,6 +196,8 @@ export interface FileRouteTypes {
     | '/lao'
     | '/login'
     | '/panel'
+    | '/coordinacion/compensatorios'
+    | '/coordinacion'
   id:
     | '__root__'
     | '/'
@@ -173,6 +205,7 @@ export interface FileRouteTypes {
     | '/cambio-guardia'
     | '/compensatorio'
     | '/control-guardia'
+    | '/coordinacion'
     | '/coordinacion-efa'
     | '/episodios-efa'
     | '/guardia-efa'
@@ -181,6 +214,8 @@ export interface FileRouteTypes {
     | '/lao'
     | '/login'
     | '/panel'
+    | '/coordinacion/compensatorios'
+    | '/coordinacion/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -189,6 +224,7 @@ export interface RootRouteChildren {
   CambioGuardiaRoute: typeof CambioGuardiaRoute
   CompensatorioRoute: typeof CompensatorioRoute
   ControlGuardiaRoute: typeof ControlGuardiaRoute
+  CoordinacionRoute: typeof CoordinacionRouteWithChildren
   CoordinacionEfaRoute: typeof CoordinacionEfaRoute
   EpisodiosEfaRoute: typeof EpisodiosEfaRoute
   GuardiaEfaRoute: typeof GuardiaEfaRoute
@@ -234,6 +270,13 @@ declare module '@tanstack/react-router' {
       path: '/control-guardia'
       fullPath: '/control-guardia'
       preLoaderRoute: typeof ControlGuardiaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/coordinacion': {
+      id: '/coordinacion'
+      path: '/coordinacion'
+      fullPath: '/coordinacion'
+      preLoaderRoute: typeof CoordinacionRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/coordinacion-efa': {
@@ -292,8 +335,36 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PanelRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/coordinacion/': {
+      id: '/coordinacion/'
+      path: '/'
+      fullPath: '/coordinacion/'
+      preLoaderRoute: typeof CoordinacionIndexRouteImport
+      parentRoute: typeof CoordinacionRoute
+    }
+    '/coordinacion/compensatorios': {
+      id: '/coordinacion/compensatorios'
+      path: '/compensatorios'
+      fullPath: '/coordinacion/compensatorios'
+      preLoaderRoute: typeof CoordinacionCompensatoriosRouteImport
+      parentRoute: typeof CoordinacionRoute
+    }
   }
 }
+
+interface CoordinacionRouteChildren {
+  CoordinacionCompensatoriosRoute: typeof CoordinacionCompensatoriosRoute
+  CoordinacionIndexRoute: typeof CoordinacionIndexRoute
+}
+
+const CoordinacionRouteChildren: CoordinacionRouteChildren = {
+  CoordinacionCompensatoriosRoute: CoordinacionCompensatoriosRoute,
+  CoordinacionIndexRoute: CoordinacionIndexRoute,
+}
+
+const CoordinacionRouteWithChildren = CoordinacionRoute._addFileChildren(
+  CoordinacionRouteChildren,
+)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
@@ -301,6 +372,7 @@ const rootRouteChildren: RootRouteChildren = {
   CambioGuardiaRoute: CambioGuardiaRoute,
   CompensatorioRoute: CompensatorioRoute,
   ControlGuardiaRoute: ControlGuardiaRoute,
+  CoordinacionRoute: CoordinacionRouteWithChildren,
   CoordinacionEfaRoute: CoordinacionEfaRoute,
   EpisodiosEfaRoute: EpisodiosEfaRoute,
   GuardiaEfaRoute: GuardiaEfaRoute,
@@ -313,13 +385,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}

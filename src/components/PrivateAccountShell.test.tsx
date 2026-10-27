@@ -57,6 +57,9 @@ describe("private account header", () => {
       );
 
     expect(render(["admin"])).toContain('href="/coordinacion-efa"');
+    expect(render(["admin"])).toContain('href="/coordinacion"');
+    expect(render(["admin"])).toContain('href="/admin-usuarios"');
+    expect(render(["efa"])).not.toContain('href="/coordinacion"');
     expect(render(["efa"])).not.toContain('href="/coordinacion-efa"');
   });
 
