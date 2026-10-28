@@ -10,14 +10,19 @@ const bundle = path.join(dir, "fixture.js");
 const plugin = {
   name: "fake-bank-api",
   setup(build) {
-    build.onResolve({ filter: /^@\/lib\/compensatory-bank\.functions$/ }, () => ({
-      path: "fake-bank-api",
-      namespace: "fixture",
-    }));
-    build.onLoad({ filter: /.*/, namespace: "fixture" }, () => ({
+    build.onResolve(
+      { filter: /^@\/lib\/compensatory-(bank|requests)\.functions$/ },
+      ({ path }) => ({
+        path: path.endsWith("requests.functions") ? "fake-request-api" : "fake-bank-api",
+        namespace: "fixture",
+      }),
+    );
+    build.onLoad({ filter: /.*/, namespace: "fixture" }, ({ path }) => ({
       loader: "js",
       contents:
-        "export const createCompensatoryStaff=()=>{}; export const getCompensatoryHistory=()=>{}; export const listCompensatoryStaff=()=>{}; export const recordCompensatoryMovement=()=>{}; export const reverseCompensatoryMovement=()=>{}; export const updateCompensatoryStaff=()=>{};",
+        path === "fake-request-api"
+          ? "export const insertCompensatoryRequest=async()=>({status:'stored'}); export const listCompensatoryRequests=async()=>[];"
+          : "export const createCompensatoryStaff=()=>{}; export const getCompensatoryHistory=()=>{}; export const listCompensatoryStaff=()=>{}; export const recordCompensatoryMovement=()=>{}; export const reverseCompensatoryMovement=()=>{}; export const updateCompensatoryStaff=()=>{};",
     }));
   },
 };
@@ -80,6 +85,7 @@ function jsonExport() {
         requesterMobile: "Ambulance 4",
         compensatoryDate: "2026-10-03",
         hours: "2",
+        requesterEmail: "new@example.test",
       }),
       request("synthetic-request-invalid", {
         requesterMobile: "Ambulance 5",
@@ -114,10 +120,9 @@ async function main() {
   });
   await page.goto(`http://127.0.0.1:${server.address().port}`);
   await page.addScriptTag({ path: bundle });
-  await page.evaluate(() => window.mountDirectoryReview());
+  await page.evaluate(() => window.mountLocalReview());
   const results = [];
 
-  await page.getByRole("button", { name: "Revisar vinculaciones" }).click();
   const opaqueIds = JSON.parse(jsonExport());
   opaqueIds.responses = ["constructor", "__proto__", "toString"].map((responseId) => ({
     ...opaqueIds.responses[0],
@@ -177,7 +182,7 @@ async function main() {
     .isDisabled();
   results.push({ probe: "invalid request cannot be confirmed", passed: invalidTargetDisabled });
 
-  await page.locator("#target-synthetic-request-valid").selectOption("2");
+  await page.locator("#target-synthetic-request-valid").selectOption("12345678");
   await page.getByRole("button", { name: "Confirmar para esta revisión" }).first().click();
   await page.getByText("Confirmada localmente").waitFor();
   const confirmedCount = await page.getByText("Confirmada localmente").count();
@@ -188,7 +193,7 @@ async function main() {
     passed: (await page.getByText("Confirmada localmente").count()) === 0,
   });
 
-  await page.locator("#target-synthetic-request-valid").selectOption("2");
+  await page.locator("#target-synthetic-request-valid").selectOption("12345678");
   await page.getByRole("button", { name: "Confirmar para esta revisión" }).first().click();
   await page.getByText("Confirmada localmente").waitFor();
   await page.evaluate(() => {
@@ -285,7 +290,137 @@ async function main() {
     passed: profileFields.every((key) => createPayload[key] === `new-${key}`),
   });
 
+  await page.getByRole("button", { name: "Revisar vinculaciones" }).click();
+  await page.locator("#source-roster").setInputFiles({
+    name: "request-review.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from(roster("Ana Pérez", "12345679", "Request Review Base")),
+  });
+  await page.locator("#source-requests").setInputFiles({
+    name: "request-review.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(jsonExport()),
+  });
+  await page.getByText("synthetic-request-valid").waitFor();
+  await page.locator("#target-synthetic-request-valid").selectOption("12345679");
+  results.push({
+    probe: "source confirmation alone does not persist a request",
+    passed:
+      (await page.evaluate(() => window.__uiProbe.requestCalls.length)) === 0 &&
+      (await page
+        .locator("button:enabled")
+        .filter({ hasText: /^Vincular y guardar$/ })
+        .count()) === 1,
+  });
+  await page
+    .locator("button:enabled")
+    .filter({ hasText: /^Vincular y guardar$/ })
+    .click();
+  await page.getByText("Se encontraron 1 solicitudes parecidas", { exact: false }).waitFor();
+  await page.getByRole("button", { name: "Guardar igualmente tras revisar" }).click();
+  await page.locator("#source-filter").selectOption("stored");
+  await page.getByText("Solicitud guardada en el historial del agente.").waitFor();
+  const requestCalls = await page.evaluate(() => window.__uiProbe.requestCalls);
+  results.push({
+    probe:
+      "duplicate requests require explicit confirmation with unchanged payload and operation ID",
+    passed:
+      requestCalls.length === 2 &&
+      requestCalls[0].clientOperationId === requestCalls[1].clientOperationId &&
+      requestCalls[0].confirmDuplicate === undefined &&
+      requestCalls[1].confirmDuplicate === true &&
+      requestCalls[0].staffId === "staff-fake-new" &&
+      requestCalls.every((request) => !Object.prototype.hasOwnProperty.call(request, "responseId")),
+  });
+  await page.getByRole("button", { name: "Copiar correo revisado al perfil" }).click();
+  await page.getByText("Correo copiado al perfil con auditoría.").waitFor();
+  const copiedEmail = await page.evaluate(() => window.__uiProbe.updated.at(-1));
+  results.push({
+    probe: "request email is copied only by explicit audited profile update",
+    passed:
+      copiedEmail.email === "new@example.test" &&
+      copiedEmail.reason.includes("revisado") &&
+      copiedEmail.clientOperationId &&
+      copiedEmail.expectedVersion === 1,
+  });
+  await page.getByRole("button", { name: "Deshacer vínculo local" }).click();
+  await page.locator("#source-filter").selectOption("all");
+  await page.locator("#target-synthetic-request-valid").selectOption("12345679");
+  results.push({
+    probe: "undo and relink does not reuse a saved status",
+    passed:
+      (await page
+        .locator("button:enabled")
+        .filter({ hasText: /^Vincular y guardar$/ })
+        .count()) === 1,
+  });
+  const changedExport = JSON.parse(jsonExport());
+  changedExport.responses[0].answers.find((answer) => answer.field === "requesterEmail").value =
+    "changed@example.test";
+  await page.locator("#source-requests").setInputFiles({
+    name: "replacement.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(changedExport)),
+  });
+  await page.locator("#target-synthetic-request-valid").selectOption("12345679");
+  results.push({
+    probe: "file replacement does not reuse saved or copied statuses",
+    passed:
+      (await page
+        .locator("button:enabled")
+        .filter({ hasText: /^Vincular y guardar$/ })
+        .count()) === 1 &&
+      (await page.getByRole("button", { name: "Copiar correo revisado al perfil" }).count()) === 1,
+  });
+  await page.evaluate(() => {
+    window.__uiProbe.pauseRequest = true;
+  });
+  await page
+    .locator("button:enabled")
+    .filter({ hasText: /^Vincular y guardar$/ })
+    .click();
+  await page.waitForFunction(() => Boolean(window.__uiProbe.resumeRequest));
+  results.push({
+    probe: "pending writes prevent undo and file replacement",
+    passed:
+      (await page.getByRole("button", { name: "Deshacer vínculo local" }).isDisabled()) &&
+      (await page.locator("#source-roster").isDisabled()) &&
+      (await page.locator("#source-requests").isDisabled()),
+  });
+  await page.evaluate(() => {
+    window.__uiProbe.pauseRequest = false;
+    window.__uiProbe.resumeRequest();
+  });
+  await page.getByText("Se encontraron 1 solicitudes parecidas", { exact: false }).waitFor();
+  const stateChecks = results.slice(-3);
+  if (stateChecks.some((result) => !result.passed) || process.argv.includes("--state-only")) {
+    for (const result of stateChecks)
+      console.log(`${result.passed ? "PASS" : "FAIL"}: ${result.probe}`);
+    await browser.close();
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+    if (stateChecks.some((result) => !result.passed)) process.exitCode = 1;
+    return;
+  }
+  await page.getByRole("button", { name: "Volver al banco" }).click();
+  await page.getByText("Historial de solicitudes guardadas", { exact: true }).waitFor();
+  const profileEmail = await page.locator("#profile-email").inputValue();
+  const historyCard = page
+    .getByText("Historial de solicitudes guardadas", { exact: true })
+    .locator("xpath=ancestor::div[contains(@class,'rounded-xl')][1]");
+  await historyCard.getByText("2026-10-03", { exact: false }).waitFor();
+  const requestHistoryText = await historyCard.innerText();
+  results.push({
+    probe: "stored requests appear in selected staff history without source response ID",
+    passed:
+      profileEmail === "new@example.test" &&
+      requestHistoryText.includes("2026-10-03") &&
+      requestHistoryText.includes("Ambulance 4") &&
+      !requestHistoryText.includes("synthetic-request-valid"),
+  });
+
   await browser.close();
+  server.closeAllConnections();
   await new Promise((resolve) => server.close(resolve));
   for (const result of results) console.log(`${result.passed ? "PASS" : "FAIL"}: ${result.probe}`);
   if (results.some((result) => !result.passed)) process.exitCode = 1;

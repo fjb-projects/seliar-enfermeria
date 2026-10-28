@@ -25,4 +25,12 @@ describe("staff directory fields", () => {
     expect(html).toContain('maxLength="300"');
     expect(html).not.toContain("OBS");
   });
+
+  it("shows the licenciatura qualification when the matrícula contains L", () => {
+    const html = renderToStaticMarkup(
+      <StaffDirectoryFields prefix="profile" values={{ registrationNumber: "L-12345" }} />,
+    );
+    expect(html).toContain("Licenciatura indicada por la matrícula");
+    expect(html).toContain('value="L-12345"');
+  });
 });

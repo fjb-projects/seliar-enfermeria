@@ -3,8 +3,16 @@ import { RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { CompensatorySourceReview } from "@/components/CompensatorySourceReview";
+import {
+  CompensatorySourceReview,
+  type ImportedStaff,
+} from "@/components/CompensatorySourceReview";
 import { StaffDirectoryFields } from "@/components/StaffDirectoryFields";
+import {
+  insertCompensatoryRequest,
+  listCompensatoryRequests,
+} from "@/lib/compensatory-requests.functions";
+import type { CompensatoryRequestRecord } from "@/lib/compensatory-requests.server";
 import {
   createCompensatoryStaff,
   getCompensatoryHistory,
@@ -36,6 +44,8 @@ type BankApi = {
   updateStaff: typeof updateCompensatoryStaff;
   recordMovement: typeof recordCompensatoryMovement;
   reverseMovement: typeof reverseCompensatoryMovement;
+  insertRequest: typeof insertCompensatoryRequest;
+  listRequests: typeof listCompensatoryRequests;
 };
 
 const defaultApi: BankApi = {
@@ -45,6 +55,8 @@ const defaultApi: BankApi = {
   updateStaff: updateCompensatoryStaff,
   recordMovement: recordCompensatoryMovement,
   reverseMovement: reverseCompensatoryMovement,
+  insertRequest: insertCompensatoryRequest,
+  listRequests: listCompensatoryRequests,
 };
 
 function today() {
@@ -168,6 +180,10 @@ export function CompensatoryBankPanel({
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyRevision, setHistoryRevision] = useState(0);
   const [historyError, setHistoryError] = useState("");
+  const [requestHistory, setRequestHistory] = useState<CompensatoryRequestRecord[]>([]);
+  const [requestHistoryError, setRequestHistoryError] = useState("");
+  const [requestHistoryLoading, setRequestHistoryLoading] = useState(false);
+  const [requestHistoryRevision, setRequestHistoryRevision] = useState(0);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -175,6 +191,7 @@ export function CompensatoryBankPanel({
   const [reverseEntryId, setReverseEntryId] = useState("");
   const [activeView, setActiveView] = useState<"bank" | "review">("bank");
   const requestSequence = useRef(0);
+  const requestHistorySequence = useRef(0);
   const pendingOperations = useRef(new Map<string, { fingerprint: string; id: string }>());
 
   const getOperationId = (slot: string, payload: unknown) => {
@@ -218,6 +235,36 @@ export function CompensatoryBankPanel({
       requestSequence.current += 1;
     };
   }, [api, selectedId, historyRevision]);
+
+  useEffect(() => {
+    const request = ++requestHistorySequence.current;
+    if (!selectedId) {
+      setRequestHistory([]);
+      setRequestHistoryError("");
+      setRequestHistoryLoading(false);
+      return;
+    }
+    setRequestHistory([]);
+    setRequestHistoryError("");
+    setRequestHistoryLoading(true);
+    void api
+      .listRequests({ data: { staffId: selectedId } })
+      .then((items) => {
+        if (request === requestHistorySequence.current) setRequestHistory(items);
+      })
+      .catch((cause: unknown) => {
+        if (request === requestHistorySequence.current)
+          setRequestHistoryError(
+            getErrorMessage(cause, "No se pudo cargar el historial de solicitudes."),
+          );
+      })
+      .finally(() => {
+        if (request === requestHistorySequence.current) setRequestHistoryLoading(false);
+      });
+    return () => {
+      requestHistorySequence.current += 1;
+    };
+  }, [api, selectedId, requestHistoryRevision]);
 
   async function reloadAfterSave(message: string) {
     try {
@@ -446,6 +493,85 @@ export function CompensatoryBankPanel({
     } finally {
       setRefreshing(false);
     }
+  }
+
+  async function importStaffProfile(profile: ImportedStaff) {
+    const canonicalDni = profile.dni.replace(/[.\s]/gu, "");
+    if (staff.some((person) => person.dni.replace(/[.\s]/gu, "") === canonicalDni)) {
+      throw new Error("Ya existe un agente con ese DNI; no se modificó.");
+    }
+    const payload = { ...profile };
+    const created = await api.createStaff({
+      data: { ...payload, clientOperationId: getOperationId(`import:${canonicalDni}`, payload) },
+    });
+    const latest = await api.listStaff();
+    pendingOperations.current.delete(`import:${canonicalDni}`);
+    setStaff(latest);
+    setSelectedId(created.id);
+    setNotice("Agente importado desde el CSV.");
+    setError("");
+  }
+
+  async function saveReviewedRequest(
+    staffId: string,
+    request: {
+      submittedAt: string;
+      name: string;
+      mobile: string;
+      requestedDate: string;
+      requestedHours: string;
+    },
+    confirmDuplicate: boolean,
+    responseId: string,
+  ) {
+    const payload = {
+      staffId,
+      submittedAt: request.submittedAt,
+      requesterName: request.name,
+      requesterMobile: request.mobile,
+      compensatoryDate: request.requestedDate,
+      hours: request.requestedHours,
+    };
+    const slot = `request:${responseId}`;
+    const result = await api.insertRequest({
+      data: {
+        ...payload,
+        clientOperationId: getOperationId(slot, payload),
+        ...(confirmDuplicate ? { confirmDuplicate: true } : {}),
+      },
+    });
+    if (result.status === "stored") {
+      pendingOperations.current.delete(slot);
+      setRequestHistoryRevision((revision) => revision + 1);
+      setNotice("Solicitud agregada al historial del agente.");
+      setError("");
+    }
+    return result;
+  }
+
+  async function copyReviewedRequesterEmail(staffId: string, email: string, responseId: string) {
+    const person = staff.find((candidate) => candidate.id === staffId);
+    if (!person || !email || person.email === email) return;
+    const payload = {
+      staffId: person.id,
+      name: person.name,
+      email,
+      isActive: person.isActive,
+      monthlyLimitMinutes: person.monthlyLimitMinutes,
+      expectedVersion: person.version,
+      reason: "Correo del solicitante revisado y copiado desde una solicitud de compensatorio.",
+      ...Object.fromEntries(staffDirectoryKeys.map((key) => [key, person[key] ?? null])),
+    };
+    const slot = `request-email:${responseId}`;
+    await api.updateStaff({
+      data: { ...payload, clientOperationId: getOperationId(slot, payload) },
+    });
+    const latest = await api.listStaff();
+    pendingOperations.current.delete(slot);
+    setStaff(latest);
+    setRequestHistoryRevision((revision) => revision + 1);
+    setNotice("Correo copiado al perfil y cambio auditado.");
+    setError("");
   }
 
   return (
@@ -979,11 +1105,74 @@ export function CompensatoryBankPanel({
                 )}
             </CardContent>
           </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Historial de solicitudes guardadas</CardTitle>
+              <CardDescription>
+                Solicitudes históricas y próximas asociadas explícitamente a este agente; no
+                implican aprobación ni saldo.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {!selected && (
+                <p className="text-sm text-muted-foreground">
+                  Selecciona un agente para consultar sus solicitudes.
+                </p>
+              )}
+              {requestHistoryLoading && (
+                <p role="status" className="text-sm text-muted-foreground">
+                  Cargando solicitudes guardadas…
+                </p>
+              )}
+              {requestHistoryError && (
+                <div role="alert" className="space-y-2">
+                  <p className="text-sm text-destructive">{requestHistoryError}</p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="min-h-11"
+                    onClick={() => setRequestHistoryRevision((revision) => revision + 1)}
+                  >
+                    Reintentar carga
+                  </Button>
+                </div>
+              )}
+              {selected &&
+                !requestHistoryLoading &&
+                !requestHistoryError &&
+                requestHistory.length === 0 && (
+                  <p className="rounded-md bg-muted/40 p-3 text-sm text-muted-foreground">
+                    No hay solicitudes guardadas para este agente.
+                  </p>
+                )}
+              {requestHistory.map((request) => (
+                <article className="rounded-md border p-3 text-sm" key={request.id}>
+                  <p className="font-medium">
+                    {request.submittedAt} · {request.requesterName}
+                  </p>
+                  <p className="mt-1">
+                    Móvil: {request.requesterMobile} · Fecha solicitada: {request.compensatoryDate}{" "}
+                    · Horas: {request.hours}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Registrada: {new Date(request.createdAt).toLocaleString()}
+                  </p>
+                </article>
+              ))}
+            </CardContent>
+          </Card>
           {selected && <StaffAuditHistory changes={changes} />}
         </div>
       </div>
       <div className="compensatory-review-view">
-        <CompensatorySourceReview onBack={() => setActiveView("bank")} />
+        <CompensatorySourceReview
+          onBack={() => setActiveView("bank")}
+          existingDnis={staff.map((person) => person.dni)}
+          onImportStaff={importStaffProfile}
+          staffTargets={staff}
+          onSaveRequest={saveReviewedRequest}
+          onCopyRequesterEmail={copyReviewedRequesterEmail}
+        />
       </div>
     </div>
   );

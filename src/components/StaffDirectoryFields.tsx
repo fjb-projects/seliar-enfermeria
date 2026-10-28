@@ -39,6 +39,11 @@ export function StaffDirectoryFields({
       </summary>
       <fieldset className="mt-3 grid gap-3 sm:grid-cols-2">
         <legend className="sr-only">Datos laborales y contacto</legend>
+        {values?.registrationNumber?.toLocaleUpperCase("es").includes("L") && (
+          <p className="sm:col-span-2 text-sm font-medium" aria-label="Calificación profesional">
+            Licenciatura indicada por la matrícula
+          </p>
+        )}
         {directoryFields.map(({ key, label }) => {
           const id = `${prefix}-${key}`;
           return (

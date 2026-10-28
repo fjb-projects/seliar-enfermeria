@@ -22,6 +22,7 @@ describe("compensatory bank panel", () => {
     expect(html).toContain("Referencia mensual");
     expect(html).toContain("no se crea una cuenta de acceso");
     expect(html).toContain("No hay movimientos registrados");
+    expect(html).toContain("Historial de solicitudes guardadas");
   });
 
   it("shows the actor, reason, and before/after values in the profile audit", () => {
@@ -51,7 +52,7 @@ describe("compensatory bank panel", () => {
     expect(html).toContain("Registrar horas");
     expect(html).toContain("Motivo y respaldo");
     expect(html).toContain("Historial de saldo");
-    expect(html).not.toContain("Importar");
+    expect(html).toContain("Importar agentes seleccionados");
     expect(html).not.toContain("Aprobar solicitud");
     expect(html).not.toContain("Eliminar agente");
   });
@@ -63,5 +64,6 @@ describe("compensatory bank panel", () => {
     expect(html).toContain("Datos laborales y contacto");
     expect(html).toContain("Función laboral");
     expect(html).toContain("Función operativa");
+    expect(html).toContain("Licenciatura");
   });
 });
