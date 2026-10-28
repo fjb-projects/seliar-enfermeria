@@ -470,6 +470,34 @@ export const compensatoryStaff = pgTable(
   ],
 );
 
+export const compensatoryRequest = pgTable(
+  "compensatory_request",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    clientOperationId: uuid("client_operation_id").notNull(),
+    staffId: uuid("staff_id")
+      .notNull()
+      .references(() => compensatoryStaff.id, { onDelete: "restrict" }),
+    createdByUserId: text("created_by_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    submittedAt: text("submitted_at").notNull(),
+    requesterName: text("requester_name").notNull(),
+    requesterMobile: text("requester_mobile").notNull(),
+    compensatoryDate: text("compensatory_date").notNull(),
+    hours: text("hours").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    unique("compensatory_request_operation_unique").on(table.createdByUserId, table.clientOperationId),
+    check("compensatory_request_submitted_at_valid", sql`char_length(btrim(${table.submittedAt})) between 1 and 500`),
+    check("compensatory_request_requester_name_valid", sql`char_length(btrim(${table.requesterName})) between 1 and 300`),
+    check("compensatory_request_requester_mobile_valid", sql`char_length(btrim(${table.requesterMobile})) between 1 and 300`),
+    check("compensatory_request_date_valid", sql`char_length(btrim(${table.compensatoryDate})) between 1 and 300`),
+    check("compensatory_request_hours_valid", sql`char_length(btrim(${table.hours})) between 1 and 100`),
+  ],
+);
+
 export const compensatoryLedger = pgTable(
   "compensatory_ledger",
   {
