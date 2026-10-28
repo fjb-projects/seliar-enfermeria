@@ -57,3 +57,4 @@ scripts/bootstrap-admin.test.mjs
 *.njsproj
 *.sln
 *.sw?
+ docs/*
