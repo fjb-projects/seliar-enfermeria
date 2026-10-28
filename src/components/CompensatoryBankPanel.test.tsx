@@ -55,4 +55,13 @@ describe("compensatory bank panel", () => {
     expect(html).not.toContain("Aprobar solicitud");
     expect(html).not.toContain("Eliminar agente");
   });
+
+  it("keeps the local review view mounted beside the bank and offers profile directory fields", () => {
+    const html = renderToStaticMarkup(<CompensatoryBankPanel initialStaff={[staff]} />);
+    expect(html).toContain("Revisar vinculaciones");
+    expect(html).toContain("Volver al banco");
+    expect(html).toContain("Datos laborales y contacto");
+    expect(html).toContain("Función laboral");
+    expect(html).toContain("Función operativa");
+  });
 });

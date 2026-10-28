@@ -1,0 +1,28 @@
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it } from "vitest";
+import { StaffDirectoryFields } from "./StaffDirectoryFields";
+
+describe("staff directory fields", () => {
+  it("renders the eight optional directory fields with distinct functional labels", () => {
+    const html = renderToStaticMarkup(
+      <form>
+        <StaffDirectoryFields prefix="staff" />
+      </form>,
+    );
+    for (const label of [
+      "Matrícula",
+      "Situación de revista",
+      "Función laboral",
+      "Región",
+      "Teléfono de contacto",
+      "Lugar de desempeño",
+      "Condición operativa",
+      "Función operativa",
+    ])
+      expect(html).toContain(label);
+    expect(html).toContain('name="staffJobRole"');
+    expect(html).toContain('name="staffOperationalRole"');
+    expect(html).toContain('maxLength="300"');
+    expect(html).not.toContain("OBS");
+  });
+});

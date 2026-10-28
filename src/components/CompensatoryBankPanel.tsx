@@ -3,6 +3,8 @@ import { RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { CompensatorySourceReview } from "@/components/CompensatorySourceReview";
+import { StaffDirectoryFields } from "@/components/StaffDirectoryFields";
 import {
   createCompensatoryStaff,
   getCompensatoryHistory,
@@ -14,6 +16,18 @@ import {
   type StaffAuditView,
   type StaffView,
 } from "@/lib/compensatory-bank.functions";
+
+const staffDirectoryKeys = [
+  "registrationNumber",
+  "employmentStatus",
+  "jobRole",
+  "region",
+  "contactPhone",
+  "workplace",
+  "operationalStatus",
+  "operationalRole",
+] as const;
+type StaffDirectoryValues = Partial<Record<(typeof staffDirectoryKeys)[number], string | null>>;
 
 type BankApi = {
   listStaff: typeof listCompensatoryStaff;
@@ -92,6 +106,16 @@ function getErrorMessage(error: unknown, fallback: string) {
   return fallback;
 }
 
+function readDirectoryValues(form: FormData, prefix: "staff" | "profile") {
+  return Object.fromEntries(
+    staffDirectoryKeys.map((key) => {
+      const name = `${prefix}${key.charAt(0).toUpperCase()}${key.slice(1)}`;
+      const value = String(form.get(name) ?? "").trim();
+      return [key, value || null];
+    }),
+  ) as Record<(typeof staffDirectoryKeys)[number], string | null>;
+}
+
 export function StaffAuditHistory({ changes }: { changes: StaffAuditView[] }) {
   return (
     <Card>
@@ -149,6 +173,7 @@ export function CompensatoryBankPanel({
   const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [reverseEntryId, setReverseEntryId] = useState("");
+  const [activeView, setActiveView] = useState<"bank" | "review">("bank");
   const requestSequence = useRef(0);
   const pendingOperations = useRef(new Map<string, { fingerprint: string; id: string }>());
 
@@ -225,7 +250,13 @@ export function CompensatoryBankPanel({
       setError("Completa un DNI, nombre y referencia mensual válida.");
       return;
     }
-    const payload = { dni, name, ...(email ? { email } : {}), monthlyLimitMinutes };
+    const payload = {
+      dni,
+      name,
+      ...(email ? { email } : {}),
+      ...readDirectoryValues(form, "staff"),
+      monthlyLimitMinutes,
+    };
     setSaving(true);
     setError("");
     setNotice("");
@@ -279,6 +310,7 @@ export function CompensatoryBankPanel({
       monthlyLimitMinutes,
       expectedVersion: selected.version,
       reason,
+      ...readDirectoryValues(form, "profile"),
     };
     setSaving(true);
     setError("");
@@ -417,7 +449,32 @@ export function CompensatoryBankPanel({
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 compensatory-bank-panel" data-active-view={activeView}>
+      <style className="compensatory-bank-view-styles">{`.compensatory-bank-panel[data-active-view="review"] > :not(.compensatory-bank-view-switch):not(.compensatory-review-view):not(.compensatory-bank-view-styles) { display: none; }
+.compensatory-bank-panel[data-active-view="bank"] > .compensatory-review-view { display: none; }`}</style>
+      <div
+        className="flex flex-wrap gap-2 compensatory-bank-view-switch"
+        aria-label="Vistas de compensatorios"
+      >
+        <Button
+          type="button"
+          variant={activeView === "bank" ? "default" : "outline"}
+          className="min-h-11"
+          aria-pressed={activeView === "bank"}
+          onClick={() => setActiveView("bank")}
+        >
+          Banco de horas
+        </Button>
+        <Button
+          type="button"
+          variant={activeView === "review" ? "default" : "outline"}
+          className="min-h-11"
+          aria-pressed={activeView === "review"}
+          onClick={() => setActiveView("review")}
+        >
+          Revisar vinculaciones
+        </Button>
+      </div>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-xl font-semibold">Compensatorios</h2>
@@ -530,6 +587,7 @@ export function CompensatoryBankPanel({
                 <Field id="new-email" label="Correo electrónico (opcional)">
                   <Input id="new-email" name="email" type="email" className={inputClass()} />
                 </Field>
+                <StaffDirectoryFields prefix="staff" />
                 <div>
                   <p className="mb-1.5 text-sm font-medium">Referencia mensual</p>
                   <p className="mb-2 text-xs text-muted-foreground">
@@ -601,6 +659,14 @@ export function CompensatoryBankPanel({
                       defaultValue={selected.email ?? ""}
                     />
                   </Field>
+                  <StaffDirectoryFields
+                    prefix="profile"
+                    values={
+                      Object.fromEntries(
+                        staffDirectoryKeys.map((key) => [key, selected[key] ?? null]),
+                      ) as StaffDirectoryValues
+                    }
+                  />
                   <div>
                     <p className="mb-1.5 text-sm font-medium">Referencia mensual</p>
                     <div className="grid grid-cols-2 gap-2">
@@ -915,6 +981,9 @@ export function CompensatoryBankPanel({
           </Card>
           {selected && <StaffAuditHistory changes={changes} />}
         </div>
+      </div>
+      <div className="compensatory-review-view">
+        <CompensatorySourceReview onBack={() => setActiveView("bank")} />
       </div>
     </div>
   );
