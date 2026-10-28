@@ -10,6 +10,19 @@ import {
 describe("compensatory bank schema", () => {
   it("persists canonical unique DNI, nonnegative balances, and the monthly reference default", () => {
     const config = getTableConfig(compensatoryStaff);
+    const columns = new Map(config.columns.map((column) => [column.name, column]));
+    for (const name of [
+      "registration_number",
+      "employment_status",
+      "job_role",
+      "region",
+      "contact_phone",
+      "workplace",
+      "operational_status",
+      "operational_role",
+    ]) {
+      expect(columns.get(name)?.notNull).toBe(false);
+    }
     expect(config.columns.find((column) => column.name === "monthly_limit_minutes")?.default).toBe(
       1440,
     );

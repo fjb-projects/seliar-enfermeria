@@ -1,5 +1,20 @@
 import { createHash } from "node:crypto";
 
+export const staffDirectoryKeys = [
+  "registrationNumber",
+  "employmentStatus",
+  "jobRole",
+  "region",
+  "contactPhone",
+  "workplace",
+  "operationalStatus",
+  "operationalRole",
+] as const;
+
+export type StaffDirectoryKey = (typeof staffDirectoryKeys)[number];
+export type StaffDirectoryFields = Record<StaffDirectoryKey, string | null>;
+type StaffDirectoryInput = Partial<Record<StaffDirectoryKey, string | null | undefined>>;
+
 export type StaffRecord = {
   id: string;
   dni: string;
@@ -10,7 +25,7 @@ export type StaffRecord = {
   version: number;
   balanceMinutes: number;
   createdAt: Date;
-};
+} & Partial<StaffDirectoryFields>;
 
 export type LedgerKind = "opening" | "credit" | "debit" | "reversal";
 
@@ -20,6 +35,14 @@ export type StaffAuditState = {
   email?: string | null;
   isActive?: boolean;
   monthlyLimitMinutes?: number;
+  registrationNumber?: string | null;
+  employmentStatus?: string | null;
+  jobRole?: string | null;
+  region?: string | null;
+  contactPhone?: string | null;
+  workplace?: string | null;
+  operationalStatus?: string | null;
+  operationalRole?: string | null;
   version?: number;
 };
 
@@ -153,6 +176,29 @@ function normalizedReason(value: string) {
   return reason;
 }
 
+function normalizedDirectoryFields(input: StaffDirectoryInput): Partial<StaffDirectoryFields> {
+  const result: Partial<StaffDirectoryFields> = {};
+  for (const key of staffDirectoryKeys) {
+    if (!Object.hasOwn(input, key)) continue;
+    const value = input[key];
+    if (value == null) {
+      result[key] = null;
+      continue;
+    }
+    const normalized = value.trim();
+    if (normalized.length > 300)
+      throw new Error("Los datos de ficha deben tener hasta 300 caracteres.");
+    result[key] = normalized || null;
+  }
+  return result;
+}
+
+function directoryAuditFields(staff: StaffRecord): StaffDirectoryFields {
+  return Object.fromEntries(
+    staffDirectoryKeys.map((key) => [key, staff[key] ?? null]),
+  ) as StaffDirectoryFields;
+}
+
 function fingerprint(action: string, payload: unknown) {
   return createHash("sha256").update(JSON.stringify({ action, payload })).digest("hex");
 }
@@ -258,14 +304,15 @@ export function createCompensatoryBankService(
         email?: string | undefined;
         monthlyLimitMinutes?: number | undefined;
         clientOperationId: string;
-      },
+      } & StaffDirectoryInput,
     ): Promise<{ id: string }> {
       const dni = canonicalizeDni(input.dni);
       const name = normalizedName(input.name);
       const email = normalizedEmail(input.email);
       const monthlyLimitMinutes = input.monthlyLimitMinutes ?? 1440;
       assertMinutes(monthlyLimitMinutes);
-      const payload = { dni, name, email, monthlyLimitMinutes };
+      const directoryFields = normalizedDirectoryFields(input);
+      const payload = { dni, name, email, monthlyLimitMinutes, ...directoryFields };
       return store.transaction(async (tx) => {
         const actor = await authorize(tx, userId);
         return operation(tx, userId, input.clientOperationId, "create_staff", payload, async () => {
@@ -283,6 +330,8 @@ export function createCompensatoryBankService(
             version: 1,
             balanceMinutes: 0,
             createdAt,
+            ...Object.fromEntries(staffDirectoryKeys.map((key) => [key, null])),
+            ...directoryFields,
           };
           await tx.insertStaff(staff);
           await tx.insertAudit({
@@ -297,7 +346,15 @@ export function createCompensatoryBankService(
             versionAfter: 1,
             reason: "Alta del agente",
             before: null,
-            after: { dni, name, email, isActive: true, monthlyLimitMinutes, version: 1 },
+            after: {
+              dni,
+              name,
+              email,
+              isActive: true,
+              monthlyLimitMinutes,
+              ...directoryAuditFields(staff),
+              version: 1,
+            },
           });
           return { id };
         });
@@ -315,12 +372,13 @@ export function createCompensatoryBankService(
         expectedVersion: number;
         reason: string;
         clientOperationId: string;
-      },
+      } & StaffDirectoryInput,
     ): Promise<{ id: string }> {
       const name = normalizedName(input.name);
       const email = normalizedEmail(input.email);
       assertMinutes(input.monthlyLimitMinutes);
       const reason = normalizedReason(input.reason);
+      const directoryFields = normalizedDirectoryFields(input);
       if (!Number.isSafeInteger(input.expectedVersion) || input.expectedVersion < 1)
         throw new Error("La versión de la ficha no es válida.");
       const payload = {
@@ -331,6 +389,7 @@ export function createCompensatoryBankService(
         monthlyLimitMinutes: input.monthlyLimitMinutes,
         expectedVersion: input.expectedVersion,
         reason,
+        ...directoryFields,
       };
       return store.transaction(async (tx) => {
         const actor = await authorize(tx, userId);
@@ -345,6 +404,23 @@ export function createCompensatoryBankService(
             isActive: input.isActive,
             monthlyLimitMinutes: input.monthlyLimitMinutes,
             version: before.version + 1,
+            ...directoryFields,
+          };
+          const beforeAuditState = {
+            name: before.name,
+            email: before.email,
+            isActive: before.isActive,
+            monthlyLimitMinutes: before.monthlyLimitMinutes,
+            ...directoryAuditFields(before),
+            version: before.version,
+          };
+          const afterAuditState = {
+            name: after.name,
+            email: after.email,
+            isActive: after.isActive,
+            monthlyLimitMinutes: after.monthlyLimitMinutes,
+            ...directoryAuditFields(after),
+            version: after.version,
           };
           await tx.updateStaff(before.id, before.version, {
             name,
@@ -352,6 +428,7 @@ export function createCompensatoryBankService(
             isActive: input.isActive,
             monthlyLimitMinutes: input.monthlyLimitMinutes,
             version: after.version,
+            ...directoryFields,
           });
           await tx.insertAudit({
             id: newId(),
@@ -364,20 +441,8 @@ export function createCompensatoryBankService(
             action: "updated",
             versionBefore: before.version,
             versionAfter: after.version,
-            before: {
-              name: before.name,
-              email: before.email,
-              isActive: before.isActive,
-              monthlyLimitMinutes: before.monthlyLimitMinutes,
-              version: before.version,
-            },
-            after: {
-              name: after.name,
-              email: after.email,
-              isActive: after.isActive,
-              monthlyLimitMinutes: after.monthlyLimitMinutes,
-              version: after.version,
-            },
+            before: beforeAuditState,
+            after: afterAuditState,
           });
           return { id: before.id };
         });

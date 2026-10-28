@@ -17,6 +17,13 @@ const email = z
   .refine((value) => !value || z.email().safeParse(value).success)
   .optional();
 const monthlyLimitMinutes = z.number().int().positive().max(2_147_483_647);
+const directoryText = z
+  .string()
+  .trim()
+  .max(300)
+  .transform((value) => value || null)
+  .nullable()
+  .optional();
 
 export const compensatoryBankSchemas = {
   list: z.object({}).strict(),
@@ -27,6 +34,14 @@ export const compensatoryBankSchemas = {
       name,
       email,
       monthlyLimitMinutes: monthlyLimitMinutes.optional(),
+      registrationNumber: directoryText,
+      employmentStatus: directoryText,
+      jobRole: directoryText,
+      region: directoryText,
+      contactPhone: directoryText,
+      workplace: directoryText,
+      operationalStatus: directoryText,
+      operationalRole: directoryText,
       clientOperationId: operationId,
     })
     .strict(),
@@ -37,6 +52,14 @@ export const compensatoryBankSchemas = {
       email,
       isActive: z.boolean(),
       monthlyLimitMinutes,
+      registrationNumber: directoryText,
+      employmentStatus: directoryText,
+      jobRole: directoryText,
+      region: directoryText,
+      contactPhone: directoryText,
+      workplace: directoryText,
+      operationalStatus: directoryText,
+      operationalRole: directoryText,
       expectedVersion: z.number().int().positive(),
       reason,
       clientOperationId: operationId,

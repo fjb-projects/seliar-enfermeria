@@ -55,4 +55,41 @@ describe("compensatory bank server-function validation", () => {
       false,
     );
   });
+
+  it("accepts nullable directory fields on create and update while keeping limits", () => {
+    const create = {
+      dni: "12345678",
+      name: "Ana",
+      clientOperationId: uuid,
+      registrationNumber: "REG-42",
+      employmentStatus: null,
+      jobRole: " ",
+      region: "Norte",
+      contactPhone: null,
+      workplace: "Sala A",
+      operationalStatus: "Activa",
+      operationalRole: "Coordinación",
+    };
+    const created = compensatoryBankSchemas.create.safeParse(create);
+    expect(created.success).toBe(true);
+    if (created.success) {
+      expect(created.data.jobRole).toBeNull();
+      expect(created.data.registrationNumber).toBe("REG-42");
+    }
+    expect(
+      compensatoryBankSchemas.update.safeParse({
+        staffId: uuid,
+        name: "Ana",
+        isActive: true,
+        monthlyLimitMinutes: 1440,
+        expectedVersion: 1,
+        reason: "Ficha",
+        clientOperationId: uuid,
+        region: null,
+      }).success,
+    ).toBe(true);
+    expect(
+      compensatoryBankSchemas.create.safeParse({ ...create, region: "x".repeat(301) }).success,
+    ).toBe(false);
+  });
 });

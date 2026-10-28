@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   createCompensatoryBankService,
@@ -438,5 +439,166 @@ describe("compensatory bank service", () => {
     });
     expect((await service.listStaff("admin")).at(0)?.monthlyLimitMinutes).toBe(2000);
     expect(store.audits).toHaveLength(2);
+  });
+
+  it("creates and updates optional directory fields without changing the hours ledger", async () => {
+    const { service, store } = setup();
+    const created = await service.createStaff("admin", {
+      ...createInput("12345678", "profile-create"),
+      registrationNumber: "  REG-42  ",
+      employmentStatus: "  Titular ",
+      jobRole: "  Enfermera ",
+      region: " Norte ",
+      contactPhone: "  11-5555  ",
+      workplace: " Sala A ",
+      operationalStatus: " Activo ",
+      operationalRole: " Coordinación ",
+    });
+
+    expect(store.staff[0]).toMatchObject({
+      registrationNumber: "REG-42",
+      employmentStatus: "Titular",
+      jobRole: "Enfermera",
+      region: "Norte",
+      contactPhone: "11-5555",
+      workplace: "Sala A",
+      operationalStatus: "Activo",
+      operationalRole: "Coordinación",
+      isActive: true,
+      balanceMinutes: 0,
+    });
+    expect(store.audits[0]?.after).toMatchObject({
+      registrationNumber: "REG-42",
+      employmentStatus: "Titular",
+      jobRole: "Enfermera",
+      region: "Norte",
+      contactPhone: "11-5555",
+      workplace: "Sala A",
+      operationalStatus: "Activo",
+      operationalRole: "Coordinación",
+    });
+
+    const beforeLedger = structuredClone(store.ledger);
+    await service.updateStaff("admin", {
+      staffId: created.id,
+      name: "Ana Pérez",
+      isActive: true,
+      monthlyLimitMinutes: 1440,
+      expectedVersion: 1,
+      reason: "Actualización de ficha",
+      clientOperationId: "profile-update",
+      contactPhone: null,
+      workplace: "  ",
+      operationalRole: null,
+    });
+
+    expect((await service.listStaff("admin"))[0]).toMatchObject({
+      registrationNumber: "REG-42",
+      employmentStatus: "Titular",
+      jobRole: "Enfermera",
+      region: "Norte",
+      contactPhone: null,
+      workplace: null,
+      operationalStatus: "Activo",
+      operationalRole: null,
+      balanceMinutes: 0,
+    });
+    expect(store.audits[1]?.before).toMatchObject({
+      registrationNumber: "REG-42",
+      contactPhone: "11-5555",
+      workplace: "Sala A",
+      operationalRole: "Coordinación",
+    });
+    expect(store.audits[1]?.after).toMatchObject({
+      registrationNumber: "REG-42",
+      contactPhone: null,
+      workplace: null,
+      operationalRole: null,
+    });
+    expect(store.ledger).toEqual(beforeLedger);
+    expect(
+      await service.createStaff("admin", { ...createInput("12345679", "legacy-create") }),
+    ).toEqual({
+      id: store.staff[1]?.id,
+    });
+    expect(store.staff[1]).toMatchObject({
+      registrationNumber: null,
+      employmentStatus: null,
+      jobRole: null,
+      region: null,
+      contactPhone: null,
+      workplace: null,
+      operationalStatus: null,
+      operationalRole: null,
+    });
+  });
+
+  it("rejects overlong directory values without changing stored state", async () => {
+    const { service, store } = setup();
+    const created = await service.createStaff("admin", createInput("12345678"));
+    const before = store.hash();
+    await expect(
+      service.updateStaff("admin", {
+        staffId: created.id,
+        name: "Ana Pérez",
+        isActive: true,
+        monthlyLimitMinutes: 1440,
+        expectedVersion: 1,
+        reason: "Ficha",
+        clientOperationId: "too-long-profile",
+        region: "x".repeat(301),
+      }),
+    ).rejects.toThrow();
+    expect(store.hash()).toBe(before);
+  });
+
+  it("replays legacy create and update fingerprints when directory keys were omitted", async () => {
+    const { service, store } = setup();
+    const existing = await service.createStaff("admin", createInput("12345678", "seed"));
+    const createPayload = {
+      dni: "12345679",
+      name: "Ana Pérez",
+      email: null,
+      monthlyLimitMinutes: 1440,
+    };
+    store.operations.set("admin:old-create-operation", {
+      payloadHash: createHash("sha256")
+        .update(JSON.stringify({ action: "create_staff", payload: createPayload }))
+        .digest("hex"),
+      resultId: existing.id,
+    });
+    const before = store.hash();
+    await expect(
+      service.createStaff("admin", createInput("12345679", "old-create-operation")),
+    ).resolves.toEqual({ id: existing.id });
+    expect(store.hash()).toBe(before);
+
+    const updatePayload = {
+      staffId: existing.id,
+      name: "Ana Pérez",
+      email: null,
+      isActive: true,
+      monthlyLimitMinutes: 1440,
+      expectedVersion: 1,
+      reason: "Actualización",
+    };
+    store.operations.set("admin:old-update-operation", {
+      payloadHash: createHash("sha256")
+        .update(JSON.stringify({ action: "update_staff", payload: updatePayload }))
+        .digest("hex"),
+      resultId: existing.id,
+    });
+    await expect(
+      service.updateStaff("admin", {
+        staffId: existing.id,
+        name: "Ana Pérez",
+        isActive: true,
+        monthlyLimitMinutes: 1440,
+        expectedVersion: 1,
+        reason: "Actualización",
+        clientOperationId: "old-update-operation",
+      }),
+    ).resolves.toEqual({ id: existing.id });
+    expect(store.staff[0]?.version).toBe(1);
   });
 });
