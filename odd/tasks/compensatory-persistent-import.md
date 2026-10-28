@@ -13,10 +13,10 @@ Branch: `feat/compensatory-manual-bank`; delivery: `feature-branch-chain`; runne
 
 ## Tasks
 
-- T1 [S1,S2,S5] delegated (parallel disjoint UI and backend units); local implementation verified — CSV profile import and qualification display; actual source loading remains pending. UI commit recorded below.
+- T1 [S1,S2,S5] delegated (parallel disjoint UI and backend units); local implementation verified — CSV profile import and qualification display, UI commit `b967028e46d3a2cd404ca8fb4aa8e929f9a5973f`; actual source loading remains pending.
 - T2 [S3,S4,S5] delegated (parallel disjoint UI and backend units); local implementation verified — commit `42e829bb2da79c871a12dd416e6aa89fb3f47811`, migration0026 applied only to the authorized local copy; reviewed request persistence and duplicate checks. RDD disabled/unmanaged.
 - T3 [S1–S5] inline integration with independent high-risk verification; local checks complete — synthetic DB insertion/rollback, 801/802 full-suite tests (sole unchanged baseline EFA copy failure), production build passes. Real-record pilot and production operations pending.
-- T4 [S6] inline implementation with independent high-risk verification; local implementation verified — persisted-agent mapper, saved-card removal, errors/duplicates retained and pagination clamped. UI commit recorded below.
+- T4 [S6] inline implementation with independent high-risk verification; local implementation verified — commit `b967028e46d3a2cd404ca8fb4aa8e929f9a5973f`, persisted-agent mapper, saved-card removal, errors/duplicates retained and pagination clamped. RDD disabled/unmanaged.
 
 ## Log
 
