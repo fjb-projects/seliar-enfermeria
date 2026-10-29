@@ -601,4 +601,37 @@ describe("compensatory bank service", () => {
     ).resolves.toEqual({ id: existing.id });
     expect(store.staff[0]?.version).toBe(1);
   });
+
+  it("does not report success when a prior create or update operation points to deleted staff", async () => {
+    const { service, store } = setup();
+    const created = await service.createStaff("admin", createInput("12345678", "old-create"));
+    store.staff.splice(0, store.staff.length);
+    await expect(
+      service.createStaff("admin", createInput("12345678", "old-create")),
+    ).rejects.toThrow("No se encontró el agente");
+
+    const recreated = await service.createStaff("admin", createInput("12345678", "new-create"));
+    await service.updateStaff("admin", {
+      staffId: recreated.id,
+      name: "Ana Pérez",
+      isActive: true,
+      monthlyLimitMinutes: 1440,
+      expectedVersion: 1,
+      reason: "Actualización",
+      clientOperationId: "old-update",
+    });
+    store.staff.splice(0, store.staff.length);
+    await expect(
+      service.updateStaff("admin", {
+        staffId: recreated.id,
+        name: "Ana Pérez",
+        isActive: true,
+        monthlyLimitMinutes: 1440,
+        expectedVersion: 1,
+        reason: "Actualización",
+        clientOperationId: "old-update",
+      }),
+    ).rejects.toThrow("No se encontró el agente");
+    expect(created.id).not.toBe(recreated.id);
+  });
 });

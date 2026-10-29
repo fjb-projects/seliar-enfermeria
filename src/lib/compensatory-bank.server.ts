@@ -249,6 +249,12 @@ export function createCompensatoryBankService(
     if (prior) {
       if (prior.payloadHash !== payloadHash)
         throw new Error("La clave de operación ya fue usada con otros datos.");
+      if (
+        (action === "create_staff" || action === "update_staff") &&
+        !(await tx.findStaff(prior.resultId))
+      ) {
+        throw new Error("No se encontró el agente.");
+      }
       return { id: prior.resultId };
     }
     const result = await work();

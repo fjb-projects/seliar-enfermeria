@@ -1,6 +1,10 @@
 import { sql } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
-import type { StaffAuditState } from "../lib/compensatory-bank.server";
+import type {
+  StaffAuditRecord,
+  StaffAuditState,
+  StaffRecord,
+} from "../lib/compensatory-bank.server";
 import {
   boolean,
   check,
@@ -489,12 +493,30 @@ export const compensatoryRequest = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (table) => [
-    unique("compensatory_request_operation_unique").on(table.createdByUserId, table.clientOperationId),
-    check("compensatory_request_submitted_at_valid", sql`char_length(btrim(${table.submittedAt})) between 1 and 500`),
-    check("compensatory_request_requester_name_valid", sql`char_length(btrim(${table.requesterName})) between 1 and 300`),
-    check("compensatory_request_requester_mobile_valid", sql`char_length(btrim(${table.requesterMobile})) between 1 and 300`),
-    check("compensatory_request_date_valid", sql`char_length(btrim(${table.compensatoryDate})) between 1 and 300`),
-    check("compensatory_request_hours_valid", sql`char_length(btrim(${table.hours})) between 1 and 100`),
+    unique("compensatory_request_operation_unique").on(
+      table.createdByUserId,
+      table.clientOperationId,
+    ),
+    check(
+      "compensatory_request_submitted_at_valid",
+      sql`char_length(btrim(${table.submittedAt})) between 1 and 500`,
+    ),
+    check(
+      "compensatory_request_requester_name_valid",
+      sql`char_length(btrim(${table.requesterName})) between 1 and 300`,
+    ),
+    check(
+      "compensatory_request_requester_mobile_valid",
+      sql`char_length(btrim(${table.requesterMobile})) between 1 and 300`,
+    ),
+    check(
+      "compensatory_request_date_valid",
+      sql`char_length(btrim(${table.compensatoryDate})) between 1 and 300`,
+    ),
+    check(
+      "compensatory_request_hours_valid",
+      sql`char_length(btrim(${table.hours})) between 1 and 100`,
+    ),
   ],
 );
 
@@ -587,6 +609,34 @@ export const compensatoryStaffAudit = pgTable(
     ),
     check(
       "compensatory_staff_audit_reason_valid",
+      sql`char_length(btrim(${table.reason})) between 1 and 1000`,
+    ),
+  ],
+);
+
+export const compensatoryStaffDeletionAudit = pgTable(
+  "compensatory_staff_deletion_audit",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    staffId: uuid("staff_id").notNull(),
+    staffSnapshot: jsonb("staff_snapshot").$type<StaffRecord>().notNull(),
+    priorAudits: jsonb("prior_audits").$type<StaffAuditRecord[]>().notNull(),
+    actorUserId: text("actor_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    actorName: text("actor_name").notNull(),
+    operationId: uuid("operation_id").notNull(),
+    occurredAt: timestamp("occurred_at").notNull().defaultNow(),
+    reason: text("reason").notNull(),
+  },
+  (table) => [
+    unique("compensatory_staff_deletion_operation_unique").on(table.actorUserId, table.operationId),
+    check(
+      "compensatory_staff_deletion_snapshot_valid",
+      sql`jsonb_typeof(${table.staffSnapshot}) = 'object' and jsonb_typeof(${table.priorAudits}) = 'array'`,
+    ),
+    check(
+      "compensatory_staff_deletion_reason_valid",
       sql`char_length(btrim(${table.reason})) between 1 and 1000`,
     ),
   ],
