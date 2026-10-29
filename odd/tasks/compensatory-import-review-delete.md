@@ -11,7 +11,7 @@ Branch: `feat/compensatory-manual-bank`; delivery: feature-branch-chain, local o
 ## Tasks
 
 - T1 [S2,S3] delegated — parallel disjoint backend persistence/API unit; implemented and checked, commit `8e82b5e503a90112cf707fe1d0342554f2bf1338`. RDDdisabled/unmanaged.
-- T2 [S1,S2,S3] delegated — parallel disjoint parser/preview/delete-control unit; implemented and checked, parent commit pending.
+- T2 [S1,S2,S3] delegated — parallel disjoint parser/preview/delete-control unit; implemented and checked, commit `d894753a5e2b93f82123a894120de7e7025624c7`. RDDdisabled/unmanaged.
 - T3 [S1–S3] inline integration and independent high-risk verification; local verification passed with known baseline EFA copy-test failure; no real records deleted or imported.
 
 ## Integration contract
