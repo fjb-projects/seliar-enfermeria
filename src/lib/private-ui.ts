@@ -7,7 +7,13 @@ export type PrivateSession = {
 };
 
 export type PrivateReturnPath =
-  "/panel" | "/admin-usuarios" | "/guardia-efa" | "/episodios-efa" | "/coordinacion-efa";
+  | "/panel"
+  | "/admin-usuarios"
+  | "/guardia-efa"
+  | "/episodios-efa"
+  | "/coordinacion-efa"
+  | "/coordinacion"
+  | "/coordinacion/compensatorios";
 
 const privateDestinations = new Set<PrivateReturnPath>([
   "/panel",
@@ -15,6 +21,8 @@ const privateDestinations = new Set<PrivateReturnPath>([
   "/guardia-efa",
   "/episodios-efa",
   "/coordinacion-efa",
+  "/coordinacion",
+  "/coordinacion/compensatorios",
 ]);
 
 export function safePrivateReturnPath(value: unknown): PrivateReturnPath {

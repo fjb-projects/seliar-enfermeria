@@ -11,6 +11,10 @@ describe("private navigation and role presentation", () => {
     expect(safePrivateReturnPath("/admin-usuarios")).toBe("/admin-usuarios");
     expect(safePrivateReturnPath("/panel")).toBe("/panel");
     expect(safePrivateReturnPath("/coordinacion-efa")).toBe("/coordinacion-efa");
+    expect(safePrivateReturnPath("/coordinacion")).toBe("/coordinacion");
+    expect(safePrivateReturnPath("/coordinacion/compensatorios")).toBe(
+      "/coordinacion/compensatorios",
+    );
     for (const path of [
       "https://evil.test",
       "//evil.test",

@@ -1,4 +1,4 @@
-import { useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { Banknote, Menu, UsersRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -13,9 +13,14 @@ import {
 import { SidebarProvider, SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
 
-type CoordinationAdminSection = "home" | "compensatorios";
+type CoordinationAdminSection = "home" | "compensatorios" | "users";
 const entries = [
-  { href: "/admin-usuarios", label: "Usuarios y accesos", icon: UsersRound },
+  {
+    href: "/admin-usuarios",
+    label: "Usuarios y accesos",
+    icon: UsersRound,
+    section: "users" as const,
+  },
   {
     href: "/coordinacion/compensatorios",
     label: "Compensatorios",
@@ -36,9 +41,6 @@ function AdminNav({
 }) {
   return (
     <nav aria-label="Navegación de coordinación">
-      <p className={cn("mb-2 px-3 text-xs uppercase tracking-wide", onGradientText)}>
-        Panel <span aria-hidden="true">→</span> Coordinación
-      </p>
       <ul className="space-y-1">
         {entries.map(({ href, label, icon: Icon, section }) => {
           const current = section === active;
@@ -78,15 +80,13 @@ function AdminNavigation({ active }: { active: CoordinationAdminSection }) {
         data-state={state}
         data-collapsible={state === "collapsed" ? "icon" : undefined}
         className={cn(
-          "group hidden shrink-0 rounded-2xl bg-[image:var(--workflow-background)] p-3 shadow-sm transition-[width] duration-200 md:block",
+          "group sticky top-[var(--workflow-header-height,0px)] hidden h-[calc(100svh-var(--coordination-content-offset,0px))] shrink-0 overflow-y-auto rounded-2xl bg-[image:var(--workflow-background)] p-3 shadow-sm transition-[width] duration-200 md:block",
           state === "expanded" ? "w-60" : "w-16",
         )}
       >
-        <div className="mb-4 flex min-h-11 items-center justify-between gap-2 px-1">
+        <div className="mb-3 flex min-h-11 items-center justify-between gap-2 px-1">
           {state === "expanded" && (
-            <span className={cn("px-2 text-xs uppercase tracking-wide", onGradientText)}>
-              Secciones
-            </span>
+            <h1 className={cn("px-2 text-lg font-semibold", onGradientText)}>Coordinación</h1>
           )}
           <SidebarTrigger
             aria-label="Contraer o expandir el panel lateral"
@@ -95,7 +95,7 @@ function AdminNavigation({ active }: { active: CoordinationAdminSection }) {
         </div>
         <AdminNav active={active} />
       </aside>
-      <div className="flex items-center gap-2 md:hidden">
+      <div className="flex items-center gap-2 px-3 pt-2 md:hidden">
         <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
           <SheetTrigger asChild>
             <Button
@@ -131,13 +131,34 @@ export function CoordinationAdminLayout({
   active: CoordinationAdminSection;
   children: ReactNode;
 }) {
+  const layoutRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const layout = layoutRef.current;
+    if (!layout) return;
+    const updateOffset = () =>
+      layout.style.setProperty(
+        "--coordination-content-offset",
+        `${Math.max(0, layout.getBoundingClientRect().top + window.scrollY)}px`,
+      );
+    updateOffset();
+    const observer = new ResizeObserver(updateOffset);
+    observer.observe(layout);
+    window.addEventListener("resize", updateOffset);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", updateOffset);
+    };
+  }, []);
   return (
     <SidebarProvider
-      className="min-h-0 items-start gap-4 md:gap-6"
+      ref={layoutRef}
+      className="min-h-0 flex-col items-start gap-2 md:min-h-[calc(100svh-var(--coordination-content-offset,0px))] md:flex-row md:gap-6"
       style={{ "--sidebar-width": "15rem" } as CSSProperties}
     >
       <AdminNavigation active={active} />
-      <div className="@container/main min-w-0 flex-1 space-y-4">{children}</div>
+      <div className="@container/main w-full min-w-0 flex-1 space-y-3 p-3 md:py-3 md:pl-0 md:pr-4">
+        {children}
+      </div>
     </SidebarProvider>
   );
 }

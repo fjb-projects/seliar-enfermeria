@@ -5,6 +5,7 @@ import {
   ChevronDown,
   ChevronUp,
   ClipboardClock,
+  ClipboardList,
   ClockPlus,
   Home,
   LogIn,
@@ -53,7 +54,8 @@ type NavigationPath =
   | "/guardia-efa"
   | "/episodios-efa"
   | "/coordinacion-efa"
-  | "/admin-usuarios";
+  | "/admin-usuarios"
+  | "/coordinacion";
 
 type NavigationItem = { to: NavigationPath; label: string; icon: LucideIcon };
 
@@ -118,6 +120,18 @@ function quickActionItem(action: EfaPanelQuickAction): NavigationItem {
   return { to: action.to, label: action.navLabel, icon: action.icon };
 }
 
+function isNavigationItemActive(pathname: string, destination: NavigationPath) {
+  if (destination === "/coordinacion") {
+    return (
+      pathname === destination ||
+      pathname.startsWith("/coordinacion/") ||
+      pathname === "/admin-usuarios" ||
+      pathname === "/coordinacion-efa"
+    );
+  }
+  return pathname === destination;
+}
+
 export function SeliarMobileNav() {
   const { pathname } = useLocation();
   const navigation = useSeliarNavigation();
@@ -128,20 +142,33 @@ export function SeliarMobileNav() {
   const [openGroup, setOpenGroup] = useState<NavigationGroupId | null>(null);
   const isAuthenticated = navigation.sessionStatus === "authenticated";
   const authenticatedSession = isAuthenticated ? navigation.session : null;
+  const isAdmin = !!authenticatedSession && isAdministrator(authenticatedSession.roles);
   const homeTo: NavigationPath = isAuthenticated ? "/panel" : "/";
   const privateItems = useMemo(() => {
+    if (!isAuthenticated) return [];
+    const uniqueItems = new Map<NavigationPath, NavigationItem>();
     if (navigation.summary) {
-      const uniqueItems = new Map<NavigationPath, NavigationItem>();
       for (const action of getEfaPanelQuickActions(navigation.summary)) {
-        if (!uniqueItems.has(action.to)) uniqueItems.set(action.to, quickActionItem(action));
+        if (action.id === "manage-accounts" || action.id === "coordinate-guards") continue;
+        const item = quickActionItem(action);
+        if (!uniqueItems.has(item.to)) uniqueItems.set(item.to, item);
       }
-      return [...uniqueItems.values()];
+    } else {
+      uniqueItems.set("/guardia-efa", {
+        to: "/guardia-efa",
+        label: "Consulta EFA",
+        icon: ClipboardClock,
+      });
     }
-    if (isAuthenticated) {
-      return [{ to: "/guardia-efa" as const, label: "Consulta EFA", icon: ClipboardClock }];
+    if (isAdmin) {
+      uniqueItems.set("/coordinacion", {
+        to: "/coordinacion",
+        label: "Coordinación",
+        icon: ClipboardList,
+      });
     }
-    return [];
-  }, [isAuthenticated, navigation.summary]);
+    return [...uniqueItems.values()];
+  }, [isAuthenticated, isAdmin, navigation.summary]);
 
   const setVisibility = useCallback((visible: boolean) => {
     if (visibilityRef.current === visible) return;
@@ -215,7 +242,14 @@ export function SeliarMobileNav() {
   }, [openGroup]);
 
   const groups = isAuthenticated
-    ? [{ id: "private" as const, label: "Área privada", icon: ClipboardClock, items: privateItems }]
+    ? [
+        {
+          id: "private" as const,
+          label: "Área privada",
+          icon: ClipboardClock,
+          items: privateItems.filter(({ to }) => to !== "/coordinacion"),
+        },
+      ]
     : navigation.sessionStatus === "anonymous"
       ? navigationGroups
       : [];
@@ -273,8 +307,8 @@ export function SeliarMobileNav() {
                 <Link
                   key={item.to + item.label}
                   to={item.to}
-                  aria-current={pathname === item.to ? "page" : undefined}
-                  className={`flex min-h-11 items-center gap-1.5 rounded-lg px-2 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${pathname === item.to ? "bg-secondary text-secondary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+                  aria-current={isNavigationItemActive(pathname, item.to) ? "page" : undefined}
+                  className={`flex min-h-11 items-center gap-1.5 rounded-lg px-2 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${isNavigationItemActive(pathname, item.to) ? "bg-secondary text-secondary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
                 >
                   <item.icon className="size-4" aria-hidden="true" />
                   {item.label}
@@ -409,7 +443,7 @@ export function SeliarMobileNav() {
           <>
             {isAuthenticated && <EfaQuickGuardEndStrip controller={navigation.quickGuardEnd} />}
             <div
-              className={`mx-auto grid max-w-lg ${isAuthenticated ? "grid-cols-3" : "grid-cols-4"} gap-1 px-2 pb-[max(env(safe-area-inset-bottom),0.25rem)] pt-1`}
+              className={`mx-auto grid max-w-lg ${isAuthenticated && !isAdmin ? "grid-cols-3" : "grid-cols-4"} gap-1 px-2 pb-[max(env(safe-area-inset-bottom),0.25rem)] pt-1`}
             >
               <Link
                 to={homeTo}
@@ -419,6 +453,18 @@ export function SeliarMobileNav() {
                 <Home className="size-5" aria-hidden="true" />
                 <span>Inicio</span>
               </Link>
+              {isAdmin && (
+                <Link
+                  to="/coordinacion"
+                  aria-current={
+                    isNavigationItemActive(pathname, "/coordinacion") ? "page" : undefined
+                  }
+                  className={`flex min-h-14 flex-col items-center justify-center gap-0.5 rounded-lg px-2 text-xs font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${isNavigationItemActive(pathname, "/coordinacion") ? "bg-secondary text-secondary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+                >
+                  <ClipboardList className="size-5" aria-hidden="true" />
+                  <span>Coordinación</span>
+                </Link>
+              )}
               {groups.map(({ id, label, icon: Icon, items }) => {
                 const activeRoute = items.find(({ to }) => pathname === to);
                 const isOpen = openGroup === id;

@@ -42,4 +42,17 @@ describe("workflow header", () => {
     );
     expect(fullHtml).not.toContain("max-w-5xl");
   });
+
+  it("can omit only the desktop title block for a compact coordination shell", () => {
+    const html = renderToStaticMarkup(
+      <WorkflowHeader
+        eyebrow="SeLIAR · Área privada"
+        title="Coordinación"
+        description="Herramientas administrativas"
+        hideDesktopTitle
+      />,
+    );
+    expect(html).toContain("Coordinación</h1>");
+    expect(html).not.toContain('class="mx-auto hidden w-full');
+  });
 });

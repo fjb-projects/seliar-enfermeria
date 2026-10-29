@@ -34,6 +34,7 @@ function CoordinationAdminPage() {
       description="Herramientas administrativas"
       contentWidth="full"
       surface="calm"
+      compactLayout
     >
       <CoordinationAdminLayout
         active={pathname.startsWith("/coordinacion/compensatorios") ? "compensatorios" : "home"}

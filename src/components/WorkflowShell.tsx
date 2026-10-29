@@ -24,6 +24,7 @@ type WorkflowShellProps = {
   contentWidth?: WorkflowContentWidth;
   header: ReactNode;
   surface?: WorkflowSurface;
+  compactLayout?: boolean;
 };
 
 /**
@@ -57,15 +58,18 @@ export function WorkflowShell({
   contentWidth = "wide",
   header,
   surface = "gradient",
+  compactLayout = false,
 }: WorkflowShellProps) {
   const calm = surface === "calm";
   return (
     <main
-      className={`${calm ? "workflow-background-mobile-only relative" : "workflow-background"} ${mainMotion}`}
+      className={`${calm ? "workflow-background-mobile-only relative" : "workflow-background"} ${mainMotion}${compactLayout ? " md:min-h-0" : ""}`}
     >
       {calm && <CalmBackdrop />}
       {header}
-      <div className={`mx-auto w-full ${contentWidths[contentWidth]} px-4 pt-4 sm:px-6 sm:pt-6`}>
+      <div
+        className={`mx-auto w-full ${compactLayout ? "max-w-none px-0 pt-0" : `${contentWidths[contentWidth]} px-4 pt-4 sm:px-6 sm:pt-6`}`}
+      >
         {children}
       </div>
     </main>

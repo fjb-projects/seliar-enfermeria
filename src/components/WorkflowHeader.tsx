@@ -20,6 +20,7 @@ type WorkflowHeaderProps = {
     "onPointerEnter" | "onPointerLeave" | "onFocusCapture" | "onBlurCapture"
   >;
   compactLogo?: boolean;
+  hideDesktopTitle?: boolean;
 };
 
 export function WorkflowHeader({
@@ -31,6 +32,7 @@ export function WorkflowHeader({
   accountDetails,
   accountInteractionHandlers,
   compactLogo = false,
+  hideDesktopTitle = false,
 }: WorkflowHeaderProps) {
   const mobileHeaderRef = useRef<HTMLElement>(null);
 
@@ -96,17 +98,19 @@ export function WorkflowHeader({
         </div>
         {accountDetails}
       </header>
-      <div
-        className={`mx-auto hidden w-full ${contentWidths[contentWidth]} px-4 pt-4 sm:px-6 md:block`}
-      >
-        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          {eyebrow}
-        </p>
-        <h1 className="font-display text-xl font-semibold leading-tight text-foreground">
-          {title}
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">{description}</p>
-      </div>
+      {!hideDesktopTitle && (
+        <div
+          className={`mx-auto hidden w-full ${contentWidths[contentWidth]} px-4 pt-4 sm:px-6 md:block`}
+        >
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            {eyebrow}
+          </p>
+          <h1 className="font-display text-xl font-semibold leading-tight text-foreground">
+            {title}
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+        </div>
+      )}
     </>
   );
 }

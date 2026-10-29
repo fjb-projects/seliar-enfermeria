@@ -49,4 +49,14 @@ describe("workflow shell", () => {
     expect(html.indexOf("<img")).toBeLessThan(html.indexOf("<header>"));
     expect(html).toContain("Contenido");
   });
+
+  it("supports a full-bleed content wrapper only when explicitly requested", () => {
+    const compact = renderToStaticMarkup(
+      <WorkflowShell header={<header>Cabecera</header>} compactLayout>
+        <p>Contenido</p>
+      </WorkflowShell>,
+    );
+    expect(compact).toContain('<div class="mx-auto w-full max-w-none px-0 pt-0">');
+    expect(render()).toContain('class="mx-auto w-full max-w-5xl px-4 pt-4 sm:px-6 sm:pt-6"');
+  });
 });

@@ -42,7 +42,7 @@ describe("private account header", () => {
     expect(html.indexOf('id="private-account-details"')).toBeLessThan(html.indexOf("</header>"));
   });
 
-  it("links the coordination view only for administrators", () => {
+  it("leaves tool navigation to the global navbar and coordination sidebar", () => {
     const render = (roles: string[]) =>
       renderToStaticMarkup(
         <PrivateAccountShell
@@ -56,9 +56,10 @@ describe("private account header", () => {
         </PrivateAccountShell>,
       );
 
-    expect(render(["admin"])).toContain('href="/coordinacion-efa"');
-    expect(render(["admin"])).toContain('href="/coordinacion"');
-    expect(render(["admin"])).toContain('href="/admin-usuarios"');
+    expect(render(["admin"])).not.toContain('href="/coordinacion-efa"');
+    expect(render(["admin"])).not.toContain('href="/coordinacion"');
+    expect(render(["admin"])).not.toContain('href="/admin-usuarios"');
+    expect(render(["admin"])).toContain("Administración");
     expect(render(["efa"])).not.toContain('href="/coordinacion"');
     expect(render(["efa"])).not.toContain('href="/coordinacion-efa"');
   });
@@ -140,6 +141,21 @@ describe("private account header", () => {
     expect(defaultHtml).not.toContain('alt=""');
     expect(calmHtml).toContain('<main class="workflow-background-mobile-only');
     expect(calmHtml).toContain('<img src="/logoSIES.jpg" alt="" aria-hidden="true"');
+  });
+
+  it("opts into the compact desktop shell without changing the normal account layout", () => {
+    const session = {
+      user: { id: "user-1", name: "Ana Example", email: "ana@example.test" },
+      roles: ["admin"],
+      expiresAt: "2030-01-01T00:00:00Z",
+    };
+    const compact = renderToStaticMarkup(
+      <PrivateAccountShell session={session} compactLayout>
+        <p>Contenido</p>
+      </PrivateAccountShell>,
+    );
+    expect(compact).toContain('class="mx-auto w-full max-w-none px-0 pt-0"');
+    expect(compact).not.toContain('class="mx-auto hidden w-full max-w-5xl');
   });
 
   it("expands for mouse hover but preserves focus and permits an explicit close", () => {
