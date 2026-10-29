@@ -2,6 +2,7 @@ import { useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "rea
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { StaffDirectoryFields } from "@/components/StaffDirectoryFields";
+import { CompensatoryAgentInput } from "@/components/CompensatoryAgentInput";
 import {
   directoryKeys,
   parseCompensatoryJson,
@@ -54,16 +55,26 @@ function AcceptedDirectoryFields({ row }: { row: RosterSourceRow }) {
     .map((key) => [labels[key], row[key]] as const)
     .filter((entry): entry is readonly [string, string] => Boolean(entry[1]));
   if (!values.length)
-    return <p className="text-sm text-muted-foreground">Sin datos laborales disponibles.</p>;
+    return (
+      <details className="mt-2">
+        <summary className="min-h-11 cursor-pointer text-sm font-medium">Datos opcionales</summary>
+        <p className="text-sm text-muted-foreground">Sin datos laborales disponibles.</p>
+      </details>
+    );
   return (
-    <dl className="mt-2 grid gap-x-4 gap-y-1 text-sm sm:grid-cols-2">
-      {values.map(([label, value]) => (
-        <div className="min-w-0" key={label}>
-          <dt className="inline font-medium">{label}: </dt>
-          <dd className="inline break-words">{value}</dd>
-        </div>
-      ))}
-    </dl>
+    <details className="mt-2">
+      <summary className="min-h-11 cursor-pointer text-sm font-medium">
+        Datos opcionales del directorio
+      </summary>
+      <dl className="grid gap-x-4 gap-y-1 text-sm sm:grid-cols-2">
+        {values.map(([label, value]) => (
+          <div className="min-w-0" key={label}>
+            <dt className="inline font-medium">{label}: </dt>
+            <dd className="inline break-words">{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </details>
   );
 }
 
@@ -370,21 +381,28 @@ export function CompensatorySourceReview({
   }
 
   return (
-    <section className="space-y-5" aria-labelledby="source-review-title">
+    <section className="space-y-3" aria-labelledby="source-review-title">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 id="source-review-title" className="text-xl font-semibold">
             Revisar vinculaciones
           </h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            El JSON se lee temporalmente en este navegador. Guardar una solicitud requiere una
-            acción explícita; importar agentes requiere guardar cada fila explícitamente.
-          </p>
-          {onSaveRequest && (
-            <p className="mt-1 text-sm text-muted-foreground">
-              Confirmar un vínculo no guarda la solicitud ni copia el correo automáticamente.
-            </p>
-          )}
+          <details className="mt-1">
+            <summary className="min-h-11 cursor-pointer text-sm font-medium">
+              Ayuda sobre la revisión
+            </summary>
+            <div className="space-y-1 text-sm text-muted-foreground">
+              <p>
+                El JSON se lee temporalmente en este navegador. Guardar una solicitud requiere una
+                acción explícita; importar agentes requiere guardar cada fila explícitamente.
+              </p>
+              {onSaveRequest && (
+                <p>
+                  Confirmar un vínculo no guarda la solicitud ni copia el correo automáticamente.
+                </p>
+              )}
+            </div>
+          </details>
         </div>
         {onBack && (
           <Button type="button" variant="outline" className="min-h-11" onClick={onBack}>
@@ -400,7 +418,7 @@ export function CompensatorySourceReview({
             Esta revisión no aprueba solicitudes ni calcula saldos.
           </CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-2">
+        <CardContent className="grid gap-3 p-4 pt-2 sm:grid-cols-2">
           <div className="space-y-2">
             <label className="block text-sm font-medium" htmlFor="source-roster">
               Directorio de agentes (CSV)
@@ -493,72 +511,77 @@ export function CompensatorySourceReview({
                   </p>
                 )}
                 {onImportStaff && (
-                  <form
-                    className="mt-3 space-y-3 border-t pt-3"
-                    onSubmit={(event) => void importRosterRow(event, row)}
-                    aria-label={`Importar agente de la fila ${row.sourceRow}`}
-                  >
-                    <h4 className="text-sm font-medium">Perfil editable antes de importar</h4>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <label className="space-y-1 text-sm font-medium">
-                        DNI
-                        <input
-                          name={`import-${row.sourceRow}-dni`}
-                          defaultValue={row.dni ?? ""}
-                          className="min-h-11 w-full rounded-md border px-3 font-normal"
-                          required
-                        />
-                      </label>
-                      <label className="space-y-1 text-sm font-medium">
-                        Nombre y apellido
-                        <input
-                          name={`import-${row.sourceRow}-name`}
-                          defaultValue={row.name}
-                          className="min-h-11 w-full rounded-md border px-3 font-normal"
-                          required
-                          maxLength={160}
-                        />
-                      </label>
-                    </div>
-                    <StaffDirectoryFields
-                      prefix={`import-${row.sourceRow}`}
-                      values={Object.fromEntries(directoryKeys.map((key) => [key, row[key]]))}
-                    />
-                    {existingDnis.includes(row.dni ?? "") && (
-                      <p className="text-sm text-muted-foreground">
-                        Ya existe un agente con el DNI de origen. No se sobrescribe; corregí el DNI
-                        solo si esta fila representa a otro agente.
-                      </p>
-                    )}
-                    {importErrors[row.sourceRow] && (
-                      <p role="alert" className="text-sm text-destructive">
-                        {importErrors[row.sourceRow]}
-                      </p>
-                    )}
-                    {importedRows[row.sourceRow] ? (
-                      <p role="status" className="text-sm">
-                        Agente guardado.
-                      </p>
-                    ) : (
-                      <Button
-                        type="submit"
-                        className="min-h-11"
-                        disabled={
-                          row.issues.includes(
-                            "La fila tiene una cantidad de columnas distinta al encabezado.",
-                          ) || importing[row.sourceRow]
-                        }
-                      >
-                        {importing[row.sourceRow] ? "Guardando…" : "Importar agente"}
-                      </Button>
-                    )}
-                    {row.issues.length > 0 && (
-                      <p className="text-sm text-muted-foreground">
-                        La fila requiere revisión; solo se importará si el perfil editado es válido
-                        y tiene un DNI nuevo.
-                      </p>
-                    )}
-                  </form>
+                  <details className="mt-3 border-t pt-2">
+                    <summary className="min-h-11 cursor-pointer text-sm font-medium">
+                      Editar ficha antes de importar
+                    </summary>
+                    <form
+                      className="space-y-3 pt-2"
+                      onSubmit={(event) => void importRosterRow(event, row)}
+                      aria-label={`Importar agente de la fila ${row.sourceRow}`}
+                    >
+                      <h4 className="text-sm font-medium">Perfil editable antes de importar</h4>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <label className="space-y-1 text-sm font-medium">
+                          DNI
+                          <input
+                            name={`import-${row.sourceRow}-dni`}
+                            defaultValue={row.dni ?? ""}
+                            className="min-h-11 w-full rounded-md border px-3 font-normal"
+                            required
+                          />
+                        </label>
+                        <label className="space-y-1 text-sm font-medium">
+                          Nombre y apellido
+                          <input
+                            name={`import-${row.sourceRow}-name`}
+                            defaultValue={row.name}
+                            className="min-h-11 w-full rounded-md border px-3 font-normal"
+                            required
+                            maxLength={160}
+                          />
+                        </label>
+                      </div>
+                      <StaffDirectoryFields
+                        prefix={`import-${row.sourceRow}`}
+                        values={Object.fromEntries(directoryKeys.map((key) => [key, row[key]]))}
+                      />
+                      {existingDnis.includes(row.dni ?? "") && (
+                        <p className="text-sm text-muted-foreground">
+                          Ya existe un agente con el DNI de origen. No se sobrescribe; corregí el
+                          DNI solo si esta fila representa a otro agente.
+                        </p>
+                      )}
+                      {importErrors[row.sourceRow] && (
+                        <p role="alert" className="text-sm text-destructive">
+                          {importErrors[row.sourceRow]}
+                        </p>
+                      )}
+                      {importedRows[row.sourceRow] ? (
+                        <p role="status" className="text-sm">
+                          Agente guardado.
+                        </p>
+                      ) : (
+                        <Button
+                          type="submit"
+                          className="min-h-11"
+                          disabled={
+                            row.issues.includes(
+                              "La fila tiene una cantidad de columnas distinta al encabezado.",
+                            ) || importing[row.sourceRow]
+                          }
+                        >
+                          {importing[row.sourceRow] ? "Guardando…" : "Importar agente"}
+                        </Button>
+                      )}
+                      {row.issues.length > 0 && (
+                        <p className="text-sm text-muted-foreground">
+                          La fila requiere revisión; solo se importará si el perfil editado es
+                          válido y tiene un DNI nuevo.
+                        </p>
+                      )}
+                    </form>
+                  </details>
                 )}
                 {Object.values(confirmed).some(
                   (mapping) => mapping.sourceRow === row.sourceRow,
@@ -716,33 +739,28 @@ export function CompensatorySourceReview({
                     </div>
                   ) : (
                     <div className="flex flex-wrap items-end gap-2">
-                      <label
-                        htmlFor={`target-${request.responseId}`}
-                        className="min-w-56 flex-1 space-y-1.5 text-sm font-medium"
-                      >
-                        Elegir agente
-                        <select
+                      <div className="min-w-56 flex-1">
+                        <CompensatoryAgentInput
                           id={`target-${request.responseId}`}
-                          className="block min-h-11 w-full rounded-md border border-input bg-background px-3 font-normal"
+                          label="Elegir agente"
                           value={selected ?? ""}
+                          options={linkableRoster.map((row) => ({
+                            id: row.dni!,
+                            label: `${row.name} · DNI ${row.dni}`,
+                          }))}
                           disabled={
                             !request.canLink || linkableRoster.length === 0 || writesPending
                           }
-                          onChange={(event) =>
-                            setSelectedRows((previous) => ({
-                              ...previous,
-                              [request.responseId]: event.target.value,
-                            }))
+                          onSelect={(dni) =>
+                            setSelectedRows((previous) => {
+                              if (dni) return { ...previous, [request.responseId]: dni };
+                              const next = { ...previous };
+                              delete next[request.responseId];
+                              return next;
+                            })
                           }
-                        >
-                          <option value="">Selecciona un agente</option>
-                          {linkableRoster.map((row) => (
-                            <option key={row.dni} value={row.dni!}>
-                              {row.name} · DNI {row.dni}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
+                        />
+                      </div>
                       <Button
                         type="button"
                         className="min-h-11"

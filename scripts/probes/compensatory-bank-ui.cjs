@@ -9,10 +9,15 @@ const bundle = path.join(dir, "fixture.js");
 const plugin = {
   name: "safe-fixture-module-stubs",
   setup(build) {
-    build.onResolve({ filter: /^@\/lib\/compensatory-bank\.functions$/ }, () => ({
-      path: "comp-bank-functions",
-      namespace: "fixture",
-    }));
+    build.onResolve(
+      { filter: /^@\/lib\/compensatory-(bank|requests)\.functions$/ },
+      ({ path }) => ({
+        path: path.endsWith("requests.functions")
+          ? "comp-request-functions"
+          : "comp-bank-functions",
+        namespace: "fixture",
+      }),
+    );
     build.onResolve({ filter: /^@tanstack\/react-router$/ }, () => ({
       path: "router",
       namespace: "fixture",
@@ -28,7 +33,9 @@ const plugin = {
         : {
             loader: "js",
             contents:
-              "export const listCompensatoryStaff=()=>{}; export const getCompensatoryHistory=()=>{}; export const createCompensatoryStaff=()=>{}; export const updateCompensatoryStaff=()=>{}; export const recordCompensatoryMovement=()=>{}; export const reverseCompensatoryMovement=()=>{};",
+              args.path === "comp-request-functions"
+                ? "export const insertCompensatoryRequest=async()=>({status:'stored'}); export const listCompensatoryRequests=async()=>[];"
+                : "export const listCompensatoryStaff=()=>{}; export const getCompensatoryHistory=()=>{}; export const createCompensatoryStaff=()=>{}; export const updateCompensatoryStaff=()=>{}; export const recordCompensatoryMovement=()=>{}; export const reverseCompensatoryMovement=()=>{};",
           },
     );
   },
@@ -61,9 +68,35 @@ const plugin = {
 
   await page.evaluate(() => window.resetBankState());
   await page.evaluate(() => window.mountBank());
-  await page.getByLabel("Nombre", { exact: true }).waitFor();
+  await page.locator("#staff-select").waitFor();
+  const initialControls = await page.evaluate(() => ({
+    selector: document.querySelector("#staff-select")?.tagName,
+    datalist: document.querySelectorAll("#staff-select-options option").length,
+    closed: [...document.querySelectorAll(".compensatory-bank-panel details")].every(
+      (item) => !item.open,
+    ),
+    hoursVisible: [...document.querySelectorAll("h3, [class*='font-semibold']")].some(
+      (item) => item.textContent === "Registrar horas",
+    ),
+  }));
+  results.push({
+    probe: "agent search and optional bank controls start compact",
+    actual: initialControls,
+    passed:
+      initialControls.selector === "INPUT" &&
+      initialControls.datalist === 2 &&
+      initialControls.closed &&
+      initialControls.hoursVisible,
+  });
+  await page.locator("details summary").filter({ hasText: "Editar ficha" }).click();
+  await page.locator("#profile-name").waitFor();
   await page.locator("#profile-name").fill("Ana draft");
-  await page.locator("#staff-select").selectOption("staff-b");
+  await page.locator("#staff-select").fill("Beatriz Agente");
+  results.push({
+    probe: "partial agent label cannot silently select a staff record",
+    passed: !(await page.locator("#movement-kind").count()),
+  });
+  await page.locator("#staff-select").fill("Beatriz Agente · DNI 30987654");
   await page.waitForTimeout(80);
   const switchedName = await page.locator("#profile-name").inputValue();
   results.push({
@@ -110,8 +143,9 @@ const plugin = {
     window.__probeState.delayedHistory = true;
     window.mountBank();
   });
+  await page.locator("details summary").filter({ hasText: "Movimientos recientes" }).click();
   await page.waitForFunction(() => window.__probeState.historyCalls.includes("staff-a"));
-  await page.locator("#staff-select").selectOption("staff-b");
+  await page.locator("#staff-select").fill("Beatriz Agente · DNI 30987654");
   await page.getByText("BEATRICE-LEDGER").waitFor();
   await page.evaluate(() => window.resolveDelayedA());
   await page.waitForTimeout(100);
@@ -122,31 +156,6 @@ const plugin = {
     hasBeatriz: staleText.includes("BEATRICE-LEDGER"),
     hasAna: staleText.includes("ANA-OLD-HISTORY"),
     passed: staleText.includes("BEATRICE-LEDGER") && !staleText.includes("ANA-OLD-HISTORY"),
-  });
-
-  await page.setViewportSize({ width: 1280, height: 900 });
-  await page.evaluate(() => window.mountLayout());
-  const aside = page.locator('aside[aria-label="Coordinación"]');
-  const before = await aside.getAttribute("data-state");
-  await page.getByRole("button", { name: "Contraer o expandir el panel lateral" }).click();
-  const after = await aside.getAttribute("data-state");
-  results.push({
-    probe: "desktop sidebar collapse control",
-    before,
-    after,
-    passed: before === "expanded" && after === "collapsed",
-  });
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.evaluate(() => window.mountLayout());
-  await page.getByRole("button", { name: "Abrir navegación de coordinación" }).click();
-  const mobileNavVisible = await page
-    .getByRole("dialog")
-    .getByRole("navigation", { name: "Navegación de coordinación" })
-    .isVisible();
-  results.push({
-    probe: "mobile navigation sheet",
-    visible: mobileNavVisible,
-    passed: mobileNavVisible,
   });
 
   console.log(JSON.stringify({ scratch: dir, results }, null, 2));

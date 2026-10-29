@@ -35,7 +35,8 @@ async function main() {
     import {CompensatorySourceReview} from '@/components/CompensatorySourceReview';
     window.probe={calls:[],copies:[],mode:'error'};
     const agents=[{id:'agent-a',dni:'12345678',name:'Synthetic Alpha',email:null},
-      {id:'agent-b',dni:'23456789',name:'Synthetic Beta',email:'old@example.test'}];
+      {id:'agent-b',dni:'23456789',name:'Synthetic Beta',email:'old@example.test'},
+      {id:'agent-c',dni:'98765432',name:'Synthetic Alpha',email:null}];
     function App(){const [targets,setTargets]=useState(agents);window.replaceTargets=setTargets;
       return <CompensatorySourceReview staffTargets={targets}
         onCopyRequesterEmail={async(id,email)=>{window.probe.copies.push({id,email})}}
@@ -69,17 +70,34 @@ async function main() {
     console.log("PASS: " + message);
   };
   const upload = async (count) =>
-    page
-      .locator("#source-requests")
-      .setInputFiles({
-        name: "synthetic.json",
-        mimeType: "application/json",
-        buffer: Buffer.from(exportJson(count)),
-      });
+    page.locator("#source-requests").setInputFiles({
+      name: "synthetic.json",
+      mimeType: "application/json",
+      buffer: Buffer.from(exportJson(count)),
+    });
   const card = (id) => page.locator("article").filter({ has: page.locator(`#target-${id}`) });
   await upload(3);
   const first = card("r0");
-  await page.locator("#target-r0").selectOption({ label: "Synthetic Alpha · DNI 12345678" });
+  check(
+    (await page.locator("#target-r0").evaluate((input) => input.tagName)) === "INPUT" &&
+      (await page.locator("#target-r0-options option").count()) === 3 &&
+      (await page
+        .locator("details")
+        .first()
+        .evaluate((item) => !item.open)),
+    "mapper exposes a closed help disclosure and a searchable staff list",
+  );
+  await page.locator("#target-r0").fill("Synthetic Alpha");
+  check(
+    await first.getByRole("button", { name: "Vincular y guardar", exact: true }).isDisabled(),
+    "partial agent text cannot enable save",
+  );
+  await page.locator("#target-r0").fill("Synthetic Alpha · DNI 98765432");
+  check(
+    await first.getByRole("button", { name: "Vincular y guardar", exact: true }).isEnabled(),
+    "identical names remain selectable by distinct DNI",
+  );
+  await page.locator("#target-r0").fill("Synthetic Alpha · DNI 12345678");
   check(
     await first.getByRole("button", { name: "Vincular y guardar", exact: true }).isEnabled(),
     "JSON maps directly to saved agents without CSV",
@@ -113,7 +131,7 @@ async function main() {
     (await page.evaluate(() => window.probe.calls[0].id)) === "agent-a",
     "saved association uses the selected database ID",
   );
-  await page.locator("#target-r1").selectOption({ label: "Synthetic Beta · DNI 23456789" });
+  await page.locator("#target-r1").fill("Synthetic Beta · DNI 23456789");
   await page.getByRole("button", { name: "Copiar correo revisado al perfil" }).click();
   await page.waitForFunction(() => window.probe.copies.length === 1);
   check(
@@ -148,7 +166,7 @@ async function main() {
   });
   await upload(26);
   await page.getByRole("button", { name: "Siguiente", exact: true }).click();
-  await page.locator("#target-r25").selectOption("12345678");
+  await page.locator("#target-r25").fill("Synthetic Alpha · DNI 12345678");
   await card("r25").getByRole("button", { name: "Vincular y guardar", exact: true }).click();
   await page.locator("#target-r0").waitFor();
   check(

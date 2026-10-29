@@ -33,4 +33,10 @@ describe("staff directory fields", () => {
     expect(html).toContain("Licenciatura indicada por la matrícula");
     expect(html).toContain('value="L-12345"');
   });
+
+  it("keeps optional directory fields disclosed only when requested", () => {
+    const html = renderToStaticMarkup(<StaffDirectoryFields prefix="staff" />);
+    expect(html).toContain("Datos laborales y contacto");
+    expect(html).not.toContain('<details open="">');
+  });
 });

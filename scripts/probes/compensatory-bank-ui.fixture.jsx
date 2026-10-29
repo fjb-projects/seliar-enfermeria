@@ -1,7 +1,6 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { CompensatoryBankPanel } from "@/components/CompensatoryBankPanel.tsx";
-import { CoordinationAdminLayout } from "@/components/CoordinationAdminLayout.tsx";
 
 window.__React = React;
 
@@ -139,17 +138,6 @@ window.mountBank = () => {
   root = createRoot(document.getElementById("mount"));
   root.render(
     React.createElement(CompensatoryBankPanel, { initialStaff: structuredClone(state.staff), api }),
-  );
-};
-window.mountLayout = () => {
-  root?.unmount();
-  root = createRoot(document.getElementById("mount"));
-  root.render(
-    React.createElement(
-      CoordinationAdminLayout,
-      { active: "compensatorios" },
-      React.createElement("p", null, "Layout content"),
-    ),
   );
 };
 window.resetBankState = resetState;

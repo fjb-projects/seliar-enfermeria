@@ -8,6 +8,7 @@ import {
   type ImportedStaff,
 } from "@/components/CompensatorySourceReview";
 import { StaffDirectoryFields } from "@/components/StaffDirectoryFields";
+import { CompensatoryAgentInput } from "@/components/CompensatoryAgentInput";
 import {
   insertCompensatoryRequest,
   listCompensatoryRequests,
@@ -130,12 +131,14 @@ function readDirectoryValues(form: FormData, prefix: "staff" | "profile") {
 
 export function StaffAuditHistory({ changes }: { changes: StaffAuditView[] }) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Auditoría del perfil</CardTitle>
-        <CardDescription>Cambios de nombre, correo, estado y referencia mensual.</CardDescription>
-      </CardHeader>
-      <CardContent>
+    <details className="rounded-lg border bg-card">
+      <summary className="min-h-11 cursor-pointer px-4 py-3 text-sm font-semibold">
+        Auditoría del perfil{" "}
+        <span className="ml-1 font-normal text-muted-foreground">
+          · cambios de nombre, correo y estado
+        </span>
+      </summary>
+      <div className="px-4 pb-4 text-sm">
         {!changes.length ? (
           <p className="text-sm text-muted-foreground">No hay cambios de perfil registrados.</p>
         ) : (
@@ -159,8 +162,8 @@ export function StaffAuditHistory({ changes }: { changes: StaffAuditView[] }) {
             ))}
           </ul>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </details>
   );
 }
 
@@ -575,7 +578,7 @@ export function CompensatoryBankPanel({
   }
 
   return (
-    <div className="space-y-5 compensatory-bank-panel" data-active-view={activeView}>
+    <div className="space-y-3 compensatory-bank-panel" data-active-view={activeView}>
       <style className="compensatory-bank-view-styles">{`.compensatory-bank-panel[data-active-view="review"] > :not(.compensatory-bank-view-switch):not(.compensatory-review-view):not(.compensatory-bank-view-styles) { display: none; }
 .compensatory-bank-panel[data-active-view="bank"] > .compensatory-review-view { display: none; }`}</style>
       <div
@@ -604,10 +607,6 @@ export function CompensatoryBankPanel({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-xl font-semibold">Compensatorios</h2>
-          <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-            Administra el saldo histórico de horas acreditadas o debitadas, con motivo, fecha y
-            trazabilidad.
-          </p>
         </div>
         <Button
           type="button"
@@ -620,10 +619,16 @@ export function CompensatoryBankPanel({
           {refreshing ? "Actualizando…" : "Actualizar"}
         </Button>
       </div>
-      <p className="rounded-lg border border-border bg-muted/40 p-3 text-sm">
-        La referencia mensual es editable y orientativa; no es un tope del saldo. Este registro no
-        crea cuentas ni accesos. No hay datos existentes que se infieran automáticamente.
-      </p>
+      <details className="text-sm">
+        <summary className="min-h-11 cursor-pointer py-2.5 text-muted-foreground">
+          Cómo funciona el banco
+        </summary>
+        <p className="max-w-3xl pb-2 text-muted-foreground">
+          Administra el saldo histórico con motivo, fecha y trazabilidad. La referencia mensual es
+          editable y orientativa; no es un tope del saldo. Este registro no crea cuentas ni accesos.
+          No hay datos existentes que se infieran automáticamente.
+        </p>
+      </details>
       {error && (
         <p
           role="alert"
@@ -637,34 +642,24 @@ export function CompensatoryBankPanel({
           {notice}
         </p>
       )}
-      <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(17rem,0.8fr)_minmax(0,1.6fr)]">
-        <div className="space-y-5">
+      <div className="grid min-w-0 gap-3 xl:grid-cols-[minmax(17rem,0.8fr)_minmax(0,1.6fr)]">
+        <div className="space-y-3">
           <Card>
-            <CardHeader>
-              <CardTitle>Agentes</CardTitle>
-              <CardDescription>
-                Identidad por DNI; un agente puede no tener cuenta de acceso.
-              </CardDescription>
+            <CardHeader className="space-y-1 p-4 pb-2">
+              <CardTitle className="text-base">Agentes</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3">
-              <label htmlFor="staff-select" className="text-sm font-medium">
-                Seleccionar agente
-              </label>
-              <select
+            <CardContent className="space-y-3 p-4 pt-2">
+              <CompensatoryAgentInput
                 id="staff-select"
-                className={`${inputClass()} w-full rounded-md border border-input bg-background px-3`}
+                label="Seleccionar agente"
                 value={selectedId}
+                options={staff.map((person) => ({
+                  id: person.id,
+                  label: `${person.name} · DNI ${person.dni}${person.isActive ? "" : " · Inactivo"}`,
+                }))}
                 disabled={saving}
-                onChange={(event) => setSelectedId(event.currentTarget.value)}
-              >
-                <option value="">Selecciona un agente</option>
-                {staff.map((person) => (
-                  <option value={person.id} key={person.id}>
-                    {person.name} · DNI {person.dni}
-                    {person.isActive ? "" : " · Inactivo"}
-                  </option>
-                ))}
-              </select>
+                onSelect={(id) => setSelectedId(id ?? "")}
+              />
               {!staff.length && (
                 <p className="text-sm text-muted-foreground">Todavía no hay agentes registrados.</p>
               )}
@@ -689,14 +684,14 @@ export function CompensatoryBankPanel({
               )}
             </CardContent>
           </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle>Registrar agente</CardTitle>
-              <CardDescription>
-                El DNI es único e inmutable; no se crea una cuenta de acceso.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
+          <details className="rounded-lg border bg-card">
+            <summary className="min-h-11 cursor-pointer px-4 py-3 text-sm font-semibold">
+              Nuevo agente{" "}
+              <span className="ml-1 font-normal text-muted-foreground">
+                · DNI único, sin cuenta de acceso
+              </span>
+            </summary>
+            <div className="px-4 pb-4">
               <form className="space-y-3" onSubmit={(event) => void handleCreate(event)}>
                 <Field id="new-dni" label="DNI">
                   <Input
@@ -751,17 +746,15 @@ export function CompensatoryBankPanel({
                   {saving ? "Guardando…" : "Crear agente"}
                 </Button>
               </form>
-            </CardContent>
-          </Card>
+            </div>
+          </details>
           {selected && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Perfil y referencia mensual</CardTitle>
-                <CardDescription>
-                  Los cambios se registran en la auditoría. El DNI no se puede cambiar.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
+            <details className="rounded-lg border bg-card">
+              <summary className="min-h-11 cursor-pointer px-4 py-3 text-sm font-semibold">
+                Editar ficha{" "}
+                <span className="ml-1 font-normal text-muted-foreground">· cambios auditados</span>
+              </summary>
+              <div className="px-4 pb-4">
                 <form
                   key={`${selected.id}:${selected.version}`}
                   className="space-y-3"
@@ -847,21 +840,21 @@ export function CompensatoryBankPanel({
                     {selected.isActive ? "Desactivar agente" : "Reactivar agente"}
                   </Button>
                 </form>
-              </CardContent>
-            </Card>
+              </div>
+            </details>
           )}
         </div>
-        <div className="min-w-0 space-y-5">
+        <div className="min-w-0 space-y-3">
           {selected && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Registrar horas</CardTitle>
+            <Card className="shadow-sm">
+              <CardHeader className="space-y-1 p-4 pb-2">
+                <CardTitle className="text-base">Registrar horas</CardTitle>
                 <CardDescription>
                   Solo registra horas ya existentes. Toda cantidad requiere fecha efectiva y motivo
                   o respaldo.
                 </CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="p-4 pt-2">
                 <form
                   key={selected.id}
                   className="grid gap-3 sm:grid-cols-2"
@@ -938,229 +931,232 @@ export function CompensatoryBankPanel({
               </CardContent>
             </Card>
           )}
-          <Card>
-            <CardHeader>
-              <CardTitle>Historial de saldo</CardTitle>
-              <CardDescription>
-                Movimientos cronológicos inmutables, con saldo anterior y posterior.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {!selected && (
-                <p className="text-sm text-muted-foreground">
-                  Selecciona un agente para consultar su historial.
-                </p>
-              )}
-              {historyLoading && (
-                <p role="status" className="text-sm text-muted-foreground">
-                  Cargando historial…
-                </p>
-              )}
-              {historyError && (
-                <div role="alert" className="space-y-2">
-                  <p className="text-sm text-destructive">{historyError}</p>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="min-h-11"
-                    onClick={() => setHistoryRevision((revision) => revision + 1)}
-                  >
-                    Reintentar carga
-                  </Button>
-                </div>
-              )}
-              {selected && !historyLoading && !historyError && !entries.length && (
-                <p className="rounded-md bg-muted/40 p-3 text-sm text-muted-foreground">
-                  No hay movimientos registrados para este agente.
-                </p>
-              )}
-              {entries.length > 0 && (
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[44rem] border-collapse text-left text-sm">
-                    <thead>
-                      <tr className="border-b text-muted-foreground">
-                        <th className="p-2">Fecha / registro</th>
-                        <th className="p-2">Movimiento</th>
-                        <th className="p-2">Motivo</th>
-                        <th className="p-2">Saldo antes / después</th>
-                        <th className="p-2">Responsable</th>
-                        <th className="p-2">Acción</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {entries.map((entry) => (
-                        <tr
-                          id={`ledger-entry-${entry.id}`}
-                          className="border-b align-top"
-                          key={entry.id}
-                        >
-                          <td className="p-2 tabular-nums">
-                            {entry.effectiveDate}
-                            <br />
-                            <span className="text-xs text-muted-foreground">
-                              {new Date(entry.createdAt).toLocaleString()}
-                            </span>
-                          </td>
-                          <td className="p-2">
-                            <span className="capitalize">
-                              {entry.kind === "opening"
-                                ? "Saldo inicial"
-                                : entry.kind === "credit"
-                                  ? "Crédito"
-                                  : entry.kind === "debit"
-                                    ? "Débito"
-                                    : "Reversión"}
-                            </span>
-                            <br />
-                            <span className="tabular-nums">{hoursAndMinutes(entry.minutes)}</span>
-                          </td>
-                          <td className="max-w-64 whitespace-normal p-2">
-                            {entry.reason}
-                            {entry.reversesEntryId && (
-                              <p className="mt-1 text-xs text-muted-foreground">
-                                <a
-                                  className="underline underline-offset-2"
-                                  href={`#ledger-entry-${entry.reversesEntryId}`}
-                                >
-                                  Reversa el movimiento original
-                                </a>
-                              </p>
-                            )}
-                          </td>
-                          <td className="p-2 tabular-nums">
-                            {hoursAndMinutes(entry.balanceBeforeMinutes)}
-                            <br />
-                            {hoursAndMinutes(entry.balanceAfterMinutes)}
-                          </td>
-                          <td className="p-2">{entry.actorName}</td>
-                          <td className="p-2">
-                            {selected?.isActive &&
-                              entry.kind !== "reversal" &&
-                              !entry.reversesEntryId &&
-                              !entries.some((item) => item.reversesEntryId === entry.id) && (
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  className="min-h-11"
-                                  onClick={() => setReverseEntryId(entry.id)}
-                                >
-                                  Revertir
-                                </Button>
-                              )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-              {reverseEntryId &&
-                selected &&
-                entries.find((entry) => entry.id === reverseEntryId) && (
-                  <form
-                    className="mt-4 grid gap-3 rounded-lg border p-3 sm:grid-cols-2"
-                    onSubmit={(event) =>
-                      void handleReverse(
-                        event,
-                        entries.find((entry) => entry.id === reverseEntryId)!,
-                      )
-                    }
-                  >
-                    <p className="sm:col-span-2 text-sm font-medium">
-                      La reversión crea un asiento nuevo y no edita el original.
-                    </p>
-                    <Field id="reverse-reason" label="Motivo de la reversión">
-                      <Input
-                        id="reverse-reason"
-                        name="reverseReason"
-                        className={inputClass()}
-                        required
-                      />
-                    </Field>
-                    <Field id="reverse-date" label="Fecha efectiva">
-                      <Input
-                        id="reverse-date"
-                        name="reverseDate"
-                        type="date"
-                        max={today()}
-                        defaultValue={today()}
-                        className={inputClass()}
-                        required
-                      />
-                    </Field>
-                    <div className="flex flex-wrap gap-2 sm:col-span-2">
-                      <Button type="submit" className="min-h-11" disabled={saving}>
-                        Confirmar reversión
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        className="min-h-11"
-                        onClick={() => setReverseEntryId("")}
-                      >
-                        Cancelar
-                      </Button>
-                    </div>
-                  </form>
+          <details className="rounded-lg border bg-card" open={Boolean(historyError)}>
+            <summary className="min-h-11 cursor-pointer px-4 py-3 text-sm font-semibold">
+              Movimientos recientes{" "}
+              <span className="ml-1 font-normal text-muted-foreground">
+                · historial de saldo y reversiones
+              </span>
+            </summary>
+            <Card className="rounded-none border-0 shadow-none">
+              <CardContent className="space-y-3 p-4 pt-1">
+                {!selected && (
+                  <p className="text-sm text-muted-foreground">
+                    Selecciona un agente para consultar su historial.
+                  </p>
                 )}
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle>Historial de solicitudes guardadas</CardTitle>
-              <CardDescription>
-                Solicitudes históricas y próximas asociadas explícitamente a este agente; no
-                implican aprobación ni saldo.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {!selected && (
-                <p className="text-sm text-muted-foreground">
-                  Selecciona un agente para consultar sus solicitudes.
-                </p>
-              )}
-              {requestHistoryLoading && (
-                <p role="status" className="text-sm text-muted-foreground">
-                  Cargando solicitudes guardadas…
-                </p>
-              )}
-              {requestHistoryError && (
-                <div role="alert" className="space-y-2">
-                  <p className="text-sm text-destructive">{requestHistoryError}</p>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="min-h-11"
-                    onClick={() => setRequestHistoryRevision((revision) => revision + 1)}
-                  >
-                    Reintentar carga
-                  </Button>
-                </div>
-              )}
-              {selected &&
-                !requestHistoryLoading &&
-                !requestHistoryError &&
-                requestHistory.length === 0 && (
+                {historyLoading && (
+                  <p role="status" className="text-sm text-muted-foreground">
+                    Cargando historial…
+                  </p>
+                )}
+                {historyError && (
+                  <div role="alert" className="space-y-2">
+                    <p className="text-sm text-destructive">{historyError}</p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="min-h-11"
+                      onClick={() => setHistoryRevision((revision) => revision + 1)}
+                    >
+                      Reintentar carga
+                    </Button>
+                  </div>
+                )}
+                {selected && !historyLoading && !historyError && !entries.length && (
                   <p className="rounded-md bg-muted/40 p-3 text-sm text-muted-foreground">
-                    No hay solicitudes guardadas para este agente.
+                    No hay movimientos registrados para este agente.
                   </p>
                 )}
-              {requestHistory.map((request) => (
-                <article className="rounded-md border p-3 text-sm" key={request.id}>
-                  <p className="font-medium">
-                    {request.submittedAt} · {request.requesterName}
+                {entries.length > 0 && (
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[44rem] border-collapse text-left text-sm">
+                      <thead>
+                        <tr className="border-b text-muted-foreground">
+                          <th className="p-2">Fecha / registro</th>
+                          <th className="p-2">Movimiento</th>
+                          <th className="p-2">Motivo</th>
+                          <th className="p-2">Saldo antes / después</th>
+                          <th className="p-2">Responsable</th>
+                          <th className="p-2">Acción</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {entries.map((entry) => (
+                          <tr
+                            id={`ledger-entry-${entry.id}`}
+                            className="border-b align-top"
+                            key={entry.id}
+                          >
+                            <td className="p-2 tabular-nums">
+                              {entry.effectiveDate}
+                              <br />
+                              <span className="text-xs text-muted-foreground">
+                                {new Date(entry.createdAt).toLocaleString()}
+                              </span>
+                            </td>
+                            <td className="p-2">
+                              <span className="capitalize">
+                                {entry.kind === "opening"
+                                  ? "Saldo inicial"
+                                  : entry.kind === "credit"
+                                    ? "Crédito"
+                                    : entry.kind === "debit"
+                                      ? "Débito"
+                                      : "Reversión"}
+                              </span>
+                              <br />
+                              <span className="tabular-nums">{hoursAndMinutes(entry.minutes)}</span>
+                            </td>
+                            <td className="max-w-64 whitespace-normal p-2">
+                              {entry.reason}
+                              {entry.reversesEntryId && (
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                  <a
+                                    className="underline underline-offset-2"
+                                    href={`#ledger-entry-${entry.reversesEntryId}`}
+                                  >
+                                    Reversa el movimiento original
+                                  </a>
+                                </p>
+                              )}
+                            </td>
+                            <td className="p-2 tabular-nums">
+                              {hoursAndMinutes(entry.balanceBeforeMinutes)}
+                              <br />
+                              {hoursAndMinutes(entry.balanceAfterMinutes)}
+                            </td>
+                            <td className="p-2">{entry.actorName}</td>
+                            <td className="p-2">
+                              {selected?.isActive &&
+                                entry.kind !== "reversal" &&
+                                !entry.reversesEntryId &&
+                                !entries.some((item) => item.reversesEntryId === entry.id) && (
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    className="min-h-11"
+                                    onClick={() => setReverseEntryId(entry.id)}
+                                  >
+                                    Revertir
+                                  </Button>
+                                )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                {reverseEntryId &&
+                  selected &&
+                  entries.find((entry) => entry.id === reverseEntryId) && (
+                    <form
+                      className="mt-4 grid gap-3 rounded-lg border p-3 sm:grid-cols-2"
+                      onSubmit={(event) =>
+                        void handleReverse(
+                          event,
+                          entries.find((entry) => entry.id === reverseEntryId)!,
+                        )
+                      }
+                    >
+                      <p className="sm:col-span-2 text-sm font-medium">
+                        La reversión crea un asiento nuevo y no edita el original.
+                      </p>
+                      <Field id="reverse-reason" label="Motivo de la reversión">
+                        <Input
+                          id="reverse-reason"
+                          name="reverseReason"
+                          className={inputClass()}
+                          required
+                        />
+                      </Field>
+                      <Field id="reverse-date" label="Fecha efectiva">
+                        <Input
+                          id="reverse-date"
+                          name="reverseDate"
+                          type="date"
+                          max={today()}
+                          defaultValue={today()}
+                          className={inputClass()}
+                          required
+                        />
+                      </Field>
+                      <div className="flex flex-wrap gap-2 sm:col-span-2">
+                        <Button type="submit" className="min-h-11" disabled={saving}>
+                          Confirmar reversión
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          className="min-h-11"
+                          onClick={() => setReverseEntryId("")}
+                        >
+                          Cancelar
+                        </Button>
+                      </div>
+                    </form>
+                  )}
+              </CardContent>
+            </Card>
+          </details>
+          <details className="rounded-lg border bg-card" open={Boolean(requestHistoryError)}>
+            <summary className="min-h-11 cursor-pointer px-4 py-3 text-sm font-semibold">
+              Solicitudes guardadas{" "}
+              <span className="ml-1 font-normal text-muted-foreground">
+                · historial asociado al agente
+              </span>
+            </summary>
+            <Card className="rounded-none border-0 shadow-none">
+              <CardContent className="space-y-3 p-4 pt-1">
+                {!selected && (
+                  <p className="text-sm text-muted-foreground">
+                    Selecciona un agente para consultar sus solicitudes.
                   </p>
-                  <p className="mt-1">
-                    Móvil: {request.requesterMobile} · Fecha solicitada: {request.compensatoryDate}{" "}
-                    · Horas: {request.hours}
+                )}
+                {requestHistoryLoading && (
+                  <p role="status" className="text-sm text-muted-foreground">
+                    Cargando solicitudes guardadas…
                   </p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Registrada: {new Date(request.createdAt).toLocaleString()}
-                  </p>
-                </article>
-              ))}
-            </CardContent>
-          </Card>
+                )}
+                {requestHistoryError && (
+                  <div role="alert" className="space-y-2">
+                    <p className="text-sm text-destructive">{requestHistoryError}</p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="min-h-11"
+                      onClick={() => setRequestHistoryRevision((revision) => revision + 1)}
+                    >
+                      Reintentar carga
+                    </Button>
+                  </div>
+                )}
+                {selected &&
+                  !requestHistoryLoading &&
+                  !requestHistoryError &&
+                  requestHistory.length === 0 && (
+                    <p className="rounded-md bg-muted/40 p-3 text-sm text-muted-foreground">
+                      No hay solicitudes guardadas para este agente.
+                    </p>
+                  )}
+                {requestHistory.map((request) => (
+                  <article className="rounded-md border p-3 text-sm" key={request.id}>
+                    <p className="font-medium">
+                      {request.submittedAt} · {request.requesterName}
+                    </p>
+                    <p className="mt-1">
+                      Móvil: {request.requesterMobile} · Fecha solicitada:{" "}
+                      {request.compensatoryDate} · Horas: {request.hours}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Registrada: {new Date(request.createdAt).toLocaleString()}
+                    </p>
+                  </article>
+                ))}
+              </CardContent>
+            </Card>
+          </details>
           {selected && <StaffAuditHistory changes={changes} />}
         </div>
       </div>

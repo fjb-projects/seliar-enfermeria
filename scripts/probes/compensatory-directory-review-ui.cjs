@@ -182,7 +182,7 @@ async function main() {
     .isDisabled();
   results.push({ probe: "invalid request cannot be confirmed", passed: invalidTargetDisabled });
 
-  await page.locator("#target-synthetic-request-valid").selectOption("12345678");
+  await page.locator("#target-synthetic-request-valid").fill("Ana Pérez · DNI 12345678");
   await page.getByRole("button", { name: "Confirmar para esta revisión" }).first().click();
   await page.getByText("Confirmada localmente").waitFor();
   const confirmedCount = await page.getByText("Confirmada localmente").count();
@@ -193,7 +193,7 @@ async function main() {
     passed: (await page.getByText("Confirmada localmente").count()) === 0,
   });
 
-  await page.locator("#target-synthetic-request-valid").selectOption("12345678");
+  await page.locator("#target-synthetic-request-valid").fill("Ana Pérez · DNI 12345678");
   await page.getByRole("button", { name: "Confirmar para esta revisión" }).first().click();
   await page.getByText("Confirmada localmente").waitFor();
   await page.evaluate(() => {
@@ -243,6 +243,7 @@ async function main() {
   });
 
   await page.getByRole("button", { name: "Volver al banco" }).click();
+  await page.locator("details summary").filter({ hasText: "Editar ficha" }).click();
   await page.locator("#profile-name").waitFor();
   const summaries = page.locator("details summary", { hasText: "Datos laborales y contacto" });
   await summaries.last().click();
@@ -274,6 +275,7 @@ async function main() {
       updatePayload.jobRole === "synthetic-jobRole",
   });
 
+  await page.locator("details summary").filter({ hasText: "Nuevo agente" }).click();
   const createForm = page.locator("#new-name").locator("xpath=ancestor::form");
   await page.locator("#new-dni").fill("12345679");
   await page.locator("#new-name").fill("Agente Sintético Nuevo");
@@ -302,7 +304,9 @@ async function main() {
     buffer: Buffer.from(jsonExport()),
   });
   await page.getByText("synthetic-request-valid").waitFor();
-  await page.locator("#target-synthetic-request-valid").selectOption("12345679");
+  await page
+    .locator("#target-synthetic-request-valid")
+    .fill("Agente Sintético Nuevo · DNI 12345679");
   results.push({
     probe: "source confirmation alone does not persist a request",
     passed:
@@ -345,7 +349,9 @@ async function main() {
   });
   await page.getByRole("button", { name: "Deshacer vínculo local" }).click();
   await page.locator("#source-filter").selectOption("all");
-  await page.locator("#target-synthetic-request-valid").selectOption("12345679");
+  await page
+    .locator("#target-synthetic-request-valid")
+    .fill("Agente Sintético Nuevo · DNI 12345679");
   results.push({
     probe: "undo and relink does not reuse a saved status",
     passed:
@@ -362,7 +368,9 @@ async function main() {
     mimeType: "application/json",
     buffer: Buffer.from(JSON.stringify(changedExport)),
   });
-  await page.locator("#target-synthetic-request-valid").selectOption("12345679");
+  await page
+    .locator("#target-synthetic-request-valid")
+    .fill("Agente Sintético Nuevo · DNI 12345679");
   results.push({
     probe: "file replacement does not reuse saved or copied statuses",
     passed:
@@ -403,11 +411,10 @@ async function main() {
     return;
   }
   await page.getByRole("button", { name: "Volver al banco" }).click();
-  await page.getByText("Historial de solicitudes guardadas", { exact: true }).waitFor();
+  await page.getByText("Solicitudes guardadas", { exact: false }).waitFor();
   const profileEmail = await page.locator("#profile-email").inputValue();
-  const historyCard = page
-    .getByText("Historial de solicitudes guardadas", { exact: true })
-    .locator("xpath=ancestor::div[contains(@class,'rounded-xl')][1]");
+  const historyCard = page.locator("details").filter({ hasText: "Solicitudes guardadas" });
+  await historyCard.locator("summary").click();
   await historyCard.getByText("2026-10-03", { exact: false }).waitFor();
   const requestHistoryText = await historyCard.innerText();
   results.push({
