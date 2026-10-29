@@ -37,6 +37,7 @@ const staffDirectoryKeys = [
   "operationalStatus",
   "operationalRole",
 ] as const;
+export type BankOperationRegistry = Map<string, { fingerprint: string; id: string }>;
 type StaffDirectoryValues = Partial<Record<(typeof staffDirectoryKeys)[number], string | null>>;
 
 type BankApi = {
@@ -173,13 +174,25 @@ export function StaffAuditHistory({ changes }: { changes: StaffAuditView[] }) {
 export function CompensatoryBankPanel({
   initialStaff,
   api: apiOverrides,
+  initialSelectedId,
+  tool,
+  onSaved,
+  onExit,
+  onBusyChange,
+  operationRegistry,
 }: {
   initialStaff: StaffView[];
   api?: Partial<BankApi>;
+  initialSelectedId?: string;
+  tool?: "create" | "profile" | "movement" | "ledger" | "import";
+  onSaved?: () => void;
+  onExit?: () => void;
+  onBusyChange?: (busy: boolean) => void;
+  operationRegistry?: BankOperationRegistry;
 }) {
   const api = useMemo(() => ({ ...defaultApi, ...apiOverrides }), [apiOverrides]);
   const [staff, setStaff] = useState(initialStaff);
-  const [selectedId, setSelectedId] = useState(initialStaff[0]?.id ?? "");
+  const [selectedId, setSelectedId] = useState(initialSelectedId ?? initialStaff[0]?.id ?? "");
   const selected = staff.find((person) => person.id === selectedId);
   const [entries, setEntries] = useState<LedgerView[]>([]);
   const [changes, setChanges] = useState<StaffAuditView[]>([]);
@@ -196,12 +209,21 @@ export function CompensatoryBankPanel({
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [sourceBusy, setSourceBusy] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [reverseEntryId, setReverseEntryId] = useState("");
   const [activeView, setActiveView] = useState<"bank" | "review">("bank");
   const requestSequence = useRef(0);
   const requestHistorySequence = useRef(0);
-  const pendingOperations = useRef(new Map<string, { fingerprint: string; id: string }>());
+  const pendingOperations = useRef(
+    operationRegistry ?? new Map<string, { fingerprint: string; id: string }>(),
+  );
+  useEffect(() => {
+    onBusyChange?.(saving || deleting || sourceBusy);
+  }, [saving, deleting, sourceBusy, onBusyChange]);
+  useEffect(() => {
+    if (tool && tool !== "import" && notice) onSaved?.();
+  }, [notice, tool, onSaved]);
 
   const getOperationId = (slot: string, payload: unknown) => {
     const fingerprint = JSON.stringify(payload);
@@ -664,56 +686,60 @@ export function CompensatoryBankPanel({
 
   return (
     <div className="space-y-3 compensatory-bank-panel" data-active-view={activeView}>
-      <style className="compensatory-bank-view-styles">{`.compensatory-bank-panel[data-active-view="review"] > :not(.compensatory-bank-view-switch):not(.compensatory-review-view):not(.compensatory-bank-view-styles) { display: none; }
+      {!tool && (
+        <>
+          <style className="compensatory-bank-view-styles">{`.compensatory-bank-panel[data-active-view="review"] > :not(.compensatory-bank-view-switch):not(.compensatory-review-view):not(.compensatory-bank-view-styles) { display: none; }
 .compensatory-bank-panel[data-active-view="bank"] > .compensatory-review-view { display: none; }`}</style>
-      <div
-        className="flex flex-wrap gap-2 compensatory-bank-view-switch"
-        aria-label="Vistas de compensatorios"
-      >
-        <Button
-          type="button"
-          variant={activeView === "bank" ? "default" : "outline"}
-          className="min-h-11"
-          aria-pressed={activeView === "bank"}
-          onClick={() => setActiveView("bank")}
-        >
-          Banco de horas
-        </Button>
-        <Button
-          type="button"
-          variant={activeView === "review" ? "default" : "outline"}
-          className="min-h-11"
-          aria-pressed={activeView === "review"}
-          onClick={() => setActiveView("review")}
-        >
-          Revisar vinculaciones
-        </Button>
-      </div>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-semibold">Compensatorios</h2>
-        </div>
-        <Button
-          type="button"
-          variant="outline"
-          className="min-h-11 gap-2"
-          onClick={() => void refreshStaff()}
-          disabled={refreshing}
-        >
-          <RefreshCw aria-hidden="true" className="size-4" />
-          {refreshing ? "Actualizando…" : "Actualizar"}
-        </Button>
-      </div>
-      <details className="text-sm">
-        <summary className="min-h-11 cursor-pointer py-2.5 text-muted-foreground">
-          Cómo funciona el banco
-        </summary>
-        <p className="max-w-3xl pb-2 text-muted-foreground">
-          Administra el saldo histórico con motivo, fecha y trazabilidad. La referencia mensual es
-          editable y orientativa; no es un tope del saldo. Este registro no crea cuentas ni accesos.
-          No hay datos existentes que se infieran automáticamente.
-        </p>
-      </details>
+          <div
+            className="flex flex-wrap gap-2 compensatory-bank-view-switch"
+            aria-label="Vistas de compensatorios"
+          >
+            <Button
+              type="button"
+              variant={activeView === "bank" ? "default" : "outline"}
+              className="min-h-11"
+              aria-pressed={activeView === "bank"}
+              onClick={() => setActiveView("bank")}
+            >
+              Banco de horas
+            </Button>
+            <Button
+              type="button"
+              variant={activeView === "review" ? "default" : "outline"}
+              className="min-h-11"
+              aria-pressed={activeView === "review"}
+              onClick={() => setActiveView("review")}
+            >
+              Revisar vinculaciones
+            </Button>
+          </div>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-xl font-semibold">Compensatorios</h2>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              className="min-h-11 gap-2"
+              onClick={() => void refreshStaff()}
+              disabled={refreshing}
+            >
+              <RefreshCw aria-hidden="true" className="size-4" />
+              {refreshing ? "Actualizando…" : "Actualizar"}
+            </Button>
+          </div>
+          <details className="text-sm">
+            <summary className="min-h-11 cursor-pointer py-2.5 text-muted-foreground">
+              Cómo funciona el banco
+            </summary>
+            <p className="max-w-3xl pb-2 text-muted-foreground">
+              Administra el saldo histórico con motivo, fecha y trazabilidad. La referencia mensual
+              es editable y orientativa; no es un tope del saldo. Este registro no crea cuentas ni
+              accesos. No hay datos existentes que se infieran automáticamente.
+            </p>
+          </details>
+        </>
+      )}
       {error && (
         <p
           role="alert"
@@ -727,520 +753,377 @@ export function CompensatoryBankPanel({
           {notice}
         </p>
       )}
-      <div className="grid min-w-0 gap-3 xl:grid-cols-[minmax(17rem,0.8fr)_minmax(0,1.6fr)]">
-        <div className="space-y-3">
-          <Card>
-            <CardHeader className="space-y-1 p-4 pb-2">
-              <CardTitle className="text-base">Agentes</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 p-4 pt-2">
-              <CompensatoryAgentInput
-                key={`staff-select:${staff.map((person) => person.id).join("|")}`}
-                id="staff-select"
-                label="Seleccionar agente"
-                value={selectedId}
-                options={staff.map((person) => ({
-                  id: person.id,
-                  label: `${person.name} · DNI ${person.dni}${person.isActive ? "" : " · Inactivo"}`,
-                }))}
-                disabled={saving}
-                onSelect={(id) => setSelectedId(id ?? "")}
-              />
-              {!staff.length && (
-                <p className="text-sm text-muted-foreground">Todavía no hay agentes registrados.</p>
-              )}
-              {selected && (
-                <div className="rounded-lg bg-muted/50 p-3">
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                    Saldo disponible
-                  </p>
-                  <p className="mt-1 text-2xl font-semibold tabular-nums">
-                    {hoursAndMinutes(selected.balanceMinutes)}
-                  </p>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    DNI {selected.dni} · Referencia {hoursAndMinutes(selected.monthlyLimitMinutes)}{" "}
-                    al mes
-                  </p>
-                  {!selected.isActive && (
-                    <p className="mt-2 text-sm font-medium text-destructive">
-                      Inactivo: historial disponible; nuevos movimientos bloqueados.
-                    </p>
-                  )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-          <details className="rounded-lg border bg-card">
-            <summary className="min-h-11 cursor-pointer px-4 py-3 text-sm font-semibold">
-              Nuevo agente{" "}
-              <span className="ml-1 font-normal text-muted-foreground">
-                · DNI único, sin cuenta de acceso
-              </span>
-            </summary>
-            <div className="px-4 pb-4">
-              <form className="space-y-3" onSubmit={(event) => void handleCreate(event)}>
-                <Field id="new-dni" label="DNI">
-                  <Input
-                    id="new-dni"
-                    name="dni"
-                    className={inputClass()}
-                    required
-                    autoComplete="off"
-                  />
-                </Field>
-                <Field id="new-name" label="Nombre y apellido">
-                  <Input id="new-name" name="name" className={inputClass()} required />
-                </Field>
-                <Field id="new-email" label="Correo electrónico (opcional)">
-                  <Input id="new-email" name="email" type="email" className={inputClass()} />
-                </Field>
-                <StaffDirectoryFields prefix="staff" />
-                <div>
-                  <p className="mb-1.5 text-sm font-medium">Referencia mensual</p>
-                  <p className="mb-2 text-xs text-muted-foreground">
-                    Valor inicial: 24 horas. Es una referencia, no un límite de saldo.
-                  </p>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Field id="new-monthly-limit-hours" label="Horas">
-                      <Input
-                        id="new-monthly-limit-hours"
-                        name="monthlyLimitHours"
-                        type="number"
-                        min="0"
-                        step="1"
-                        defaultValue="24"
-                        className={inputClass()}
-                        required
-                      />
-                    </Field>
-                    <Field id="new-monthly-limit-minutes" label="Minutos">
-                      <Input
-                        id="new-monthly-limit-minutes"
-                        name="monthlyLimitMinutes"
-                        type="number"
-                        min="0"
-                        max="59"
-                        step="1"
-                        defaultValue="0"
-                        className={inputClass()}
-                        required
-                      />
-                    </Field>
-                  </div>
-                </div>
-                <Button type="submit" className="min-h-11 w-full" disabled={saving}>
-                  {saving ? "Guardando…" : "Crear agente"}
-                </Button>
-              </form>
-            </div>
-          </details>
-          {selected && (
-            <details className="rounded-lg border bg-card">
-              <summary className="min-h-11 cursor-pointer px-4 py-3 text-sm font-semibold">
-                Editar ficha{" "}
-                <span className="ml-1 font-normal text-muted-foreground">· cambios auditados</span>
-              </summary>
-              <div className="px-4 pb-4">
-                <form
-                  key={`${selected.id}:${selected.version}`}
-                  className="space-y-3"
-                  onSubmit={(event) => void handleProfileSave(event)}
-                >
-                  <Field id="profile-name" label="Nombre">
-                    <Input
-                      id="profile-name"
-                      name="profileName"
-                      className={inputClass()}
-                      defaultValue={selected.name}
-                      required
+      {tool !== "import" && (
+        <div
+          className={
+            tool
+              ? "min-w-0 space-y-3"
+              : "grid min-w-0 gap-3 xl:grid-cols-[minmax(17rem,0.8fr)_minmax(0,1.6fr)]"
+          }
+        >
+          {(!tool || tool === "create" || tool === "profile") && (
+            <div className="space-y-3">
+              {!tool && (
+                <Card>
+                  <CardHeader className="space-y-1 p-4 pb-2">
+                    <CardTitle className="text-base">Agentes</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3 p-4 pt-2">
+                    <CompensatoryAgentInput
+                      key={`staff-select:${staff.map((person) => person.id).join("|")}`}
+                      id="staff-select"
+                      label="Seleccionar agente"
+                      value={selectedId}
+                      options={staff.map((person) => ({
+                        id: person.id,
+                        label: `${person.name} · DNI ${person.dni}${person.isActive ? "" : " · Inactivo"}`,
+                      }))}
+                      disabled={saving}
+                      onSelect={(id) => setSelectedId(id ?? "")}
                     />
-                  </Field>
-                  <Field id="profile-email" label="Correo electrónico (opcional)">
-                    <Input
-                      id="profile-email"
-                      name="profileEmail"
-                      type="email"
-                      className={inputClass()}
-                      defaultValue={selected.email ?? ""}
-                    />
-                  </Field>
-                  <StaffDirectoryFields
-                    prefix="profile"
-                    values={
-                      Object.fromEntries(
-                        staffDirectoryKeys.map((key) => [key, selected[key] ?? null]),
-                      ) as StaffDirectoryValues
-                    }
-                  />
-                  <div>
-                    <p className="mb-1.5 text-sm font-medium">Referencia mensual</p>
-                    <div className="grid grid-cols-2 gap-2">
-                      <Field id="profile-limit-hours" label="Horas">
-                        <Input
-                          id="profile-limit-hours"
-                          name="profileMonthlyHours"
-                          type="number"
-                          min="0"
-                          step="1"
-                          className={inputClass()}
-                          defaultValue={Math.floor(selected.monthlyLimitMinutes / 60)}
-                          required
-                        />
-                      </Field>
-                      <Field id="profile-limit-minutes" label="Minutos">
-                        <Input
-                          id="profile-limit-minutes"
-                          name="profileMonthlyMinutes"
-                          type="number"
-                          min="0"
-                          max="59"
-                          step="1"
-                          className={inputClass()}
-                          defaultValue={selected.monthlyLimitMinutes % 60}
-                          required
-                        />
-                      </Field>
-                    </div>
-                  </div>
-                  <Field id="profile-reason" label="Motivo del cambio">
-                    <Input
-                      id="profile-reason"
-                      name="profileReason"
-                      className={inputClass()}
-                      required
-                    />
-                  </Field>
-                  <Button type="submit" variant="outline" className="min-h-11" disabled={saving}>
-                    Guardar perfil
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    className="min-h-11"
-                    disabled={saving}
-                    onClick={(event) => {
-                      const form = event.currentTarget.form;
-                      if (form) void saveProfile(form, !selected.isActive);
-                    }}
-                  >
-                    {selected.isActive ? "Desactivar agente" : "Reactivar agente"}
-                  </Button>
-                </form>
-                <form
-                  key={`delete:${selected.id}:${selected.version}`}
-                  id="delete-agent-form"
-                  className="mt-4 space-y-3 border-t border-destructive/30 pt-4"
-                  onSubmit={(event) => void handleDeleteStaff(event)}
-                >
-                  <div>
-                    <h3 className="text-sm font-semibold text-destructive">Eliminar agente</h3>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      Solo se puede eliminar sin solicitudes ni movimientos. Si tiene historial,
-                      desactívalo para conservarlo.
-                    </p>
-                  </div>
-                  {(historyLoadedFor !== selected.id ||
-                    requestHistoryLoadedFor !== selected.id ||
-                    historyLoading ||
-                    requestHistoryLoading) && (
-                    <p role="status" className="text-sm">
-                      Verificando historial antes de habilitar la eliminación…
-                    </p>
-                  )}
-                  {(entries.length > 0 || requestHistory.length > 0) && (
-                    <p role="alert" className="text-sm text-destructive">
-                      El historial operativo impide eliminar este agente. Puedes desactivarlo; el
-                      historial se conserva.
-                    </p>
-                  )}
-                  {(historyError || requestHistoryError) && (
-                    <p role="alert" className="text-sm text-destructive">
-                      No se pudo comprobar que el historial esté vacío; la eliminación queda
-                      bloqueada.
-                    </p>
-                  )}
-                  <Field
-                    id="delete-confirmation"
-                    label={`Escribe el DNI exacto ${selected.dni} para confirmar`}
-                  >
-                    <Input
-                      id="delete-confirmation"
-                      name="deleteConfirmation"
-                      className={inputClass()}
-                      autoComplete="off"
-                      disabled={saving || deleting}
-                      required
-                    />
-                  </Field>
-                  <Field id="delete-reason" label="Motivo de la eliminación">
-                    <Input
-                      id="delete-reason"
-                      name="deleteReason"
-                      className={inputClass()}
-                      maxLength={500}
-                      disabled={saving || deleting}
-                      required
-                    />
-                  </Field>
-                  <Button
-                    type="submit"
-                    variant="destructive"
-                    className="min-h-11"
-                    disabled={
-                      saving ||
-                      deleting ||
-                      historyLoadedFor !== selected.id ||
-                      requestHistoryLoadedFor !== selected.id ||
-                      historyLoading ||
-                      requestHistoryLoading ||
-                      Boolean(historyError || requestHistoryError) ||
-                      entries.length > 0 ||
-                      requestHistory.length > 0
-                    }
-                  >
-                    {deleting ? "Eliminando…" : "Eliminar agente definitivamente"}
-                  </Button>
-                  {deleting && (
-                    <p role="status" className="text-sm">
-                      No cambies de agente mientras se confirma la eliminación.
-                    </p>
-                  )}
-                </form>
-              </div>
-            </details>
-          )}
-        </div>
-        <div className="min-w-0 space-y-3">
-          {selected && (
-            <Card className="shadow-sm">
-              <CardHeader className="space-y-1 p-4 pb-2">
-                <CardTitle className="text-base">Registrar horas</CardTitle>
-                <CardDescription>
-                  Solo registra horas ya existentes. Toda cantidad requiere fecha efectiva y motivo
-                  o respaldo.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="p-4 pt-2">
-                <form
-                  key={selected.id}
-                  className="grid gap-3 sm:grid-cols-2"
-                  onSubmit={(event) => void handleMovement(event)}
-                >
-                  <Field id="movement-kind" label="Tipo de movimiento">
-                    <select
-                      id="movement-kind"
-                      name="kind"
-                      className={`${inputClass()} w-full rounded-md border border-input bg-background px-3`}
-                    >
-                      {!entries.length && (
-                        <option value="opening">Saldo inicial (solo primer movimiento)</option>
-                      )}
-                      <option value="credit">Crédito manual</option>
-                      <option value="debit">Débito manual</option>
-                    </select>
-                  </Field>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Field id="movement-hours" label="Horas">
-                      <Input
-                        id="movement-hours"
-                        name="hours"
-                        type="number"
-                        min="0"
-                        step="1"
-                        className={inputClass()}
-                        required
-                      />
-                    </Field>
-                    <Field id="movement-minutes" label="Minutos">
-                      <Input
-                        id="movement-minutes"
-                        name="minutes"
-                        type="number"
-                        min="0"
-                        max="59"
-                        step="1"
-                        defaultValue="0"
-                        className={inputClass()}
-                        required
-                      />
-                    </Field>
-                  </div>
-                  <Field id="movement-effective-date" label="Fecha efectiva">
-                    <Input
-                      id="movement-effective-date"
-                      name="effectiveDate"
-                      type="date"
-                      max={today()}
-                      defaultValue={today()}
-                      className={inputClass()}
-                      required
-                    />
-                  </Field>
-                  <Field id="movement-reason" label="Motivo y respaldo">
-                    <Input id="movement-reason" name="reason" className={inputClass()} required />
-                  </Field>
-                  <div className="sm:col-span-2">
-                    <Button
-                      type="submit"
-                      className="min-h-11"
-                      disabled={saving || !selected.isActive}
-                    >
-                      {saving ? "Guardando…" : "Registrar movimiento"}
-                    </Button>
-                    {!selected.isActive && (
-                      <p className="mt-2 text-sm text-muted-foreground">
-                        Reactiva al agente para registrar movimientos.
+                    {!staff.length && (
+                      <p className="text-sm text-muted-foreground">
+                        Todavía no hay agentes registrados.
                       </p>
                     )}
-                  </div>
-                </form>
-              </CardContent>
-            </Card>
-          )}
-          <details className="rounded-lg border bg-card" open={Boolean(historyError)}>
-            <summary className="min-h-11 cursor-pointer px-4 py-3 text-sm font-semibold">
-              Movimientos recientes{" "}
-              <span className="ml-1 font-normal text-muted-foreground">
-                · historial de saldo y reversiones
-              </span>
-            </summary>
-            <Card className="rounded-none border-0 shadow-none">
-              <CardContent className="space-y-3 p-4 pt-1">
-                {!selected && (
-                  <p className="text-sm text-muted-foreground">
-                    Selecciona un agente para consultar su historial.
-                  </p>
-                )}
-                {historyLoading && (
-                  <p role="status" className="text-sm text-muted-foreground">
-                    Cargando historial…
-                  </p>
-                )}
-                {historyError && (
-                  <div role="alert" className="space-y-2">
-                    <p className="text-sm text-destructive">{historyError}</p>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="min-h-11"
-                      onClick={() => setHistoryRevision((revision) => revision + 1)}
-                    >
-                      Reintentar carga
-                    </Button>
-                  </div>
-                )}
-                {selected && !historyLoading && !historyError && !entries.length && (
-                  <p className="rounded-md bg-muted/40 p-3 text-sm text-muted-foreground">
-                    No hay movimientos registrados para este agente.
-                  </p>
-                )}
-                {entries.length > 0 && (
-                  <div className="overflow-x-auto">
-                    <table className="w-full min-w-[44rem] border-collapse text-left text-sm">
-                      <thead>
-                        <tr className="border-b text-muted-foreground">
-                          <th className="p-2">Fecha / registro</th>
-                          <th className="p-2">Movimiento</th>
-                          <th className="p-2">Motivo</th>
-                          <th className="p-2">Saldo antes / después</th>
-                          <th className="p-2">Responsable</th>
-                          <th className="p-2">Acción</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {entries.map((entry) => (
-                          <tr
-                            id={`ledger-entry-${entry.id}`}
-                            className="border-b align-top"
-                            key={entry.id}
-                          >
-                            <td className="p-2 tabular-nums">
-                              {entry.effectiveDate}
-                              <br />
-                              <span className="text-xs text-muted-foreground">
-                                {new Date(entry.createdAt).toLocaleString()}
-                              </span>
-                            </td>
-                            <td className="p-2">
-                              <span className="capitalize">
-                                {entry.kind === "opening"
-                                  ? "Saldo inicial"
-                                  : entry.kind === "credit"
-                                    ? "Crédito"
-                                    : entry.kind === "debit"
-                                      ? "Débito"
-                                      : "Reversión"}
-                              </span>
-                              <br />
-                              <span className="tabular-nums">{hoursAndMinutes(entry.minutes)}</span>
-                            </td>
-                            <td className="max-w-64 whitespace-normal p-2">
-                              {entry.reason}
-                              {entry.reversesEntryId && (
-                                <p className="mt-1 text-xs text-muted-foreground">
-                                  <a
-                                    className="underline underline-offset-2"
-                                    href={`#ledger-entry-${entry.reversesEntryId}`}
-                                  >
-                                    Reversa el movimiento original
-                                  </a>
-                                </p>
-                              )}
-                            </td>
-                            <td className="p-2 tabular-nums">
-                              {hoursAndMinutes(entry.balanceBeforeMinutes)}
-                              <br />
-                              {hoursAndMinutes(entry.balanceAfterMinutes)}
-                            </td>
-                            <td className="p-2">{entry.actorName}</td>
-                            <td className="p-2">
-                              {selected?.isActive &&
-                                entry.kind !== "reversal" &&
-                                !entry.reversesEntryId &&
-                                !entries.some((item) => item.reversesEntryId === entry.id) && (
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    className="min-h-11"
-                                    onClick={() => setReverseEntryId(entry.id)}
-                                  >
-                                    Revertir
-                                  </Button>
-                                )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-                {reverseEntryId &&
-                  selected &&
-                  entries.find((entry) => entry.id === reverseEntryId) && (
-                    <form
-                      className="mt-4 grid gap-3 rounded-lg border p-3 sm:grid-cols-2"
-                      onSubmit={(event) =>
-                        void handleReverse(
-                          event,
-                          entries.find((entry) => entry.id === reverseEntryId)!,
-                        )
-                      }
-                    >
-                      <p className="sm:col-span-2 text-sm font-medium">
-                        La reversión crea un asiento nuevo y no edita el original.
-                      </p>
-                      <Field id="reverse-reason" label="Motivo de la reversión">
+                    {selected && (
+                      <div className="rounded-lg bg-muted/50 p-3">
+                        <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                          Saldo disponible
+                        </p>
+                        <p className="mt-1 text-2xl font-semibold tabular-nums">
+                          {hoursAndMinutes(selected.balanceMinutes)}
+                        </p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          DNI {selected.dni} · Referencia{" "}
+                          {hoursAndMinutes(selected.monthlyLimitMinutes)} al mes
+                        </p>
+                        {!selected.isActive && (
+                          <p className="mt-2 text-sm font-medium text-destructive">
+                            Inactivo: historial disponible; nuevos movimientos bloqueados.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+              {(!tool || tool === "create") && (
+                <details
+                  className="rounded-lg border bg-card"
+                  open={tool === "create" ? true : undefined}
+                >
+                  <summary className="min-h-11 cursor-pointer px-4 py-3 text-sm font-semibold">
+                    Nuevo agente{" "}
+                    <span className="ml-1 font-normal text-muted-foreground">
+                      · DNI único, sin cuenta de acceso
+                    </span>
+                  </summary>
+                  <div className="px-4 pb-4">
+                    <form className="space-y-3" onSubmit={(event) => void handleCreate(event)}>
+                      <Field id="new-dni" label="DNI">
                         <Input
-                          id="reverse-reason"
-                          name="reverseReason"
+                          id="new-dni"
+                          name="dni"
+                          className={inputClass()}
+                          required
+                          autoComplete="off"
+                        />
+                      </Field>
+                      <Field id="new-name" label="Nombre y apellido">
+                        <Input id="new-name" name="name" className={inputClass()} required />
+                      </Field>
+                      <Field id="new-email" label="Correo electrónico (opcional)">
+                        <Input id="new-email" name="email" type="email" className={inputClass()} />
+                      </Field>
+                      <StaffDirectoryFields prefix="staff" />
+                      <div>
+                        <p className="mb-1.5 text-sm font-medium">Referencia mensual</p>
+                        <p className="mb-2 text-xs text-muted-foreground">
+                          Valor inicial: 24 horas. Es una referencia, no un límite de saldo.
+                        </p>
+                        <div className="grid grid-cols-2 gap-2">
+                          <Field id="new-monthly-limit-hours" label="Horas">
+                            <Input
+                              id="new-monthly-limit-hours"
+                              name="monthlyLimitHours"
+                              type="number"
+                              min="0"
+                              step="1"
+                              defaultValue="24"
+                              className={inputClass()}
+                              required
+                            />
+                          </Field>
+                          <Field id="new-monthly-limit-minutes" label="Minutos">
+                            <Input
+                              id="new-monthly-limit-minutes"
+                              name="monthlyLimitMinutes"
+                              type="number"
+                              min="0"
+                              max="59"
+                              step="1"
+                              defaultValue="0"
+                              className={inputClass()}
+                              required
+                            />
+                          </Field>
+                        </div>
+                      </div>
+                      <Button type="submit" className="min-h-11 w-full" disabled={saving}>
+                        {saving ? "Guardando…" : "Crear agente"}
+                      </Button>
+                    </form>
+                  </div>
+                </details>
+              )}
+              {selected && (!tool || tool === "profile") && (
+                <details
+                  className="rounded-lg border bg-card"
+                  open={tool === "profile" ? true : undefined}
+                >
+                  <summary className="min-h-11 cursor-pointer px-4 py-3 text-sm font-semibold">
+                    Editar ficha{" "}
+                    <span className="ml-1 font-normal text-muted-foreground">
+                      · cambios auditados
+                    </span>
+                  </summary>
+                  <div className="px-4 pb-4">
+                    <form
+                      key={`${selected.id}:${selected.version}`}
+                      className="space-y-3"
+                      onSubmit={(event) => void handleProfileSave(event)}
+                    >
+                      <Field id="profile-name" label="Nombre">
+                        <Input
+                          id="profile-name"
+                          name="profileName"
+                          className={inputClass()}
+                          defaultValue={selected.name}
+                          required
+                        />
+                      </Field>
+                      <Field id="profile-email" label="Correo electrónico (opcional)">
+                        <Input
+                          id="profile-email"
+                          name="profileEmail"
+                          type="email"
+                          className={inputClass()}
+                          defaultValue={selected.email ?? ""}
+                        />
+                      </Field>
+                      <StaffDirectoryFields
+                        prefix="profile"
+                        values={
+                          Object.fromEntries(
+                            staffDirectoryKeys.map((key) => [key, selected[key] ?? null]),
+                          ) as StaffDirectoryValues
+                        }
+                      />
+                      <div>
+                        <p className="mb-1.5 text-sm font-medium">Referencia mensual</p>
+                        <div className="grid grid-cols-2 gap-2">
+                          <Field id="profile-limit-hours" label="Horas">
+                            <Input
+                              id="profile-limit-hours"
+                              name="profileMonthlyHours"
+                              type="number"
+                              min="0"
+                              step="1"
+                              className={inputClass()}
+                              defaultValue={Math.floor(selected.monthlyLimitMinutes / 60)}
+                              required
+                            />
+                          </Field>
+                          <Field id="profile-limit-minutes" label="Minutos">
+                            <Input
+                              id="profile-limit-minutes"
+                              name="profileMonthlyMinutes"
+                              type="number"
+                              min="0"
+                              max="59"
+                              step="1"
+                              className={inputClass()}
+                              defaultValue={selected.monthlyLimitMinutes % 60}
+                              required
+                            />
+                          </Field>
+                        </div>
+                      </div>
+                      <Field id="profile-reason" label="Motivo del cambio">
+                        <Input
+                          id="profile-reason"
+                          name="profileReason"
                           className={inputClass()}
                           required
                         />
                       </Field>
-                      <Field id="reverse-date" label="Fecha efectiva">
+                      <Button
+                        type="submit"
+                        variant="outline"
+                        className="min-h-11"
+                        disabled={saving}
+                      >
+                        Guardar perfil
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="min-h-11"
+                        disabled={saving}
+                        onClick={(event) => {
+                          const form = event.currentTarget.form;
+                          if (form) void saveProfile(form, !selected.isActive);
+                        }}
+                      >
+                        {selected.isActive ? "Desactivar agente" : "Reactivar agente"}
+                      </Button>
+                    </form>
+                    <form
+                      key={`delete:${selected.id}:${selected.version}`}
+                      id="delete-agent-form"
+                      className="mt-4 space-y-3 border-t border-destructive/30 pt-4"
+                      onSubmit={(event) => void handleDeleteStaff(event)}
+                    >
+                      <div>
+                        <h3 className="text-sm font-semibold text-destructive">Eliminar agente</h3>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          Solo se puede eliminar sin solicitudes ni movimientos. Si tiene historial,
+                          desactívalo para conservarlo.
+                        </p>
+                      </div>
+                      {(historyLoadedFor !== selected.id ||
+                        requestHistoryLoadedFor !== selected.id ||
+                        historyLoading ||
+                        requestHistoryLoading) && (
+                        <p role="status" className="text-sm">
+                          Verificando historial antes de habilitar la eliminación…
+                        </p>
+                      )}
+                      {(entries.length > 0 || requestHistory.length > 0) && (
+                        <p role="alert" className="text-sm text-destructive">
+                          El historial operativo impide eliminar este agente. Puedes desactivarlo;
+                          el historial se conserva.
+                        </p>
+                      )}
+                      {(historyError || requestHistoryError) && (
+                        <p role="alert" className="text-sm text-destructive">
+                          No se pudo comprobar que el historial esté vacío; la eliminación queda
+                          bloqueada.
+                        </p>
+                      )}
+                      <Field
+                        id="delete-confirmation"
+                        label={`Escribe el DNI exacto ${selected.dni} para confirmar`}
+                      >
                         <Input
-                          id="reverse-date"
-                          name="reverseDate"
+                          id="delete-confirmation"
+                          name="deleteConfirmation"
+                          className={inputClass()}
+                          autoComplete="off"
+                          disabled={saving || deleting}
+                          required
+                        />
+                      </Field>
+                      <Field id="delete-reason" label="Motivo de la eliminación">
+                        <Input
+                          id="delete-reason"
+                          name="deleteReason"
+                          className={inputClass()}
+                          maxLength={500}
+                          disabled={saving || deleting}
+                          required
+                        />
+                      </Field>
+                      <Button
+                        type="submit"
+                        variant="destructive"
+                        className="min-h-11"
+                        disabled={
+                          saving ||
+                          deleting ||
+                          historyLoadedFor !== selected.id ||
+                          requestHistoryLoadedFor !== selected.id ||
+                          historyLoading ||
+                          requestHistoryLoading ||
+                          Boolean(historyError || requestHistoryError) ||
+                          entries.length > 0 ||
+                          requestHistory.length > 0
+                        }
+                      >
+                        {deleting ? "Eliminando…" : "Eliminar agente definitivamente"}
+                      </Button>
+                      {deleting && (
+                        <p role="status" className="text-sm">
+                          No cambies de agente mientras se confirma la eliminación.
+                        </p>
+                      )}
+                    </form>
+                  </div>
+                </details>
+              )}
+            </div>
+          )}
+          {(!tool || tool === "movement" || tool === "ledger") && (
+            <div className="min-w-0 space-y-3">
+              {selected && (!tool || tool === "movement") && (
+                <Card className="shadow-sm">
+                  <CardHeader className="space-y-1 p-4 pb-2">
+                    <CardTitle className="text-base">Registrar horas</CardTitle>
+                    <CardDescription>
+                      Solo registra horas ya existentes. Toda cantidad requiere fecha efectiva y
+                      motivo o respaldo.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="p-4 pt-2">
+                    <form
+                      key={selected.id}
+                      className="grid gap-3 sm:grid-cols-2"
+                      onSubmit={(event) => void handleMovement(event)}
+                    >
+                      <Field id="movement-kind" label="Tipo de movimiento">
+                        <select
+                          id="movement-kind"
+                          name="kind"
+                          className={`${inputClass()} w-full rounded-md border border-input bg-background px-3`}
+                        >
+                          {!entries.length && (
+                            <option value="opening">Saldo inicial (solo primer movimiento)</option>
+                          )}
+                          <option value="credit">Crédito manual</option>
+                          <option value="debit">Débito manual</option>
+                        </select>
+                      </Field>
+                      <div className="grid grid-cols-2 gap-2">
+                        <Field id="movement-hours" label="Horas">
+                          <Input
+                            id="movement-hours"
+                            name="hours"
+                            type="number"
+                            min="0"
+                            step="1"
+                            className={inputClass()}
+                            required
+                          />
+                        </Field>
+                        <Field id="movement-minutes" label="Minutos">
+                          <Input
+                            id="movement-minutes"
+                            name="minutes"
+                            type="number"
+                            min="0"
+                            max="59"
+                            step="1"
+                            defaultValue="0"
+                            className={inputClass()}
+                            required
+                          />
+                        </Field>
+                      </div>
+                      <Field id="movement-effective-date" label="Fecha efectiva">
+                        <Input
+                          id="movement-effective-date"
+                          name="effectiveDate"
                           type="date"
                           max={today()}
                           defaultValue={today()}
@@ -1248,94 +1131,296 @@ export function CompensatoryBankPanel({
                           required
                         />
                       </Field>
-                      <div className="flex flex-wrap gap-2 sm:col-span-2">
-                        <Button type="submit" className="min-h-11" disabled={saving}>
-                          Confirmar reversión
-                        </Button>
+                      <Field id="movement-reason" label="Motivo y respaldo">
+                        <Input
+                          id="movement-reason"
+                          name="reason"
+                          className={inputClass()}
+                          required
+                        />
+                      </Field>
+                      <div className="sm:col-span-2">
                         <Button
-                          type="button"
-                          variant="ghost"
+                          type="submit"
                           className="min-h-11"
-                          onClick={() => setReverseEntryId("")}
+                          disabled={saving || !selected.isActive}
                         >
-                          Cancelar
+                          {saving ? "Guardando…" : "Registrar movimiento"}
                         </Button>
+                        {!selected.isActive && (
+                          <p className="mt-2 text-sm text-muted-foreground">
+                            Reactiva al agente para registrar movimientos.
+                          </p>
+                        )}
                       </div>
                     </form>
-                  )}
-              </CardContent>
-            </Card>
-          </details>
-          <details className="rounded-lg border bg-card" open={Boolean(requestHistoryError)}>
-            <summary className="min-h-11 cursor-pointer px-4 py-3 text-sm font-semibold">
-              Solicitudes guardadas{" "}
-              <span className="ml-1 font-normal text-muted-foreground">
-                · historial asociado al agente
-              </span>
-            </summary>
-            <Card className="rounded-none border-0 shadow-none">
-              <CardContent className="space-y-3 p-4 pt-1">
-                {!selected && (
-                  <p className="text-sm text-muted-foreground">
-                    Selecciona un agente para consultar sus solicitudes.
-                  </p>
-                )}
-                {requestHistoryLoading && (
-                  <p role="status" className="text-sm text-muted-foreground">
-                    Cargando solicitudes guardadas…
-                  </p>
-                )}
-                {requestHistoryError && (
-                  <div role="alert" className="space-y-2">
-                    <p className="text-sm text-destructive">{requestHistoryError}</p>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="min-h-11"
-                      onClick={() => setRequestHistoryRevision((revision) => revision + 1)}
-                    >
-                      Reintentar carga
-                    </Button>
-                  </div>
-                )}
-                {selected &&
-                  !requestHistoryLoading &&
-                  !requestHistoryError &&
-                  requestHistory.length === 0 && (
-                    <p className="rounded-md bg-muted/40 p-3 text-sm text-muted-foreground">
-                      No hay solicitudes guardadas para este agente.
-                    </p>
-                  )}
-                {requestHistory.map((request) => (
-                  <article className="rounded-md border p-3 text-sm" key={request.id}>
-                    <p className="font-medium">
-                      {request.submittedAt} · {request.requesterName}
-                    </p>
-                    <p className="mt-1">
-                      Móvil: {request.requesterMobile} · Fecha solicitada:{" "}
-                      {request.compensatoryDate} · Horas: {request.hours}
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Registrada: {new Date(request.createdAt).toLocaleString()}
-                    </p>
-                  </article>
-                ))}
-              </CardContent>
-            </Card>
-          </details>
-          {selected && <StaffAuditHistory changes={changes} />}
+                  </CardContent>
+                </Card>
+              )}
+              {(!tool || tool === "ledger") && (
+                <details
+                  className="rounded-lg border bg-card"
+                  open={tool === "ledger" || Boolean(historyError) ? true : undefined}
+                >
+                  <summary className="min-h-11 cursor-pointer px-4 py-3 text-sm font-semibold">
+                    Movimientos recientes{" "}
+                    <span className="ml-1 font-normal text-muted-foreground">
+                      · historial de saldo y reversiones
+                    </span>
+                  </summary>
+                  <Card className="rounded-none border-0 shadow-none">
+                    <CardContent className="space-y-3 p-4 pt-1">
+                      {!selected && (
+                        <p className="text-sm text-muted-foreground">
+                          Selecciona un agente para consultar su historial.
+                        </p>
+                      )}
+                      {historyLoading && (
+                        <p role="status" className="text-sm text-muted-foreground">
+                          Cargando historial…
+                        </p>
+                      )}
+                      {historyError && (
+                        <div role="alert" className="space-y-2">
+                          <p className="text-sm text-destructive">{historyError}</p>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="min-h-11"
+                            onClick={() => setHistoryRevision((revision) => revision + 1)}
+                          >
+                            Reintentar carga
+                          </Button>
+                        </div>
+                      )}
+                      {selected && !historyLoading && !historyError && !entries.length && (
+                        <p className="rounded-md bg-muted/40 p-3 text-sm text-muted-foreground">
+                          No hay movimientos registrados para este agente.
+                        </p>
+                      )}
+                      {entries.length > 0 && (
+                        <div className="overflow-x-auto">
+                          <table className="w-full min-w-[44rem] border-collapse text-left text-sm">
+                            <thead>
+                              <tr className="border-b text-muted-foreground">
+                                <th className="p-2">Fecha / registro</th>
+                                <th className="p-2">Movimiento</th>
+                                <th className="p-2">Motivo</th>
+                                <th className="p-2">Saldo antes / después</th>
+                                <th className="p-2">Responsable</th>
+                                <th className="p-2">Acción</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {entries.map((entry) => (
+                                <tr
+                                  id={`ledger-entry-${entry.id}`}
+                                  className="border-b align-top"
+                                  key={entry.id}
+                                >
+                                  <td className="p-2 tabular-nums">
+                                    {entry.effectiveDate}
+                                    <br />
+                                    <span className="text-xs text-muted-foreground">
+                                      {new Date(entry.createdAt).toLocaleString()}
+                                    </span>
+                                  </td>
+                                  <td className="p-2">
+                                    <span className="capitalize">
+                                      {entry.kind === "opening"
+                                        ? "Saldo inicial"
+                                        : entry.kind === "credit"
+                                          ? "Crédito"
+                                          : entry.kind === "debit"
+                                            ? "Débito"
+                                            : "Reversión"}
+                                    </span>
+                                    <br />
+                                    <span className="tabular-nums">
+                                      {hoursAndMinutes(entry.minutes)}
+                                    </span>
+                                  </td>
+                                  <td className="max-w-64 whitespace-normal p-2">
+                                    {entry.reason}
+                                    {entry.reversesEntryId && (
+                                      <p className="mt-1 text-xs text-muted-foreground">
+                                        <a
+                                          className="underline underline-offset-2"
+                                          href={`#ledger-entry-${entry.reversesEntryId}`}
+                                        >
+                                          Reversa el movimiento original
+                                        </a>
+                                      </p>
+                                    )}
+                                  </td>
+                                  <td className="p-2 tabular-nums">
+                                    {hoursAndMinutes(entry.balanceBeforeMinutes)}
+                                    <br />
+                                    {hoursAndMinutes(entry.balanceAfterMinutes)}
+                                  </td>
+                                  <td className="p-2">{entry.actorName}</td>
+                                  <td className="p-2">
+                                    {selected?.isActive &&
+                                      entry.kind !== "reversal" &&
+                                      !entry.reversesEntryId &&
+                                      !entries.some(
+                                        (item) => item.reversesEntryId === entry.id,
+                                      ) && (
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          className="min-h-11"
+                                          onClick={() => setReverseEntryId(entry.id)}
+                                        >
+                                          Revertir
+                                        </Button>
+                                      )}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                      {reverseEntryId &&
+                        selected &&
+                        entries.find((entry) => entry.id === reverseEntryId) && (
+                          <form
+                            className="mt-4 grid gap-3 rounded-lg border p-3 sm:grid-cols-2"
+                            onSubmit={(event) =>
+                              void handleReverse(
+                                event,
+                                entries.find((entry) => entry.id === reverseEntryId)!,
+                              )
+                            }
+                          >
+                            <p className="sm:col-span-2 text-sm font-medium">
+                              La reversión crea un asiento nuevo y no edita el original.
+                            </p>
+                            <Field id="reverse-reason" label="Motivo de la reversión">
+                              <Input
+                                id="reverse-reason"
+                                name="reverseReason"
+                                className={inputClass()}
+                                required
+                              />
+                            </Field>
+                            <Field id="reverse-date" label="Fecha efectiva">
+                              <Input
+                                id="reverse-date"
+                                name="reverseDate"
+                                type="date"
+                                max={today()}
+                                defaultValue={today()}
+                                className={inputClass()}
+                                required
+                              />
+                            </Field>
+                            <div className="flex flex-wrap gap-2 sm:col-span-2">
+                              <Button type="submit" className="min-h-11" disabled={saving}>
+                                Confirmar reversión
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                className="min-h-11"
+                                onClick={() => setReverseEntryId("")}
+                              >
+                                Cancelar
+                              </Button>
+                            </div>
+                          </form>
+                        )}
+                    </CardContent>
+                  </Card>
+                </details>
+              )}
+              {!tool && (
+                <>
+                  <details
+                    className="rounded-lg border bg-card"
+                    open={Boolean(requestHistoryError)}
+                  >
+                    <summary className="min-h-11 cursor-pointer px-4 py-3 text-sm font-semibold">
+                      Solicitudes guardadas{" "}
+                      <span className="ml-1 font-normal text-muted-foreground">
+                        · historial asociado al agente
+                      </span>
+                    </summary>
+                    <Card className="rounded-none border-0 shadow-none">
+                      <CardContent className="space-y-3 p-4 pt-1">
+                        {!selected && (
+                          <p className="text-sm text-muted-foreground">
+                            Selecciona un agente para consultar sus solicitudes.
+                          </p>
+                        )}
+                        {requestHistoryLoading && (
+                          <p role="status" className="text-sm text-muted-foreground">
+                            Cargando solicitudes guardadas…
+                          </p>
+                        )}
+                        {requestHistoryError && (
+                          <div role="alert" className="space-y-2">
+                            <p className="text-sm text-destructive">{requestHistoryError}</p>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="min-h-11"
+                              onClick={() => setRequestHistoryRevision((revision) => revision + 1)}
+                            >
+                              Reintentar carga
+                            </Button>
+                          </div>
+                        )}
+                        {selected &&
+                          !requestHistoryLoading &&
+                          !requestHistoryError &&
+                          requestHistory.length === 0 && (
+                            <p className="rounded-md bg-muted/40 p-3 text-sm text-muted-foreground">
+                              No hay solicitudes guardadas para este agente.
+                            </p>
+                          )}
+                        {requestHistory.map((request) => (
+                          <article className="rounded-md border p-3 text-sm" key={request.id}>
+                            <p className="font-medium">
+                              {request.submittedAt} · {request.requesterName}
+                            </p>
+                            <p className="mt-1">
+                              Móvil: {request.requesterMobile} · Fecha solicitada:{" "}
+                              {request.compensatoryDate} · Horas: {request.hours}
+                            </p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              Registrada: {new Date(request.createdAt).toLocaleString()}
+                            </p>
+                          </article>
+                        ))}
+                      </CardContent>
+                    </Card>
+                  </details>
+                  {selected && <StaffAuditHistory changes={changes} />}
+                </>
+              )}
+            </div>
+          )}
         </div>
-      </div>
-      <div className="compensatory-review-view">
-        <CompensatorySourceReview
-          onBack={() => setActiveView("bank")}
-          existingDnis={staff.map((person) => person.dni)}
-          onImportStaff={importStaffProfile}
-          staffTargets={staff}
-          onSaveRequest={saveReviewedRequest}
-          onCopyRequesterEmail={copyReviewedRequesterEmail}
-        />
-      </div>
+      )}
+      {(!tool || tool === "import") && (
+        <div className="compensatory-review-view">
+          <CompensatorySourceReview
+            onBack={() => {
+              if (tool === "import") {
+                if (!sourceBusy && !saving && !deleting) onExit?.();
+              } else setActiveView("bank");
+            }}
+            onBusyChange={setSourceBusy}
+            existingDnis={staff.map((person) => person.dni)}
+            onImportStaff={importStaffProfile}
+            staffTargets={staff}
+            onSaveRequest={saveReviewedRequest}
+            onCopyRequesterEmail={copyReviewedRequesterEmail}
+          />
+        </div>
+      )}
     </div>
   );
 }

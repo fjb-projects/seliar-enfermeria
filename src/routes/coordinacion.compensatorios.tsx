@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { CompensatoryBankPanel } from "@/components/CompensatoryBankPanel";
+import { CompensatoryOperationalWorkspace } from "@/components/CompensatoryOperationalWorkspace";
 import { listCompensatoryStaff, type StaffView } from "@/lib/compensatory-bank.functions";
 
 export const Route = createFileRoute("/coordinacion/compensatorios")({
@@ -9,5 +9,5 @@ export const Route = createFileRoute("/coordinacion/compensatorios")({
 
 function CompensatoryBankPage() {
   const { staff } = Route.useLoaderData();
-  return <CompensatoryBankPanel initialStaff={staff} />;
+  return <CompensatoryOperationalWorkspace initialStaff={staff} />;
 }

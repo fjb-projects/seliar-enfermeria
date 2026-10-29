@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { StaffDirectoryFields } from "@/components/StaffDirectoryFields";
@@ -125,8 +125,10 @@ export function CompensatorySourceReview({
   staffTargets = [],
   onSaveRequest,
   onCopyRequesterEmail,
+  onBusyChange,
 }: {
   onBack?: () => void;
+  onBusyChange?: (busy: boolean) => void;
   existingDnis?: string[];
   onImportStaff?: (profile: ImportedStaff) => Promise<void>;
   staffTargets?: ReviewStaffTarget[];
@@ -171,6 +173,10 @@ export function CompensatorySourceReview({
     Object.values(requestSaves).some((state) => state.status === "saving") ||
     Object.values(emailCopies).some((state) => state === "saving");
   const loading = reading.roster || reading.requests;
+  const sourceBusy = loading || writesPending || Object.values(importing).some(Boolean);
+  useEffect(() => {
+    onBusyChange?.(sourceBusy);
+  }, [sourceBusy, onBusyChange]);
   const fileReadSequence = useRef({ roster: 0, requests: 0 });
 
   const mappingRows: RosterSourceRow[] = useMemo(
@@ -445,7 +451,13 @@ export function CompensatorySourceReview({
           </details>
         </div>
         {onBack && (
-          <Button type="button" variant="outline" className="min-h-11" onClick={onBack}>
+          <Button
+            type="button"
+            variant="outline"
+            className="min-h-11"
+            onClick={onBack}
+            disabled={sourceBusy}
+          >
             Volver al banco
           </Button>
         )}
