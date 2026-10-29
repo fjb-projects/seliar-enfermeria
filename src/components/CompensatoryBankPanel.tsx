@@ -14,6 +14,7 @@ import {
   listCompensatoryRequests,
 } from "@/lib/compensatory-requests.functions";
 import type { CompensatoryRequestRecord } from "@/lib/compensatory-requests.server";
+import { deleteCompensatoryStaff } from "@/lib/compensatory-staff-delete.functions";
 import {
   createCompensatoryStaff,
   getCompensatoryHistory,
@@ -47,6 +48,7 @@ type BankApi = {
   reverseMovement: typeof reverseCompensatoryMovement;
   insertRequest: typeof insertCompensatoryRequest;
   listRequests: typeof listCompensatoryRequests;
+  deleteStaff: typeof deleteCompensatoryStaff;
 };
 
 const defaultApi: BankApi = {
@@ -58,6 +60,7 @@ const defaultApi: BankApi = {
   reverseMovement: reverseCompensatoryMovement,
   insertRequest: insertCompensatoryRequest,
   listRequests: listCompensatoryRequests,
+  deleteStaff: deleteCompensatoryStaff,
 };
 
 function today() {
@@ -181,15 +184,18 @@ export function CompensatoryBankPanel({
   const [entries, setEntries] = useState<LedgerView[]>([]);
   const [changes, setChanges] = useState<StaffAuditView[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyLoadedFor, setHistoryLoadedFor] = useState("");
   const [historyRevision, setHistoryRevision] = useState(0);
   const [historyError, setHistoryError] = useState("");
   const [requestHistory, setRequestHistory] = useState<CompensatoryRequestRecord[]>([]);
   const [requestHistoryError, setRequestHistoryError] = useState("");
   const [requestHistoryLoading, setRequestHistoryLoading] = useState(false);
+  const [requestHistoryLoadedFor, setRequestHistoryLoadedFor] = useState("");
   const [requestHistoryRevision, setRequestHistoryRevision] = useState(0);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [reverseEntryId, setReverseEntryId] = useState("");
   const [activeView, setActiveView] = useState<"bank" | "review">("bank");
@@ -216,6 +222,7 @@ export function CompensatoryBankPanel({
     }
     setEntries([]);
     setChanges([]);
+    setHistoryLoadedFor("");
     setHistoryError("");
     setHistoryLoading(true);
     void api
@@ -224,6 +231,7 @@ export function CompensatoryBankPanel({
         if (request !== requestSequence.current) return;
         setEntries(history.entries);
         setChanges(history.changes);
+        setHistoryLoadedFor(selectedId);
       })
       .catch((cause: unknown) => {
         if (request !== requestSequence.current) return;
@@ -248,12 +256,16 @@ export function CompensatoryBankPanel({
       return;
     }
     setRequestHistory([]);
+    setRequestHistoryLoadedFor("");
     setRequestHistoryError("");
     setRequestHistoryLoading(true);
     void api
       .listRequests({ data: { staffId: selectedId } })
       .then((items) => {
-        if (request === requestHistorySequence.current) setRequestHistory(items);
+        if (request === requestHistorySequence.current) {
+          setRequestHistory(items);
+          setRequestHistoryLoadedFor(selectedId);
+        }
       })
       .catch((cause: unknown) => {
         if (request === requestHistorySequence.current)
@@ -498,6 +510,79 @@ export function CompensatoryBankPanel({
     }
   }
 
+  async function handleDeleteStaff(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selected || saving || deleting) return;
+    if (
+      historyLoadedFor !== selected.id ||
+      requestHistoryLoadedFor !== selected.id ||
+      historyLoading ||
+      requestHistoryLoading ||
+      historyError ||
+      requestHistoryError
+    ) {
+      setError("No se pudo verificar el historial; actualízalo antes de intentar eliminar.");
+      return;
+    }
+    if (entries.length > 0 || requestHistory.length > 0) {
+      setError(
+        "El agente tiene historial; no se puede eliminar. Puedes desactivarlo y conservar su historial.",
+      );
+      return;
+    }
+    const form = new FormData(event.currentTarget);
+    const confirmation = String(form.get("deleteConfirmation") ?? "");
+    const reason = String(form.get("deleteReason") ?? "").trim();
+    if (confirmation !== selected.dni || !reason) {
+      setError("Escribe el DNI exacto del agente y el motivo para confirmar la eliminación.");
+      return;
+    }
+    const payload = {
+      staffId: selected.id,
+      expectedVersion: selected.version,
+      reason,
+    };
+    if (
+      !window.confirm(
+        `¿Eliminar definitivamente a ${selected.name} (DNI ${selected.dni})? Esta acción solo procede sin historial y conservará la constancia.`,
+      )
+    )
+      return;
+    const slot = `delete:${selected.id}`;
+    setDeleting(true);
+    setError("");
+    setNotice("");
+    try {
+      const result = await api.deleteStaff({
+        data: { ...payload, clientOperationId: getOperationId(slot, payload) },
+      });
+      if (result.id !== selected.id)
+        throw new Error("La respuesta no coincide con el agente seleccionado.");
+      pendingOperations.current.delete(slot);
+      setStaff((current) => current.filter((person) => person.id !== selected.id));
+      setSelectedId("");
+      setHistoryRevision((revision) => revision + 1);
+      setRequestHistoryRevision((revision) => revision + 1);
+      try {
+        setStaff(await api.listStaff());
+        setNotice("Agente eliminado y constancia guardada.");
+      } catch (cause) {
+        setError(
+          `Agente eliminado y constancia guardada; no se pudo actualizar la lista. ${getErrorMessage(cause, "")}`.trim(),
+        );
+      }
+    } catch (cause) {
+      setError(
+        getErrorMessage(
+          cause,
+          "No se pudo eliminar el agente. Conservamos la confirmación para reintentar.",
+        ),
+      );
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   async function importStaffProfile(profile: ImportedStaff) {
     const canonicalDni = profile.dni.replace(/[.\s]/gu, "");
     if (staff.some((person) => person.dni.replace(/[.\s]/gu, "") === canonicalDni)) {
@@ -650,6 +735,7 @@ export function CompensatoryBankPanel({
             </CardHeader>
             <CardContent className="space-y-3 p-4 pt-2">
               <CompensatoryAgentInput
+                key={`staff-select:${staff.map((person) => person.id).join("|")}`}
                 id="staff-select"
                 label="Seleccionar agente"
                 value={selectedId}
@@ -839,6 +925,86 @@ export function CompensatoryBankPanel({
                   >
                     {selected.isActive ? "Desactivar agente" : "Reactivar agente"}
                   </Button>
+                </form>
+                <form
+                  key={`delete:${selected.id}:${selected.version}`}
+                  id="delete-agent-form"
+                  className="mt-4 space-y-3 border-t border-destructive/30 pt-4"
+                  onSubmit={(event) => void handleDeleteStaff(event)}
+                >
+                  <div>
+                    <h3 className="text-sm font-semibold text-destructive">Eliminar agente</h3>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Solo se puede eliminar sin solicitudes ni movimientos. Si tiene historial,
+                      desactívalo para conservarlo.
+                    </p>
+                  </div>
+                  {(historyLoadedFor !== selected.id ||
+                    requestHistoryLoadedFor !== selected.id ||
+                    historyLoading ||
+                    requestHistoryLoading) && (
+                    <p role="status" className="text-sm">
+                      Verificando historial antes de habilitar la eliminación…
+                    </p>
+                  )}
+                  {(entries.length > 0 || requestHistory.length > 0) && (
+                    <p role="alert" className="text-sm text-destructive">
+                      El historial operativo impide eliminar este agente. Puedes desactivarlo; el
+                      historial se conserva.
+                    </p>
+                  )}
+                  {(historyError || requestHistoryError) && (
+                    <p role="alert" className="text-sm text-destructive">
+                      No se pudo comprobar que el historial esté vacío; la eliminación queda
+                      bloqueada.
+                    </p>
+                  )}
+                  <Field
+                    id="delete-confirmation"
+                    label={`Escribe el DNI exacto ${selected.dni} para confirmar`}
+                  >
+                    <Input
+                      id="delete-confirmation"
+                      name="deleteConfirmation"
+                      className={inputClass()}
+                      autoComplete="off"
+                      disabled={saving || deleting}
+                      required
+                    />
+                  </Field>
+                  <Field id="delete-reason" label="Motivo de la eliminación">
+                    <Input
+                      id="delete-reason"
+                      name="deleteReason"
+                      className={inputClass()}
+                      maxLength={500}
+                      disabled={saving || deleting}
+                      required
+                    />
+                  </Field>
+                  <Button
+                    type="submit"
+                    variant="destructive"
+                    className="min-h-11"
+                    disabled={
+                      saving ||
+                      deleting ||
+                      historyLoadedFor !== selected.id ||
+                      requestHistoryLoadedFor !== selected.id ||
+                      historyLoading ||
+                      requestHistoryLoading ||
+                      Boolean(historyError || requestHistoryError) ||
+                      entries.length > 0 ||
+                      requestHistory.length > 0
+                    }
+                  >
+                    {deleting ? "Eliminando…" : "Eliminar agente definitivamente"}
+                  </Button>
+                  {deleting && (
+                    <p role="status" className="text-sm">
+                      No cambies de agente mientras se confirma la eliminación.
+                    </p>
+                  )}
                 </form>
               </div>
             </details>

@@ -7,6 +7,7 @@ import {
   directoryKeys,
   parseCompensatoryJson,
   parseRosterCsv,
+  reviewMetadataKeys,
   suggestRequestLinks,
   type ReviewRequest,
   type RosterSourceRow,
@@ -74,6 +75,45 @@ function AcceptedDirectoryFields({ row }: { row: RosterSourceRow }) {
           </div>
         ))}
       </dl>
+    </details>
+  );
+}
+
+export function RosterReviewMetadata({ row }: { row: RosterSourceRow }) {
+  const metadata = row.reviewMetadata;
+  if (!metadata || Object.values(metadata).every((value) => !value)) return null;
+  const labels: Record<(typeof reviewMetadataKeys)[number], string> = {
+    ORIGEN: "Origen",
+    REVISION: "Revisión indicada en el archivo",
+    "DATOS FALTANTES": "Datos faltantes",
+    "CAMPOS CON DIFERENCIAS": "Diferencias respecto del registro anterior",
+    "NOMBRE ANTERIOR": "Nombre anterior",
+    "SIT DE REVISTA ANTERIOR": "Situación de revista anterior",
+    "FUNCION ANTERIOR": "Función laboral anterior",
+    "OPERATIVO ANTERIOR": "Operativo anterior",
+    "FUNCION2 ANTERIOR": "Función operativa anterior",
+    "FILA ANTERIOR": "Fila anterior",
+    "FILA ARCHIVO 2": "Fila del segundo archivo",
+  };
+  return (
+    <details className="mt-2 rounded-md border border-amber-500/40 bg-amber-50/30 p-2">
+      <summary className="min-h-11 cursor-pointer text-sm font-medium">
+        Revisar origen y diferencias
+      </summary>
+      <dl className="grid gap-1 text-sm sm:grid-cols-2">
+        {reviewMetadataKeys.map((key) =>
+          metadata[key] ? (
+            <div key={key} className="min-w-0">
+              <dt className="font-medium">{labels[key]}</dt>
+              <dd className="break-words text-muted-foreground">{metadata[key]}</dd>
+            </div>
+          ) : null,
+        )}
+      </dl>
+      <p className="mt-2 text-xs text-muted-foreground">
+        Estos datos solo muestran la revisión del archivo; no confirman ni aplican cambios al
+        agente.
+      </p>
     </details>
   );
 }
@@ -505,6 +545,7 @@ export function CompensatorySourceReview({
                   {row.issues.length ? ` · ${row.issues.join("; ")}` : ""}
                 </p>
                 <AcceptedDirectoryFields row={row} />
+                <RosterReviewMetadata row={row} />
                 {row.registrationNumber?.toLocaleUpperCase("es").includes("L") && (
                   <p className="mt-2 text-sm font-medium" aria-label="Calificación profesional">
                     Licenciatura indicada por la matrícula

@@ -10,11 +10,13 @@ const plugin = {
   name: "safe-fixture-module-stubs",
   setup(build) {
     build.onResolve(
-      { filter: /^@\/lib\/compensatory-(bank|requests)\.functions$/ },
+      { filter: /^@\/lib\/compensatory-(bank|requests|staff-delete)\.functions$/ },
       ({ path }) => ({
         path: path.endsWith("requests.functions")
           ? "comp-request-functions"
-          : "comp-bank-functions",
+          : path.endsWith("staff-delete.functions")
+            ? "comp-staff-delete-functions"
+            : "comp-bank-functions",
         namespace: "fixture",
       }),
     );
@@ -35,7 +37,9 @@ const plugin = {
             contents:
               args.path === "comp-request-functions"
                 ? "export const insertCompensatoryRequest=async()=>({status:'stored'}); export const listCompensatoryRequests=async()=>[];"
-                : "export const listCompensatoryStaff=()=>{}; export const getCompensatoryHistory=()=>{}; export const createCompensatoryStaff=()=>{}; export const updateCompensatoryStaff=()=>{}; export const recordCompensatoryMovement=()=>{}; export const reverseCompensatoryMovement=()=>{};",
+                : args.path === "comp-staff-delete-functions"
+                  ? "export const deleteCompensatoryStaff=()=>{};"
+                  : "export const listCompensatoryStaff=()=>{}; export const getCompensatoryHistory=()=>{}; export const createCompensatoryStaff=()=>{}; export const updateCompensatoryStaff=()=>{}; export const recordCompensatoryMovement=()=>{}; export const reverseCompensatoryMovement=()=>{};",
           },
     );
   },
@@ -88,13 +92,110 @@ const plugin = {
       initialControls.closed &&
       initialControls.hoursVisible,
   });
+
+  await page.locator("details summary").filter({ hasText: "Editar ficha" }).click();
+  await page.waitForFunction(() => {
+    const button = document.querySelector("#delete-agent-form button[type=submit]");
+    return button && !button.disabled;
+  });
+  await page.locator("#delete-confirmation").fill("30123456");
+  await page.locator("#delete-reason").fill("Synthetic cancellation check");
+  page.once("dialog", (dialog) => dialog.dismiss());
+  await page.locator("#delete-agent-form button[type=submit]").click();
+  const canceled = await page.evaluate(() => ({
+    calls: window.__probeState.deleteCalls.length,
+    selected: document.querySelector("#staff-select").value,
+  }));
+  results.push({
+    probe: "canceled delete confirmation preserves the selected synthetic agent",
+    actual: canceled,
+    passed: canceled.calls === 0 && canceled.selected.includes("Ana Agente"),
+  });
+  await page.locator("#delete-confirmation").fill("");
+  await page.locator("#delete-agent-form button[type=submit]").click();
+  results.push({
+    probe: "missing exact DNI confirmation cannot call delete API",
+    actual: await page.evaluate(() => window.__probeState.deleteCalls.length),
+    passed: (await page.evaluate(() => window.__probeState.deleteCalls.length)) === 0,
+  });
+
+  await page.evaluate(() => {
+    window.resetBankState();
+    window.mountBank();
+  });
+  await page.locator("#staff-select").fill("Beatriz Agente · DNI 30987654");
+  await page.waitForTimeout(80);
+  await page.locator("details summary").filter({ hasText: "Editar ficha" }).click();
+  await page.locator("#delete-agent-form").waitFor();
+  const historyGuard = await page.locator("#delete-agent-form button[type=submit]").isDisabled();
+  results.push({
+    probe: "loaded operational history disables deletion while deactivation remains available",
+    actual: historyGuard,
+    passed:
+      historyGuard &&
+      (await page.locator("#delete-agent-form").innerText()).includes("historial operativo impide"),
+  });
+
+  await page.evaluate(() => {
+    window.resetBankState();
+    window.__probeState.failDeleteFirstAfterCommit = true;
+    window.mountBank();
+  });
+  await page.locator("details summary").filter({ hasText: "Editar ficha" }).click();
+  await page.locator("#delete-confirmation").fill("30123456");
+  await page.locator("#delete-reason").fill("Synthetic retry check");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.locator("#delete-agent-form button[type=submit]").click();
+  await page
+    .getByRole("alert")
+    .filter({ hasText: "Simulated timeout after delete commit" })
+    .waitFor();
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.locator("#delete-agent-form button[type=submit]").click();
+  await page
+    .getByRole("status")
+    .filter({ hasText: "Agente eliminado y constancia guardada" })
+    .waitFor();
+  const deleteRetry = await page.evaluate(() => ({
+    ids: [...window.__probeState.deleteCalls],
+    commits: window.__probeState.deleted.size,
+    remaining: window.__probeState.staff.map((person) => person.id),
+    selected: document.querySelector("#staff-select").value,
+  }));
+  results.push({
+    probe:
+      "unknown delete outcome retries with the same operation and removes the confirmed record",
+    actual: deleteRetry,
+    passed:
+      deleteRetry.ids.length === 2 &&
+      deleteRetry.ids[0] === deleteRetry.ids[1] &&
+      deleteRetry.commits === 1 &&
+      !deleteRetry.remaining.includes("staff-a") &&
+      deleteRetry.selected === "",
+  });
+  await page.evaluate(() => {
+    window.resetBankState();
+    window.mountBank();
+  });
   await page.locator("details summary").filter({ hasText: "Editar ficha" }).click();
   await page.locator("#profile-name").waitFor();
   await page.locator("#profile-name").fill("Ana draft");
+  await page.locator("#staff-select").fill("Ana Agente · DNI 30123456");
   await page.locator("#staff-select").fill("Beatriz Agente");
+  const partialSearch = await page.evaluate(() => ({
+    value: document.querySelector("#staff-select").value,
+    focused: document.activeElement?.id === "staff-select",
+    savedNames: window.__probeState.staff.map((person) => person.name),
+  }));
   results.push({
-    probe: "partial agent label cannot silently select a staff record",
-    passed: !(await page.locator("#movement-kind").count()),
+    probe: "partial agent label keeps its query and focus without selecting a different record",
+    actual: partialSearch,
+    passed:
+      !(await page.locator("#movement-kind").count()) &&
+      !(await page.locator("#delete-agent-form").count()) &&
+      partialSearch.value === "Beatriz Agente" &&
+      partialSearch.focused &&
+      partialSearch.savedNames.includes("Ana Agente"),
   });
   await page.locator("#staff-select").fill("Beatriz Agente · DNI 30987654");
   await page.waitForTimeout(80);

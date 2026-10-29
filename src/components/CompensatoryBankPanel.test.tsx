@@ -47,14 +47,18 @@ describe("compensatory bank panel", () => {
     expect(html).toContain("{&quot;monthlyLimitMinutes&quot;:1530}");
   });
 
-  it("offers manual hours and history without import, request, or delete controls", () => {
+  it("offers guarded deletion separately from deactivation and retains history warnings", () => {
     const html = renderToStaticMarkup(<CompensatoryBankPanel initialStaff={[staff]} />);
     expect(html).toContain("Registrar horas");
     expect(html).toContain("Motivo y respaldo");
     expect(html).toContain("Movimientos recientes");
     expect(html).toContain("Importar agentes seleccionados");
     expect(html).not.toContain("Aprobar solicitud");
-    expect(html).not.toContain("Eliminar agente");
+    expect(html).toContain("Eliminar agente definitivamente");
+    expect(html).toContain("Escribe el DNI exacto 30123456 para confirmar");
+    expect(html).toContain("Motivo de la eliminación");
+    expect(html).toContain("Si tiene historial, desactívalo para conservarlo.");
+    expect(html).toContain('disabled=""');
   });
 
   it("keeps secondary bank sections collapsed by default", () => {

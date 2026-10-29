@@ -17,7 +17,22 @@ export type RosterSourceRow = DirectoryData & {
   name: string;
   canLink: boolean;
   issues: string[];
+  reviewMetadata?: Partial<Record<(typeof reviewMetadataKeys)[number], string>>;
 };
+
+export const reviewMetadataKeys = [
+  "ORIGEN",
+  "REVISION",
+  "DATOS FALTANTES",
+  "CAMPOS CON DIFERENCIAS",
+  "NOMBRE ANTERIOR",
+  "SIT DE REVISTA ANTERIOR",
+  "FUNCION ANTERIOR",
+  "OPERATIVO ANTERIOR",
+  "FUNCION2 ANTERIOR",
+  "FILA ANTERIOR",
+  "FILA ARCHIVO 2",
+] as const;
 
 export type ReviewRequest = {
   responseId: string;
@@ -176,6 +191,8 @@ function approvedHeaderPositions(header: string[]) {
       normalized === "operativo"
     ) {
       add(normalized, index);
+    } else if (reviewMetadataKeys.some((key) => normalizeHeader(key) === normalized)) {
+      add(`metadata:${normalized}`, index);
     }
   });
   return positions;
@@ -223,6 +240,9 @@ function csvColumnMap(header: string[]) {
     workplace,
     operationalStatus,
     operationalRole: functions[1],
+    reviewMetadata: new Map(
+      reviewMetadataKeys.map((key) => [key, columns.get(`metadata:${normalizeHeader(key)}`)]),
+    ),
   };
 }
 
@@ -278,6 +298,13 @@ export function parseRosterCsv(text: string): {
     for (const key of directoryKeys) {
       data[key] = nullableCell(cells[directoryColumns[key]]);
     }
+    const reviewMetadata: RosterSourceRow["reviewMetadata"] = {};
+    for (const key of reviewMetadataKeys) {
+      const indices = map.reviewMetadata.get(key);
+      if (indices?.length !== 1) continue;
+      const value = nullableCell(cells[indices[0]!]);
+      if (value) reviewMetadata[key] = value;
+    }
 
     if (cells.length !== header.length) {
       issues.push("La fila tiene una cantidad de columnas distinta al encabezado.");
@@ -289,6 +316,7 @@ export function parseRosterCsv(text: string): {
       name,
       canLink: Boolean(dni && name && cells.length === header.length),
       issues,
+      ...(Object.keys(reviewMetadata).length > 0 ? { reviewMetadata } : {}),
     };
   });
 

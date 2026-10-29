@@ -108,6 +108,75 @@ describe("parseRosterCsv", () => {
     expect(JSON.stringify(result.rows)).not.toContain("private");
   });
 
+  it("keeps only the approved combined-roster review metadata without accepting OBS", () => {
+    const metadata = [
+      "ORIGEN",
+      "REVISION",
+      "DATOS FALTANTES",
+      "CAMPOS CON DIFERENCIAS",
+      "NOMBRE ANTERIOR",
+      "SIT DE REVISTA ANTERIOR",
+      "FUNCION ANTERIOR",
+      "OPERATIVO ANTERIOR",
+      "FUNCION2 ANTERIOR",
+      "FILA ANTERIOR",
+      "FILA ARCHIVO 2",
+      "OBS",
+    ];
+    const result = parseRosterCsv(
+      rosterCsv(
+        [
+          [
+            "1234567",
+            "",
+            "Synthetic Person",
+            "Current status",
+            "Current job",
+            "North",
+            "",
+            "Base",
+            "ignored",
+            "Active",
+            "Night",
+            "merged roster",
+            "reviewed",
+            "Phone missing",
+            "Role",
+            "Old Name",
+            "Prior status",
+            "Prior job",
+            "Prior shift",
+            "Prior operation",
+            "6",
+            "9",
+            "must not appear",
+          ],
+        ],
+        [...headers, ...metadata],
+      ),
+    );
+
+    expect(result.rows[0]).toMatchObject({
+      dni: "1234567",
+      jobRole: "Current job",
+      operationalRole: "Night",
+      reviewMetadata: {
+        ORIGEN: "merged roster",
+        REVISION: "reviewed",
+        "DATOS FALTANTES": "Phone missing",
+        "CAMPOS CON DIFERENCIAS": "Role",
+        "NOMBRE ANTERIOR": "Old Name",
+        "SIT DE REVISTA ANTERIOR": "Prior status",
+        "FUNCION ANTERIOR": "Prior job",
+        "OPERATIVO ANTERIOR": "Prior shift",
+        "FUNCION2 ANTERIOR": "Prior operation",
+        "FILA ANTERIOR": "6",
+        "FILA ARCHIVO 2": "9",
+      },
+    });
+    expect(JSON.stringify(result.rows[0])).not.toContain("must not appear");
+  });
+
   it("supports BOM, quoted commas, escaped quotes, LF, and quoted newlines", () => {
     const result = parseRosterCsv(
       `\uFEFF${csvRow(headers)}\n${csvRow([

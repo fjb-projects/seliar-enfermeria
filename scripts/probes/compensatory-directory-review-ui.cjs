@@ -11,7 +11,7 @@ const plugin = {
   name: "fake-bank-api",
   setup(build) {
     build.onResolve(
-      { filter: /^@\/lib\/compensatory-(bank|requests)\.functions$/ },
+      { filter: /^@\/lib\/compensatory-(bank|requests|staff-delete)\.functions$/ },
       ({ path }) => ({
         path: path.endsWith("requests.functions") ? "fake-request-api" : "fake-bank-api",
         namespace: "fixture",
@@ -22,7 +22,7 @@ const plugin = {
       contents:
         path === "fake-request-api"
           ? "export const insertCompensatoryRequest=async()=>({status:'stored'}); export const listCompensatoryRequests=async()=>[];"
-          : "export const createCompensatoryStaff=()=>{}; export const getCompensatoryHistory=()=>{}; export const listCompensatoryStaff=()=>{}; export const recordCompensatoryMovement=()=>{}; export const reverseCompensatoryMovement=()=>{}; export const updateCompensatoryStaff=()=>{};",
+          : "export const deleteCompensatoryStaff=async()=>{throw Error('Unexpected delete in directory probe')}; export const createCompensatoryStaff=()=>{}; export const getCompensatoryHistory=()=>{}; export const listCompensatoryStaff=()=>{}; export const recordCompensatoryMovement=()=>{}; export const reverseCompensatoryMovement=()=>{}; export const updateCompensatoryStaff=()=>{};",
     }));
   },
 };

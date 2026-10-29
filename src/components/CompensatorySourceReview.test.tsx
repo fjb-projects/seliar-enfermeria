@@ -1,8 +1,38 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { CompensatorySourceReview } from "./CompensatorySourceReview";
+import { CompensatorySourceReview, RosterReviewMetadata } from "./CompensatorySourceReview";
+import type { RosterSourceRow } from "@/lib/compensatory-source-review";
 
 describe("compensatory source review", () => {
+  it("labels source metadata as review information rather than an applied import", () => {
+    const row: RosterSourceRow = {
+      sourceRow: 2,
+      dni: "30123456",
+      name: "Synthetic Person",
+      canLink: true,
+      issues: [],
+      registrationNumber: null,
+      employmentStatus: "Current status",
+      jobRole: "Current role",
+      region: null,
+      contactPhone: null,
+      workplace: null,
+      operationalStatus: null,
+      operationalRole: null,
+      reviewMetadata: {
+        ORIGEN: "combined synthetic fixture",
+        REVISION: "manual review pending",
+        "CAMPOS CON DIFERENCIAS": "FUNCION",
+        "FUNCION ANTERIOR": "Prior role",
+      },
+    };
+    const html = renderToStaticMarkup(<RosterReviewMetadata row={row} />);
+    expect(html).toContain("Revisar origen y diferencias");
+    expect(html).toContain("Diferencias respecto del registro anterior");
+    expect(html).toContain("Función laboral anterior");
+    expect(html).toContain("no confirman ni aplican cambios al agente");
+  });
+
   it("explains local-only persistence boundaries and exposes local file inputs", () => {
     const html = renderToStaticMarkup(
       <CompensatorySourceReview

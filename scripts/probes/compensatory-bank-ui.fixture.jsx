@@ -36,6 +36,9 @@ function resetState() {
   state.historyCalls = [];
   state.movementCalls = [];
   state.committed = new Map();
+  state.deleteCalls = [];
+  state.deleted = new Map();
+  state.failDeleteFirstAfterCommit = false;
   state.failFirstAfterCommit = false;
   state.delayedHistory = false;
   state.resolveA = null;
@@ -43,6 +46,7 @@ function resetState() {
 resetState();
 const api = {
   listStaff: async () => structuredClone(state.staff),
+  listRequests: async () => [],
   getHistory: ({ data }) => {
     const id = data.staffId;
     state.historyCalls.push(id);
@@ -131,6 +135,22 @@ const api = {
     return result;
   },
   reverseMovement: async ({ data }) => ({ id: `reversal-${data.entryId}` }),
+  deleteStaff: async ({ data }) => {
+    state.deleteCalls.push(data.clientOperationId);
+    let result = state.deleted.get(data.clientOperationId);
+    if (!result) {
+      if (state.entries.some((entry) => entry.staffId === data.staffId))
+        throw new Error("Operational history blocks deletion");
+      result = { id: data.staffId };
+      state.deleted.set(data.clientOperationId, result);
+      state.staff = state.staff.filter((person) => person.id !== data.staffId);
+    }
+    if (state.failDeleteFirstAfterCommit) {
+      state.failDeleteFirstAfterCommit = false;
+      throw new Error("Simulated timeout after delete commit");
+    }
+    return result;
+  },
 };
 let root;
 window.mountBank = () => {

@@ -18,6 +18,8 @@ const modules = {
     "export const listCompensatoryStaff=async()=>[];export const getCompensatoryHistory=async()=>({entries:[],changes:[]});export const createCompensatoryStaff=async()=>{};export const updateCompensatoryStaff=async()=>{};export const recordCompensatoryMovement=async()=>{};export const reverseCompensatoryMovement=async()=>{};",
   "@/lib/compensatory-requests.functions":
     "export const listCompensatoryRequests=async()=>[];export const insertCompensatoryRequest=async()=>({status:'stored'});",
+  "@/lib/compensatory-staff-delete.functions":
+    "export const deleteCompensatoryStaff=async()=>{throw Error('Unexpected delete in layout probe')};",
 };
 let browser, server;
 async function main() {
