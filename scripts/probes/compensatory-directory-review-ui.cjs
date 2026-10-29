@@ -183,6 +183,7 @@ async function main() {
   results.push({ probe: "invalid request cannot be confirmed", passed: invalidTargetDisabled });
 
   await page.locator("#target-synthetic-request-valid").fill("Ana Pérez · DNI 12345678");
+  await page.locator('input[id^="target-"]:focus').press("Enter");
   await page.getByRole("button", { name: "Confirmar para esta revisión" }).first().click();
   await page.getByText("Confirmada localmente").waitFor();
   const confirmedCount = await page.getByText("Confirmada localmente").count();
@@ -194,6 +195,7 @@ async function main() {
   });
 
   await page.locator("#target-synthetic-request-valid").fill("Ana Pérez · DNI 12345678");
+  await page.locator('input[id^="target-"]:focus').press("Enter");
   await page.getByRole("button", { name: "Confirmar para esta revisión" }).first().click();
   await page.getByText("Confirmada localmente").waitFor();
   await page.evaluate(() => {
@@ -307,6 +309,7 @@ async function main() {
   await page
     .locator("#target-synthetic-request-valid")
     .fill("Agente Sintético Nuevo · DNI 12345679");
+  await page.locator('input[id^="target-"]:focus').press("Enter");
   results.push({
     probe: "source confirmation alone does not persist a request",
     passed:
@@ -352,6 +355,7 @@ async function main() {
   await page
     .locator("#target-synthetic-request-valid")
     .fill("Agente Sintético Nuevo · DNI 12345679");
+  await page.locator('input[id^="target-"]:focus').press("Enter");
   results.push({
     probe: "undo and relink does not reuse a saved status",
     passed:
@@ -371,6 +375,7 @@ async function main() {
   await page
     .locator("#target-synthetic-request-valid")
     .fill("Agente Sintético Nuevo · DNI 12345679");
+  await page.locator('input[id^="target-"]:focus').press("Enter");
   results.push({
     probe: "file replacement does not reuse saved or copied statuses",
     passed:

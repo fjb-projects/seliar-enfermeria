@@ -78,26 +78,30 @@ async function main() {
   const card = (id) => page.locator("article").filter({ has: page.locator(`#target-${id}`) });
   await upload(3);
   const first = card("r0");
+  await page.locator("#target-r0").focus();
   check(
     (await page.locator("#target-r0").evaluate((input) => input.tagName)) === "INPUT" &&
-      (await page.locator("#target-r0-options option").count()) === 3 &&
+      (await page.locator('#target-r0-options [role="option"]').count()) === 3 &&
       (await page
         .locator("details")
         .first()
         .evaluate((item) => !item.open)),
     "mapper exposes a closed help disclosure and a searchable staff list",
   );
+  await page.locator("#target-r0").press("Escape");
   await page.locator("#target-r0").fill("Synthetic Alpha");
   check(
     await first.getByRole("button", { name: "Vincular y guardar", exact: true }).isDisabled(),
     "partial agent text cannot enable save",
   );
   await page.locator("#target-r0").fill("Synthetic Alpha · DNI 98765432");
+  await page.locator('input[id^="target-"]:focus').press("Enter");
   check(
     await first.getByRole("button", { name: "Vincular y guardar", exact: true }).isEnabled(),
     "identical names remain selectable by distinct DNI",
   );
   await page.locator("#target-r0").fill("Synthetic Alpha · DNI 12345678");
+  await page.locator('input[id^="target-"]:focus').press("Enter");
   check(
     await first.getByRole("button", { name: "Vincular y guardar", exact: true }).isEnabled(),
     "JSON maps directly to saved agents without CSV",
@@ -132,6 +136,7 @@ async function main() {
     "saved association uses the selected database ID",
   );
   await page.locator("#target-r1").fill("Synthetic Beta · DNI 23456789");
+  await page.locator('input[id^="target-"]:focus').press("Enter");
   await page.getByRole("button", { name: "Copiar correo revisado al perfil" }).click();
   await page.waitForFunction(() => window.probe.copies.length === 1);
   check(
@@ -167,6 +172,7 @@ async function main() {
   await upload(26);
   await page.getByRole("button", { name: "Siguiente", exact: true }).click();
   await page.locator("#target-r25").fill("Synthetic Alpha · DNI 12345678");
+  await page.locator('input[id^="target-"]:focus').press("Enter");
   await card("r25").getByRole("button", { name: "Vincular y guardar", exact: true }).click();
   await page.locator("#target-r0").waitFor();
   check(

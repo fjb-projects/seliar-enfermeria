@@ -73,9 +73,10 @@ const plugin = {
   await page.evaluate(() => window.resetBankState());
   await page.evaluate(() => window.mountBank());
   await page.locator("#staff-select").waitFor();
+  await page.getByRole("button", { name: "Mostrar opciones de Seleccionar agente" }).click();
   const initialControls = await page.evaluate(() => ({
     selector: document.querySelector("#staff-select")?.tagName,
-    datalist: document.querySelectorAll("#staff-select-options option").length,
+    datalist: document.querySelectorAll('#staff-select-options [role="option"]').length,
     closed: [...document.querySelectorAll(".compensatory-bank-panel details")].every(
       (item) => !item.open,
     ),
@@ -83,6 +84,7 @@ const plugin = {
       (item) => item.textContent === "Registrar horas",
     ),
   }));
+  await page.locator("#staff-select").press("Escape");
   results.push({
     probe: "agent search and optional bank controls start compact",
     actual: initialControls,

@@ -63,7 +63,8 @@ describe("compensatory bank panel", () => {
 
   it("keeps secondary bank sections collapsed by default", () => {
     const html = renderToStaticMarkup(<CompensatoryBankPanel initialStaff={[staff]} />);
-    expect(html).toContain('id="staff-select" list="staff-select-options"');
+    expect(html).toContain('id="staff-select" role="combobox"');
+    expect(html).toContain('aria-label="Mostrar opciones de Seleccionar agente"');
     expect(html).toContain('<details class="');
     expect(html).not.toContain('<details open="">');
     expect(html).toContain("Movimientos recientes");

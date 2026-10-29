@@ -85,6 +85,13 @@ async function main() {
     await page.addScriptTag({ path: path.join(dir, "fixture.js") });
     await page.getByText("Banco de horas", { exact: true }).first().waitFor();
     await page.screenshot({ path: path.join(dir, `${width}.png`), fullPage: true });
+    await page.getByRole("button", { name: "Mostrar opciones de Seleccionar agente" }).click();
+    await page.getByRole("option", { name: "Synthetic Agent · DNI 12345678" }).waitFor();
+    await page.screenshot({ path: path.join(dir, `picker-${width}.png`), animations: "disabled" });
+    const popup = await page.getByRole("listbox").boundingBox();
+    if (!popup || popup.x < 0 || popup.x + popup.width > width + 1)
+      throw Error(`Picker exceeds viewport at ${width}`);
+    await page.locator("#staff-select").press("Escape");
     const geometry = await page.evaluate(() => ({
       overflow: document.documentElement.scrollWidth > innerWidth,
       documentHeight: document.documentElement.scrollHeight,
