@@ -16,7 +16,7 @@ describe("compensatory bank database transaction contract", () => {
     expect(compensatoryStaff.createdAt.mapToDriverValue(instant)).toBe("2026-10-27T19:00:00.123Z");
   });
   it("keeps mutations inside a Drizzle transaction and serializes per-staff writers", () => {
-    expect(adapter).toContain("getDatabase().transaction");
+    expect(adapter).toContain("activeDatabase.transaction");
     expect(adapter).toContain('.for("update")');
     expect(adapter).toContain("updateBalance");
   });

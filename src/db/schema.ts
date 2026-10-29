@@ -5,10 +5,12 @@ import type {
   StaffAuditState,
   StaffRecord,
 } from "../lib/compensatory-bank.server";
+import type { CompensatoryJsonValue } from "../lib/compensatory-lifecycle.server";
 import {
   boolean,
   check,
   foreignKey,
+  index,
   integer,
   jsonb,
   pgEnum,
@@ -490,6 +492,26 @@ export const compensatoryRequest = pgTable(
     requesterMobile: text("requester_mobile").notNull(),
     compensatoryDate: text("compensatory_date").notNull(),
     hours: text("hours").notNull(),
+    phase: text("phase").notNull().default("unclassified"),
+    version: integer("version").notNull().default(1),
+    requestedDate: text("requested_date"),
+    requestedMinutes: integer("requested_minutes"),
+    classifiedAt: timestamp("classified_at"),
+    classifiedByUserId: text("classified_by_user_id").references(() => user.id, {
+      onDelete: "restrict",
+    }),
+    decisionAt: timestamp("decision_at"),
+    decisionByUserId: text("decision_by_user_id").references(() => user.id, {
+      onDelete: "restrict",
+    }),
+    decisionReason: text("decision_reason"),
+    cancelledAt: timestamp("cancelled_at"),
+    cancellationByUserId: text("cancellation_by_user_id").references(() => user.id, {
+      onDelete: "restrict",
+    }),
+    cancellationReason: text("cancellation_reason"),
+    consumedAt: timestamp("consumed_at"),
+    consumptionLedgerId: uuid("consumption_ledger_id"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (table) => [
@@ -517,6 +539,63 @@ export const compensatoryRequest = pgTable(
       "compensatory_request_hours_valid",
       sql`char_length(btrim(${table.hours})) between 1 and 100`,
     ),
+    check(
+      "compensatory_request_phase_allowed",
+      sql`${table.phase} in ('unclassified','pending','approved','rejected','cancelled','consumed')`,
+    ),
+    check("compensatory_request_version_positive", sql`${table.version} > 0`),
+    check(
+      "compensatory_request_classification_pair",
+      sql`(${table.requestedDate} is null and ${table.requestedMinutes} is null and ${table.classifiedAt} is null and ${table.classifiedByUserId} is null) or (${table.requestedDate} ~ '^\\d{4}-\\d{2}-\\d{2}$' and ${table.requestedMinutes} > 0 and ${table.classifiedAt} is not null and ${table.classifiedByUserId} is not null)`,
+    ),
+    check(
+      "compensatory_request_consumed_pair",
+      sql`(${table.phase} = 'consumed') = (${table.consumedAt} is not null and ${table.consumptionLedgerId} is not null)`,
+    ),
+    index("compensatory_request_effective_due_idx")
+      .on(table.requestedDate, table.createdAt)
+      .where(sql`${table.phase} = 'approved'`),
+  ],
+);
+
+export const compensatoryRequestAudit = pgTable(
+  "compensatory_request_audit",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    requestId: uuid("request_id")
+      .notNull()
+      .references(() => compensatoryRequest.id, { onDelete: "restrict" }),
+    actorUserId: text("actor_user_id").references(() => user.id, { onDelete: "restrict" }),
+    actorName: text("actor_name").notNull(),
+    actorKind: text("actor_kind").notNull(),
+    action: text("action").notNull(),
+    occurredAt: timestamp("occurred_at").notNull().defaultNow(),
+    reason: text("reason").notNull(),
+    versionBefore: integer("version_before").notNull(),
+    versionAfter: integer("version_after").notNull(),
+    detail: jsonb("detail").$type<{ [key: string]: CompensatoryJsonValue }>().notNull().default({}),
+  },
+  (table) => [
+    check(
+      "compensatory_request_audit_actor_kind",
+      sql`(${table.actorKind} = 'admin' and ${table.actorUserId} is not null) or (${table.actorKind} = 'system' and ${table.actorUserId} is null)`,
+    ),
+    check(
+      "compensatory_request_audit_action_allowed",
+      sql`${table.action} in ('classified','approved','rejected','cancelled','consumed')`,
+    ),
+    check(
+      "compensatory_request_audit_phase_transition",
+      sql`${table.versionAfter} = ${table.versionBefore} + 1`,
+    ),
+    check(
+      "compensatory_request_audit_reason_valid",
+      sql`char_length(btrim(${table.reason})) between 1 and 1000`,
+    ),
+    unique("compensatory_request_audit_request_version_unique").on(
+      table.requestId,
+      table.versionAfter,
+    ),
   ],
 );
 
@@ -531,10 +610,9 @@ export const compensatoryLedger = pgTable(
     minutes: integer("minutes").notNull(),
     effectiveDate: text("effective_date").notNull(),
     reason: text("reason").notNull(),
-    actorUserId: text("actor_user_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "restrict" }),
+    actorUserId: text("actor_user_id").references(() => user.id, { onDelete: "restrict" }),
     actorName: text("actor_name").notNull(),
+    actorKind: text("actor_kind").notNull().default("admin"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     balanceBeforeMinutes: integer("balance_before_minutes").notNull(),
     balanceAfterMinutes: integer("balance_after_minutes").notNull(),
@@ -542,11 +620,14 @@ export const compensatoryLedger = pgTable(
       (): AnyPgColumn => compensatoryLedger.id,
       { onDelete: "restrict" },
     ),
+    requestId: uuid("request_id").references(() => compensatoryRequest.id, {
+      onDelete: "restrict",
+    }),
   },
   (table) => [
     check(
       "compensatory_ledger_kind_allowed",
-      sql`${table.kind} in ('opening','credit','debit','reversal')`,
+      sql`${table.kind} in ('opening','credit','debit','reversal','request_consumption')`,
     ),
     check("compensatory_ledger_minutes_nonzero", sql`${table.minutes} <> 0`),
     check("compensatory_ledger_date_valid", sql`${table.effectiveDate} ~ '^\\d{4}-\\d{2}-\\d{2}$'`),
@@ -564,7 +645,11 @@ export const compensatoryLedger = pgTable(
     ),
     check(
       "compensatory_ledger_kind_sign",
-      sql`(${table.kind} in ('opening','credit') and ${table.minutes} > 0 and ${table.reversesEntryId} is null) or (${table.kind} = 'debit' and ${table.minutes} < 0 and ${table.reversesEntryId} is null) or (${table.kind} = 'reversal' and ${table.reversesEntryId} is not null)`,
+      sql`(${table.kind} in ('opening','credit') and ${table.minutes} > 0 and ${table.reversesEntryId} is null and ${table.requestId} is null) or (${table.kind} = 'debit' and ${table.minutes} < 0 and ${table.reversesEntryId} is null and ${table.requestId} is null) or (${table.kind} = 'reversal' and ${table.reversesEntryId} is not null and ${table.requestId} is null) or (${table.kind} = 'request_consumption' and ${table.minutes} < 0 and ${table.requestId} is not null and ${table.reversesEntryId} is null)`,
+    ),
+    check(
+      "compensatory_ledger_actor_kind",
+      sql`(${table.actorKind} = 'admin' and ${table.actorUserId} is not null) or (${table.actorKind} = 'system' and ${table.actorUserId} is null)`,
     ),
     uniqueIndex("compensatory_ledger_reversal_once_unique")
       .on(table.reversesEntryId)
@@ -572,6 +657,9 @@ export const compensatoryLedger = pgTable(
     uniqueIndex("compensatory_ledger_opening_once_unique")
       .on(table.staffId)
       .where(sql`${table.kind} = 'opening'`),
+    uniqueIndex("compensatory_ledger_request_consumption_once_unique")
+      .on(table.requestId)
+      .where(sql`${table.requestId} is not null`),
   ],
 );
 

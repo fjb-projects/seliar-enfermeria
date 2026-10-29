@@ -121,6 +121,7 @@ export interface CompensatoryBankTransaction {
   lockStaff(staffId: string): Promise<StaffRecord | null>;
   databaseNow(): Promise<Date>;
   serviceDay(): Promise<string>;
+  reservedMinutes(staffId: string): Promise<number>;
 }
 
 export interface CompensatoryBankStore {
@@ -495,6 +496,8 @@ export function createCompensatoryBankService(
             const delta = input.kind === "debit" ? -input.minutes : input.minutes;
             const after = staff.balanceMinutes + delta;
             if (after < 0) throw new Error("El débito supera el saldo disponible.");
+            if (input.kind === "debit" && after < (await tx.reservedMinutes(staff.id)))
+              throw new Error("El débito supera el saldo disponible después de las reservas.");
             if (after > maxInteger) throw new Error("El saldo supera el máximo registrable.");
             const id = newId();
             await appendLedger(tx, {
@@ -559,6 +562,8 @@ export function createCompensatoryBankService(
             const delta = -original.minutes;
             const after = staff.balanceMinutes + delta;
             if (after < 0) throw new Error("La reversión supera el saldo disponible.");
+            if (delta < 0 && after < (await tx.reservedMinutes(staff.id)))
+              throw new Error("La reversión supera el saldo disponible después de las reservas.");
             if (after > maxInteger) throw new Error("El saldo supera el máximo registrable.");
             const id = newId();
             await appendLedger(tx, {

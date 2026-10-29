@@ -5,7 +5,7 @@ import { compensatoryRequest } from "./schema";
 describe("compensatory request schema", () => {
   it("keeps the original request fields as text and associates each row with staff", () => {
     const columns = getTableColumns(compensatoryRequest);
-    expect(Object.keys(columns)).toEqual([
+    expect(Object.keys(columns).slice(0, 9)).toEqual([
       "id",
       "clientOperationId",
       "staffId",
@@ -15,8 +15,19 @@ describe("compensatory request schema", () => {
       "requesterMobile",
       "compensatoryDate",
       "hours",
-      "createdAt",
     ]);
+    expect(Object.keys(columns)).toContain("createdAt");
+    expect(Object.keys(columns)).toEqual(
+      expect.arrayContaining([
+        "phase",
+        "version",
+        "requestedDate",
+        "requestedMinutes",
+        "decisionAt",
+        "cancelledAt",
+        "consumedAt",
+      ]),
+    );
     for (const key of [
       "submittedAt",
       "requesterName",

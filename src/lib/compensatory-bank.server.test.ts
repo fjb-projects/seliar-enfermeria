@@ -19,12 +19,14 @@ function createStore(): CompensatoryBankStore & {
   audits: StaffAuditRecord[];
   operations: Map<string, { payloadHash: string; resultId: string }>;
   setActor(id: string, actor: typeof admin): void;
+  setReserved(staffId: string, minutes: number): void;
   hash(): string;
 } {
   let staff: StaffRecord[] = [];
   let ledger: LedgerRecord[] = [];
   let audits: StaffAuditRecord[] = [];
   const operations = new Map<string, { payloadHash: string; resultId: string }>();
+  const reservations = new Map<string, number>();
   const actors = new Map([
     ["admin", admin],
     ["nurse", nonAdmin],
@@ -89,6 +91,9 @@ function createStore(): CompensatoryBankStore & {
     async serviceDay() {
       return "2026-10-27";
     },
+    async reservedMinutes(staffId) {
+      return reservations.get(staffId) ?? 0;
+    },
   };
   const store: CompensatoryBankStore = {
     async transaction(work) {
@@ -119,6 +124,9 @@ function createStore(): CompensatoryBankStore & {
     audits: { get: () => audits },
     operations: { value: operations },
     setActor: { value: (id: string, actor: typeof admin) => actors.set(id, actor) },
+    setReserved: {
+      value: (staffId: string, minutes: number) => reservations.set(staffId, minutes),
+    },
     hash: { value: () => JSON.stringify({ staff, ledger, audits, operations: [...operations] }) },
   }) as CompensatoryBankStore & {
     staff: StaffRecord[];
@@ -126,6 +134,7 @@ function createStore(): CompensatoryBankStore & {
     audits: StaffAuditRecord[];
     operations: Map<string, { payloadHash: string; resultId: string }>;
     setActor(id: string, actor: typeof admin): void;
+    setReserved(staffId: string, minutes: number): void;
     hash(): string;
   };
 }
@@ -257,6 +266,41 @@ describe("compensatory bank service", () => {
       clientOperationId: "debit-exact",
     });
     expect((await service.listStaff("admin")).at(0)?.balanceMinutes).toBe(0);
+  });
+
+  it("protects approved request reservations from manual debit and credit reversal", async () => {
+    const { service, store } = setup();
+    const { id } = await service.createStaff("admin", createInput("12345678"));
+    const credit = await service.recordMovement("admin", {
+      staffId: id,
+      kind: "credit",
+      minutes: 200,
+      reason: "Horas acreditadas",
+      effectiveDate: "2026-10-27",
+      clientOperationId: "reserved-credit",
+    });
+    store.setReserved(id, 120);
+    const before = store.hash();
+    await expect(
+      service.recordMovement("admin", {
+        staffId: id,
+        kind: "debit",
+        minutes: 81,
+        reason: "Débito que invade reserva",
+        effectiveDate: "2026-10-27",
+        clientOperationId: "reserved-debit",
+      }),
+    ).rejects.toThrow("reservas");
+    await expect(
+      service.reverseMovement("admin", {
+        staffId: id,
+        entryId: credit.id,
+        reason: "Reversión que invade reserva",
+        effectiveDate: "2026-10-27",
+        clientOperationId: "reserved-reversal",
+      }),
+    ).rejects.toThrow("reservas");
+    expect(store.hash()).toBe(before);
   });
 
   it("rejects an integer-balance overflow without altering records", async () => {
