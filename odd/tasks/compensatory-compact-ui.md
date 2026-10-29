@@ -13,7 +13,7 @@ Branch: `feat/compensatory-manual-bank`; delivery: feature-branch-chain (local o
 ## Tasks
 
 - T1 [S2,S5] delegated — implementation and visual checks passed; commit pending because shared files contain pre-existing navigation changes and feature-only patch does not apply to HEAD. Preserve all current bytes; do not stage unrelated prior work.
-- T2 [S1,S3,S4,S5] delegated — implementation and focused/browser verification passed; parent owns commit.
+- T2 [S1,S3,S4,S5] delegated — implementation and focused/browser verification passed; commit `c2e96fd40934566356644e5906764a675e79a294`. RDDdisabled/unmanaged.
 - T3 [S1–S5] inline seam checks plus independent high-risk verification — local verification complete, with known baseline EFA text test failure; no real DB or production actions.
 
 ## Log
