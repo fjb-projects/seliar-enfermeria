@@ -1,0 +1,1 @@
+ALTER TABLE "compensatory_request" ADD COLUMN "client_payload_hash" text;

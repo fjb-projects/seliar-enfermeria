@@ -21,6 +21,16 @@ describe("compensatory bank database transaction contract", () => {
     expect(adapter).toContain("updateBalance");
   });
 
+  it("stores audited periods through transaction-scoped insert and uniqueness lookups", () => {
+    expect(adapter).toContain("listCompensatoryPeriods");
+    expect(adapter).toContain("findCompensatoryPeriod");
+    expect(adapter).toContain("insertCompensatoryPeriod");
+    expect(adapter).toContain("findCompensatoryPeriodById");
+    expect(adapter).toContain("reverseCompensatoryPeriod");
+    expect(adapter).toContain('.for("update")');
+    expect(adapter).toContain("compensatoryPeriod");
+  });
+
   it("serializes operation and canonical-DNI races with transaction-scoped advisory locks", () => {
     expect(adapter.match(/pg_advisory_xact_lock/g)).toHaveLength(2);
     expect(adapter).toContain("hashtextextended");

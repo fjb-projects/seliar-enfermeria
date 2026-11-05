@@ -5,6 +5,7 @@ import {
   accountRoleGrant,
   compensatoryLedger,
   compensatoryOperation,
+  compensatoryDecisionNotification,
   compensatoryRequest,
   compensatoryRequestAudit,
   compensatoryStaff,
@@ -13,6 +14,7 @@ import {
 import {
   createCompensatoryLifecycleService,
   type CompensatoryLifecycleAudit,
+  type CompensatoryDecisionNotification,
   type CompensatoryLifecycleLedger,
   type CompensatoryLifecycleRequest,
   type CompensatoryLifecycleStore,
@@ -155,6 +157,9 @@ export function createCompensatoryLifecycleStore(
               versionAfter: audit.versionAfter,
               detail: audit.detail,
             });
+          },
+          async insertDecisionNotification(notification: CompensatoryDecisionNotification) {
+            await db.insert(compensatoryDecisionNotification).values(notification);
           },
           async reservedMinutes(staffId) {
             const rows = await db

@@ -6,6 +6,7 @@ import {
   type CompensatoryBankTransaction,
   type LedgerRecord,
   type StaffAuditRecord,
+  type CompensatoryPeriodRecord,
   type StaffRecord,
 } from "./compensatory-bank.server";
 
@@ -25,6 +26,7 @@ function createStore(): CompensatoryBankStore & {
   let staff: StaffRecord[] = [];
   let ledger: LedgerRecord[] = [];
   let audits: StaffAuditRecord[] = [];
+  let periods: CompensatoryPeriodRecord[] = [];
   const operations = new Map<string, { payloadHash: string; resultId: string }>();
   const reservations = new Map<string, number>();
   const actors = new Map([
@@ -61,6 +63,23 @@ function createStore(): CompensatoryBankStore & {
     },
     async listLedger(id) {
       return ledger.filter((item) => item.staffId === id).slice();
+    },
+    async listCompensatoryPeriods(id, year) {
+      return periods.filter((item) => item.staffId === id && item.year === year).slice();
+    },
+    async findCompensatoryPeriod(id, year, month) {
+      return periods.find((item) => item.staffId === id && item.year === year && item.month === month && item.status === "active") ?? null;
+    },
+    async findCompensatoryPeriodById(staffId, periodId) {
+      return periods.find((item) => item.staffId === staffId && item.id === periodId) ?? null;
+    },
+    async insertCompensatoryPeriod(period) {
+      periods.push(period);
+    },
+    async reverseCompensatoryPeriod(periodId, reversal) {
+      const period = periods.find((item) => item.id === periodId);
+      if (!period || period.status !== "active") throw new Error("period changed");
+      Object.assign(period, { status: "reversed", ...reversal });
     },
     async listAudits(id) {
       return audits.filter((item) => item.staffId === id);
@@ -103,13 +122,14 @@ function createStore(): CompensatoryBankStore & {
         release = resolve;
       });
       await previous;
-      const snapshot = structuredClone({ staff, ledger, audits, operations: [...operations] });
+      const snapshot = structuredClone({ staff, ledger, audits, periods, operations: [...operations] });
       try {
         return await work(transaction);
       } catch (error) {
         staff = snapshot.staff;
         ledger = snapshot.ledger;
         audits = snapshot.audits;
+        periods = snapshot.periods;
         operations.clear();
         snapshot.operations.forEach(([key, value]) => operations.set(key, value));
         throw error;
@@ -127,11 +147,12 @@ function createStore(): CompensatoryBankStore & {
     setReserved: {
       value: (staffId: string, minutes: number) => reservations.set(staffId, minutes),
     },
-    hash: { value: () => JSON.stringify({ staff, ledger, audits, operations: [...operations] }) },
+    hash: { value: () => JSON.stringify({ staff, ledger, audits, periods, operations: [...operations] }) },
   }) as CompensatoryBankStore & {
     staff: StaffRecord[];
     ledger: LedgerRecord[];
     audits: StaffAuditRecord[];
+    periods: CompensatoryPeriodRecord[];
     operations: Map<string, { payloadHash: string; resultId: string }>;
     setActor(id: string, actor: typeof admin): void;
     setReserved(staffId: string, minutes: number): void;
@@ -154,6 +175,221 @@ const createInput = (dni = "12.345.678", clientOperationId = "op-1") => ({
 });
 
 describe("compensatory bank service", () => {
+  it("records a monthly period without double-debiting registered requests and lists annual history", async () => {
+    const { service, store } = setup();
+    const { id: staffId } = await service.createStaff("admin", createInput("12345678"));
+    await service.recordMovement("admin", {
+      staffId,
+      kind: "opening",
+      minutes: 600,
+      reason: "Opening",
+      effectiveDate: "2026-09-01",
+      clientOperationId: "opening",
+    });
+    await service.recordMovement("admin", {
+      staffId,
+      kind: "debit",
+      minutes: 120,
+      reason: "Previously registered request",
+      effectiveDate: "2026-09-14",
+      clientOperationId: "request-debit",
+    });
+    store.ledger[1]!.kind = "request_consumption";
+    const result = await service.recordCompensatoryPeriod("admin", {
+      operationId: "period-operation",
+      staffId,
+      year: 2026,
+      month: 9,
+      generatedMinutes: 240,
+      externalTakenMinutes: 30,
+      annualNetMinutes: null,
+      reason: "September closed",
+    });
+    expect(store.staff[0]?.balanceMinutes).toBe(690);
+    const retried = await service.recordCompensatoryPeriod("admin", {
+      operationId: "period-operation",
+      staffId,
+      year: 2026,
+      month: 9,
+      generatedMinutes: 240,
+      externalTakenMinutes: 30,
+      annualNetMinutes: null,
+      reason: "September closed",
+    });
+    expect(retried.id).toBe(result.id);
+    expect(store.staff[0]?.balanceMinutes).toBe(690);
+    const history = await service.listCompensatoryPeriods("admin", { staffId, year: 2026 });
+    expect(history.periods).toMatchObject([
+      {
+        id: result.id,
+        year: 2026,
+        month: 9,
+        generatedMinutes: 240,
+        externalTakenMinutes: 30,
+        registeredTakenMinutes: 120,
+        netMinutes: 90,
+      },
+    ]);
+    expect(history.registeredTakenByMonth).toMatchObject({ "9": 120 });
+    await service.reverseMovement("admin", {
+      staffId,
+      entryId: store.ledger[1]!.id,
+      reason: "Request consumption corrected",
+      effectiveDate: "2026-09-20",
+      clientOperationId: "reverse-request-consumption",
+    });
+    const corrected = await service.listCompensatoryPeriods("admin", { staffId, year: 2026 });
+    expect(corrected.registeredTakenByMonth["9"]).toBe(0);
+    expect(corrected.periods[0]?.netMinutes).toBe(210);
+    await expect(
+      service.recordCompensatoryPeriod("admin", {
+        operationId: "different-period-operation",
+        staffId,
+        year: 2026,
+        month: 9,
+        generatedMinutes: 1,
+        externalTakenMinutes: 0,
+        annualNetMinutes: null,
+        reason: "Duplicate",
+      }),
+    ).rejects.toThrow(/period|período/i);
+  });
+
+  it("records historical annual net as one credit and rejects invalid annual breakdowns", async () => {
+    const { service, store } = setup();
+    const { id: staffId } = await service.createStaff("admin", createInput("12345678"));
+    await service.recordCompensatoryPeriod("admin", {
+      operationId: "annual-op",
+      staffId,
+      year: 2025,
+      month: null,
+      generatedMinutes: null,
+      externalTakenMinutes: null,
+      annualNetMinutes: 480,
+      reason: "Audited annual balance",
+    });
+    expect(store.staff[0]?.balanceMinutes).toBe(480);
+    await expect(
+      service.recordCompensatoryPeriod("admin", {
+        operationId: "bad-annual-op",
+        staffId,
+        year: 2025,
+        month: null,
+        generatedMinutes: 480,
+        externalTakenMinutes: null,
+        annualNetMinutes: 480,
+        reason: "Invalid breakdown",
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("protects reservations and admin-only access while recording periods", async () => {
+    const { service, store } = setup();
+    const { id: staffId } = await service.createStaff("admin", createInput("12345678"));
+    await service.recordMovement("admin", {
+      staffId,
+      kind: "opening",
+      minutes: 600,
+      reason: "Opening",
+      effectiveDate: "2026-09-01",
+      clientOperationId: "opening",
+    });
+    store.setReserved(staffId, 500);
+    const before = store.hash();
+    const input = {
+      operationId: "reserved-period-op",
+      staffId,
+      year: 2026,
+      month: 9,
+      generatedMinutes: 0,
+      externalTakenMinutes: 120,
+      annualNetMinutes: null,
+      reason: "External usage",
+    };
+    await expect(service.recordCompensatoryPeriod("admin", input)).rejects.toThrow(/reservas/);
+    await expect(service.recordCompensatoryPeriod("nurse", input)).rejects.toThrow(/administración/);
+    expect(store.hash()).toBe(before);
+  });
+
+  it("reverses periods atomically, preserves history, and permits an audited replacement revision", async () => {
+    const { service, store } = setup();
+    const { id: staffId } = await service.createStaff("admin", createInput("12345678"));
+    const original = await service.recordCompensatoryPeriod("admin", {
+      operationId: "period-original",
+      staffId,
+      year: 2026,
+      month: 9,
+      generatedMinutes: 1440,
+      externalTakenMinutes: 0,
+      annualNetMinutes: null,
+      reason: "September close",
+    });
+    const originalLedger = store.ledger.find((entry) => entry.minutes === 1440)!;
+    const beforeRejectedReversal = store.hash();
+    await expect(
+      service.reverseMovement("admin", {
+        staffId,
+        entryId: originalLedger.id,
+        reason: "Incorrect standalone reversal",
+        effectiveDate: "2026-10-27",
+        clientOperationId: "standalone-period-reversal",
+      }),
+    ).rejects.toThrow(/período/i);
+    expect(store.hash()).toBe(beforeRejectedReversal);
+
+    const reversed = await service.reverseCompensatoryPeriod("admin", {
+      operationId: "period-reversal",
+      staffId,
+      periodId: original.id,
+      reason: "Correct September close",
+    });
+    expect(reversed.id).toBe(original.id);
+    expect(store.staff[0]?.balanceMinutes).toBe(0);
+    const reversalCount = store.ledger.filter((entry) => entry.compensatoryPeriodId === original.id).length;
+    const retriedReversal = await service.reverseCompensatoryPeriod("admin", {
+      operationId: "period-reversal",
+      staffId,
+      periodId: original.id,
+      reason: "Correct September close",
+    });
+    expect(retriedReversal.id).toBe(original.id);
+    expect(store.staff[0]?.balanceMinutes).toBe(0);
+    expect(store.ledger.filter((entry) => entry.compensatoryPeriodId === original.id)).toHaveLength(reversalCount);
+    const history = await service.listCompensatoryPeriods("admin", { staffId, year: 2026 });
+    expect(history.periods[0]).toMatchObject({ id: original.id, status: "reversed", netMinutes: 1440 });
+
+    const replacement = await service.recordCompensatoryPeriod("admin", {
+      operationId: "period-corrected",
+      staffId,
+      year: 2026,
+      month: 9,
+      generatedMinutes: 1200,
+      externalTakenMinutes: 0,
+      annualNetMinutes: null,
+      reason: "Corrected September close",
+    });
+    expect(store.staff[0]?.balanceMinutes).toBe(1200);
+    const correctedHistory = await service.listCompensatoryPeriods("admin", { staffId, year: 2026 });
+    expect(correctedHistory.periods).toMatchObject([
+      { id: original.id, status: "reversed", revision: 1, netMinutes: 1440 },
+      { id: replacement.id, status: "active", revision: 2, netMinutes: 1200 },
+    ]);
+    const beforeDuplicate = store.hash();
+    await expect(
+      service.recordCompensatoryPeriod("admin", {
+        operationId: "period-active-duplicate",
+        staffId,
+        year: 2026,
+        month: 9,
+        generatedMinutes: 1200,
+        externalTakenMinutes: 0,
+        annualNetMinutes: null,
+        reason: "Duplicate correction",
+      }),
+    ).rejects.toThrow(/period|período/i);
+    expect(store.hash()).toBe(beforeDuplicate);
+  });
+
   it("canonicalizes DNI and rejects duplicates, including inactive staff, without writes", async () => {
     const { service, store } = setup();
     const first = await service.createStaff("admin", createInput());

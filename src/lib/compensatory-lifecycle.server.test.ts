@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   createCompensatoryLifecycleService,
   type CompensatoryLifecycleAudit,
+  type CompensatoryDecisionNotification,
   type CompensatoryLifecycleLedger,
   type CompensatoryLifecycleRequest,
   type CompensatoryLifecycleStore,
@@ -29,6 +30,8 @@ function rawRequest(id = "request-1"): CompensatoryLifecycleRequest {
     submittedAt: "2026-10-01T12:00:00Z",
     requesterName: "Ana Pérez",
     requesterMobile: "555",
+    requesterEmail: "ana@example.org",
+    requesterEmailVerifiedAt: null,
     compensatoryDate: "Saturday",
     hours: "2",
     createdAt: new Date("2026-10-01T12:00:00Z"),
@@ -52,11 +55,13 @@ function createMemory() {
   let currentStaff = structuredClone(staff);
   let requests = [rawRequest()];
   let audits: CompensatoryLifecycleAudit[] = [];
+  let notifications: CompensatoryDecisionNotification[] = [];
   let ledger: CompensatoryLifecycleLedger[] = [];
   const operations = new Map<string, { payloadHash: string; resultId: string }>();
   let day = "2026-10-27";
   let time = new Date("2026-10-27T12:00:00.000Z");
   let serial = 0;
+  let shouldFailNotificationWrite = false;
   let tail = Promise.resolve();
   const tx: CompensatoryLifecycleTransaction = {
     async findActor(id) {
@@ -96,6 +101,10 @@ function createMemory() {
     async insertRequestAudit(item) {
       audits.push(item);
     },
+    async insertDecisionNotification(item) {
+      if (shouldFailNotificationWrite) throw new Error("notification persistence failed");
+      notifications.push(item);
+    },
     async reservedMinutes(staffId) {
       return requests
         .filter((item) => item.staffId === staffId && item.phase === "approved")
@@ -134,6 +143,7 @@ function createMemory() {
         currentStaff,
         requests,
         audits,
+        notifications,
         ledger,
         operations: [...operations],
       });
@@ -143,6 +153,7 @@ function createMemory() {
         currentStaff = snapshot.currentStaff;
         requests = snapshot.requests;
         audits = snapshot.audits;
+        notifications = snapshot.notifications;
         ledger = snapshot.ledger;
         operations.clear();
         snapshot.operations.forEach(([key, value]) => operations.set(key, value));
@@ -157,14 +168,18 @@ function createMemory() {
     service,
     requests: () => requests,
     audits: () => audits,
+    notifications: () => notifications,
+    failNotificationWrites() {
+      shouldFailNotificationWrite = true;
+    },
     ledger: () => ledger,
     staff: () => currentStaff,
     setDay(value: string) {
       day = value;
       time = new Date(`${value}T12:00:00.000Z`);
     },
-    addRequest(id: string) {
-      requests.push(rawRequest(id));
+    addRequest(id: string, changes: Partial<CompensatoryLifecycleRequest> = {}) {
+      requests.push({ ...rawRequest(id), ...changes });
     },
   };
 }
@@ -222,6 +237,34 @@ describe("compensatory lifecycle service", () => {
     ).rejects.toThrow("clave");
   });
 
+  it("includes a new public pending request in the coordination workspace without reserving or consuming it", async () => {
+    const memory = createMemory();
+    memory.addRequest("public-request", {
+      phase: "pending",
+      requesterEmail: "contact@example.org",
+      requesterEmailVerifiedAt: null,
+      submissionSource: "public",
+      requestedDate: "2026-10-30",
+      requestedMinutes: 90,
+    });
+    const workspace = await memory.service.getWorkspace("admin");
+    expect(workspace.requests).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "public-request",
+          phase: "pending",
+          requestedDate: "2026-10-30",
+          requestedMinutes: 90,
+          requesterEmail: "contact@example.org",
+          requesterEmailVerifiedAt: null,
+        }),
+      ]),
+    );
+    expect(workspace.staff[0]).toMatchObject({ reservedMinutes: 0, balanceMinutes: 240 });
+    expect(memory.ledger()).toEqual([]);
+    expect(memory.audits()).toEqual([]);
+  });
+
   it("reserves at approval, rejects insufficient balances, and releases on pre-cutoff cancellation", async () => {
     const memory = createMemory();
     await memory.service.classify("admin", classify());
@@ -247,6 +290,7 @@ describe("compensatory lifecycle service", () => {
       }),
     ).resolves.toEqual({ id: "request-1" });
     expect(memory.requests()[0]?.phase).toBe("cancelled");
+    expect(memory.notifications()).toHaveLength(2);
     expect((await memory.service.getWorkspace("admin")).staff[0]).toMatchObject({
       balanceMinutes: 240,
       reservedMinutes: 0,
@@ -269,6 +313,7 @@ describe("compensatory lifecycle service", () => {
       }),
     ).rejects.toThrow("disponible");
     expect(second.requests()[0]?.phase).toBe("pending");
+    expect(second.notifications()).toEqual([]);
   });
 
   it("serializes concurrent approvals against one staff balance and rejects without reserving", async () => {
@@ -312,6 +357,7 @@ describe("compensatory lifecycle service", () => {
       clientOperationId: "reject-1",
     });
     expect(rejected.requests()[0]?.phase).toBe("rejected");
+    expect(rejected.notifications()).toHaveLength(2);
     expect((await rejected.service.getWorkspace("admin")).staff[0]).toMatchObject({
       reservedMinutes: 0,
       availableMinutes: 240,
@@ -365,6 +411,79 @@ describe("compensatory lifecycle service", () => {
     await expect(overdue.service.processDue()).resolves.toEqual({ consumed: 0 });
     expect(overdue.ledger()).toHaveLength(1);
     expect(overdue.staff().balanceMinutes).toBe(180);
+  });
+
+  it("queues immutable requester and admin decision notices once without changing same-day consumption", async () => {
+    const memory = createMemory();
+    await memory.service.classify("admin", classify("classify-queue", 120, "2026-10-27"));
+    memory.setDay("2026-10-27");
+    await memory.service.decide("admin", {
+      requestId: "request-1",
+      expectedVersion: 2,
+      decision: "approve",
+      reason: "Approved after review",
+      clientOperationId: "decision-queue",
+    });
+    const first = memory.notifications();
+    expect(first).toHaveLength(2);
+    expect(first.map((item) => item.recipientKind)).toEqual(["requester", "admin"]);
+    expect(first[0]).toMatchObject({
+      requestId: "request-1",
+      decisionVersion: 3,
+      decision: "approved",
+      recipient: "ana@example.org",
+      status: "pending_review",
+      reason: "Approved after review",
+    });
+    expect(first[0]?.text).toContain("Fundamento: Approved after review");
+    expect(first[0]?.text).toContain("2026-10-27");
+    expect(first[0]?.text).toContain("Horas solicitadas: 2 horas");
+    expect(first[0]?.text).not.toContain("minutos");
+    expect(first[1]).toMatchObject({ recipient: null, status: "pending_recipient" });
+    expect(first[1]?.text).toContain("Agente: Ana Pérez");
+    expect(first[1]?.text).toContain("Horas solicitadas: 2 horas");
+    await memory.service.decide("admin", {
+      requestId: "request-1",
+      expectedVersion: 2,
+      decision: "approve",
+      reason: "Approved after review",
+      clientOperationId: "decision-queue",
+    });
+    expect(memory.notifications()).toEqual(first);
+    expect(memory.requests()[0]).toMatchObject({ phase: "consumed", version: 4 });
+    expect(memory.notifications().map((item) => item.decisionVersion)).toEqual([3, 3]);
+  });
+
+  it("rolls back a decision when durable notification persistence fails", async () => {
+    const memory = createMemory();
+    await memory.service.classify("admin", classify("classify-failed-queue"));
+    memory.failNotificationWrites();
+    await expect(
+      memory.service.decide("admin", {
+        requestId: "request-1",
+        expectedVersion: 2,
+        decision: "reject",
+        reason: "Rejected after review",
+        clientOperationId: "decision-failed-queue",
+      }),
+    ).rejects.toThrow("notification persistence failed");
+    expect(memory.requests()[0]).toMatchObject({ phase: "pending", version: 2 });
+    expect(memory.audits().map((item) => item.action)).toEqual(["classified"]);
+    expect(memory.notifications()).toEqual([]);
+  });
+
+  it("describes fractional requested hours in rejection emails for both recipients", async () => {
+    const memory = createMemory();
+    await memory.service.classify("admin", classify("classify-hours", 150));
+    await memory.service.decide("admin", {
+      requestId: "request-1", expectedVersion: 2, decision: "reject",
+      reason: "Sin disponibilidad", clientOperationId: "reject-hours",
+    });
+    for (const notification of memory.notifications()) {
+      expect(notification.text).toContain("Horas solicitadas: 2,5 horas");
+      expect(notification.text).toContain("rechazada");
+      expect(notification.text).not.toContain("150 minutos");
+    }
   });
 
   it("blocks overdue cancellation and requires an active administrator", async () => {

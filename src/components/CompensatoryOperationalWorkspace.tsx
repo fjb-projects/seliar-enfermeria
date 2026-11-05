@@ -7,7 +7,7 @@ import {
   type ComponentProps,
   type FormEvent,
 } from "react";
-import { RefreshCw, Settings2, Plus } from "lucide-react";
+import { RefreshCw, Settings2, Plus, FilePlus2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -18,6 +18,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { CompensatoryBankPanel, type BankOperationRegistry } from "./CompensatoryBankPanel";
+import { CompensatoryHoursForm } from "./CompensatoryHoursForm";
+import { CompensatoryHistoryPanel } from "./CompensatoryHistoryPanel";
+import { CompensatoryAdminRequestForm } from "./CompensatoryAdminRequestForm";
+import { CompensatoryCoveragePanel } from "./CompensatoryCoveragePanel";
+import { CompensatoryNotificationPanel } from "./CompensatoryNotificationPanel";
+import { listCompensatoryNotifications, reviewAndSendCompensatoryNotification } from "@/lib/compensatory-notification.functions";
 import {
   CompensatoryWorkspaceTabs,
   CompensatoryWorkspaceTabPanel,
@@ -31,7 +37,10 @@ import {
   decideCompensatoryRequest,
   cancelCompensatoryRequest,
 } from "@/lib/compensatory-lifecycle.functions";
+import { addCompensatoryRequestEmailToProfile } from "@/lib/compensatory-request-email.functions";
+import { decideAndNotify, type DecisionEmailResult } from "@/lib/compensatory-decision-email-flow";
 import type { StaffView } from "@/lib/compensatory-bank.functions";
+import { isExpiredPendingRequest, compensatoryRequestPhaseLabel } from "@/lib/compensatory-history-view";
 
 export type OperationalWorkspaceData = Awaited<
   ReturnType<typeof getCompensatoryOperationalWorkspace>
@@ -42,13 +51,16 @@ type WorkspaceApi = {
   classify: typeof classifyCompensatoryRequest;
   decide: typeof decideCompensatoryRequest;
   cancel: typeof cancelCompensatoryRequest;
+  addEmail: typeof addCompensatoryRequestEmailToProfile;
 };
 const defaultApi: WorkspaceApi = {
   workspace: getCompensatoryOperationalWorkspace,
   classify: classifyCompensatoryRequest,
   decide: decideCompensatoryRequest,
   cancel: cancelCompensatoryRequest,
+  addEmail: addCompensatoryRequestEmailToProfile,
 };
+const notificationApi = { listCompensatoryNotifications, reviewAndSendCompensatoryNotification };
 const phases = {
   unclassified: "Sin resolución registrada",
   pending: "Pendiente de decisión",
@@ -59,13 +71,33 @@ const phases = {
 };
 const toolTitles = {
   tools: "Herramientas",
-  movement: "Registrar horas",
+  movement: "Gestionar horas",
+  adminRequest: "Cargar solicitud",
+  coverage: "Quién cubre el compensatorio",
   profile: "Ficha del agente",
   create: "Nuevo agente",
-  ledger: "Movimientos y correcciones",
   import: "Importación y vinculaciones",
 };
 type Tool = keyof typeof toolTitles;
+export type RequestEmailPromotionAttempt = {
+  requestId: string;
+  expectedVersion: number;
+  reason: string;
+  clientOperationId: string;
+};
+export function getRequestEmailPromotionAttempt(
+  existing: RequestEmailPromotionAttempt | null,
+  next: Omit<RequestEmailPromotionAttempt, "clientOperationId">,
+  newId: () => string = () => crypto.randomUUID(),
+): RequestEmailPromotionAttempt {
+  if (existing) {
+    if (existing.requestId !== next.requestId) {
+      throw new Error("Resuelve el intento pendiente antes de cambiar de solicitud.");
+    }
+    return existing;
+  }
+  return { ...next, clientOperationId: newId() };
+}
 function minutesLabel(value: number) {
   return `${Math.floor(value / 60)} h${value % 60 ? ` ${value % 60} min` : ""}`;
 }
@@ -97,12 +129,22 @@ export function CompensatoryOperationalWorkspace({
   const [loadError, setLoadError] = useState("");
   const [notice, setNotice] = useState("");
   const [requestId, setRequestId] = useState<string | null>(null);
+  const [coverageRequestId, setCoverageRequestId] = useState<string | null>(null);
   const [decision, setDecision] = useState<"" | "approve" | "reject" | "cancel">("");
   const [reason, setReason] = useState("");
+  const [sendDecisionEmail, setSendDecisionEmail] = useState(false);
+  const [decisionEmail, setDecisionEmail] = useState("");
+  const [emailReviewed, setEmailReviewed] = useState(false);
+  const [decisionSaved, setDecisionSaved] = useState(false);
+  const [decisionEmailResult, setDecisionEmailResult] = useState("");
   const [actionError, setActionError] = useState("");
+  const [emailReviewOpen, setEmailReviewOpen] = useState(false);
+  const emailPromotionAttempt = useRef<RequestEmailPromotionAttempt | null>(null);
   const [busy, setBusy] = useState(false);
   const [tool, setTool] = useState<Tool | null>(null);
   const [toolBusy, setToolBusy] = useState(false);
+  const [historyBusy, setHistoryBusy] = useState(false);
+  const [historyRevision, setHistoryRevision] = useState(0);
   const loadSequence = useRef(0);
   const operations = useRef(new Map<string, { hash: string; id: string }>());
   const bankOperations = useRef<BankOperationRegistry>(new Map());
@@ -146,7 +188,7 @@ export function CompensatoryOperationalWorkspace({
     (request) => !staffId || request.staffId === staffId,
   );
   const pending = requests
-    .filter((request) => request.phase === "pending")
+    .filter((request) => request.phase === "pending" && !isExpiredPendingRequest(request, data?.serviceDay))
     .sort((a, b) => (a.requestedDate ?? "").localeCompare(b.requestedDate ?? ""));
   const scheduled = requests
     .filter((request) => request.phase === "approved")
@@ -158,18 +200,43 @@ export function CompensatoryOperationalWorkspace({
   );
   const unclassified = requests.filter((request) => request.phase === "unclassified");
   const currentRequest = data?.requests.find((request) => request.id === requestId);
+  const currentExpired = currentRequest && isExpiredPendingRequest(currentRequest, data?.serviceDay);
   const currentStaff = data?.staff.find((person) => person.id === currentRequest?.staffId);
-  const disabled = loading || busy || toolBusy || Boolean(loadError);
+  const coverageRequest = data?.requests.find((request) => request.id === coverageRequestId);
+  const disabled = loading || busy || toolBusy || historyBusy || Boolean(loadError);
+  const selectedView = staff.find((person) => person.id === staffId);
+  const refreshHistoryContext = useCallback(async () => {
+    await refresh();
+  }, [refresh]);
+  const hoursSaved = useCallback(async () => {
+    await refresh();
+    setHistoryRevision((revision) => revision + 1);
+  }, [refresh]);
+  const requestSaved = useCallback(async () => {
+    setTab("pending");
+    if (!(await refresh())) throw new Error("No se pudo actualizar la bandeja de solicitudes.");
+  }, [refresh]);
 
   function openRequest(request: RequestRow) {
     setRequestId(request.id);
     setDecision("");
     setReason("");
+    setSendDecisionEmail(false);
+    setDecisionEmail(request.requesterEmail ?? "");
+    setEmailReviewed(false);
+    setDecisionSaved(false);
+    setDecisionEmailResult("");
     setActionError("");
+  }
+  function openCoverage(request: RequestRow) {
+    if (disabled) return;
+    setRequestId(null);
+    setCoverageRequestId(request.id);
+    setTool("coverage");
   }
   async function submitRequest(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!currentRequest || disabled) return;
+    if (!currentRequest || disabled || decisionSaved || currentExpired) return;
     const form = new FormData(event.currentTarget);
     const common = {
       requestId: currentRequest.id,
@@ -188,6 +255,10 @@ export function CompensatoryOperationalWorkspace({
     }
     if (kind === "decide" && decision !== "approve" && decision !== "reject") {
       setActionError("Selecciona una decisión.");
+      return;
+    }
+    if (kind === "decide" && sendDecisionEmail && (!emailReviewed || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(decisionEmail.trim()))) {
+      setActionError("Revisá el destinatario y confirmá que corresponde al agente.");
       return;
     }
     const classification = {
@@ -209,23 +280,65 @@ export function CompensatoryOperationalWorkspace({
     setBusy(true);
     setActionError("");
     try {
+      let emailResult: DecisionEmailResult | null = null;
       if (kind === "classify")
         await api.classify({ data: { ...classification, clientOperationId } });
       else if (kind === "cancel") await api.cancel({ data: { ...common, clientOperationId } });
-      else
+      else if (sendDecisionEmail) {
+        emailResult = await decideAndNotify(
+          { requestId: currentRequest.id, expectedVersion: currentRequest.version, recipient: decisionEmail.trim(), notificationOperationId: crypto.randomUUID() },
+          {
+            decide: () => api.decide({ data: { ...common, decision: decision as "approve" | "reject", clientOperationId } }),
+            list: (id) => notificationApi.listCompensatoryNotifications({ data: { requestId: id } }),
+            send: (data) => notificationApi.reviewAndSendCompensatoryNotification({ data }),
+          },
+        );
+      } else
         await api.decide({
           data: { ...common, decision: decision as "approve" | "reject", clientOperationId },
         });
+      if (kind === "decide") setDecisionSaved(true);
+      if (emailResult) {
+        const status = emailResult.kind === "notification" ? emailResult.status : emailResult.kind;
+        setDecisionEmailResult(
+          status === "accepted" ? "Decisión guardada. Resend aceptó el correo; esto no confirma su entrega."
+            : status === "delivered" ? "Decisión guardada. El correo figura como entregado."
+            : status === "uncertain" || status === "sending" ? "Decisión guardada. El resultado del correo es incierto; no lo envíes nuevamente sin revisar su estado."
+            : "Decisión guardada. El correo quedó pendiente; revisá su estado antes de intentar enviarlo."
+        );
+      }
       if (!(await refresh())) {
         setActionError(
-          "La operación pudo guardarse, pero no se pudo actualizar la vista. Conserva los datos y reintenta para confirmar sin duplicarla.",
+          kind === "decide" ? "La decisión quedó guardada, pero no se pudo actualizar la vista. Actualizá el estado antes de continuar." : "La operación pudo guardarse, pero no se pudo actualizar la vista. Conserva los datos y reintenta para confirmar sin duplicarla.",
         );
         return;
       }
       operations.current.delete(key);
-      setRequestId(null);
-      setTab(kind === "classify" ? "pending" : decision === "approve" ? "scheduled" : "history");
-      setNotice("Operación registrada y auditada. El saldo se actualiza según la fecha efectiva.");
+      if (kind !== "decide") {
+        setRequestId(null);
+        setTab(kind === "classify" ? "pending" : "history");
+        setNotice("Operación registrada y auditada. El saldo se actualiza según la fecha efectiva.");
+      } else if (!emailResult) {
+        setDecisionEmailResult("Decisión guardada. El correo queda pendiente de revisión.");
+      }
+    } catch (cause) {
+      setActionError(message(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function addRequestEmailToProfile() {
+    const attempt = emailPromotionAttempt.current;
+    if (!attempt || !currentRequest || !currentStaff || disabled) return;
+    setBusy(true);
+    setActionError("");
+    try {
+      await api.addEmail({ data: attempt });
+      emailPromotionAttempt.current = null;
+      setEmailReviewOpen(false);
+      setNotice("Correo agregado a la ficha. La identidad del remitente no quedó verificada.");
+      await refresh();
     } catch (cause) {
       setActionError(message(cause));
     } finally {
@@ -246,6 +359,8 @@ export function CompensatoryOperationalWorkspace({
       <div className="divide-y rounded-lg border bg-card">
         {items.map((request) => {
           const person = staff.find((entry) => entry.id === request.staffId);
+          const expired = isExpiredPendingRequest(request, data?.serviceDay);
+          const canDecide = request.phase === "pending" && !expired;
           const overdue =
             request.phase === "approved" &&
             request.requestedDate &&
@@ -260,7 +375,12 @@ export function CompensatoryOperationalWorkspace({
                 <p className="break-words text-sm font-semibold">
                   {person?.name ?? request.requesterName}
                 </p>
-                <p className="text-xs text-muted-foreground">{phases[request.phase]}</p>
+                <p className="text-xs text-muted-foreground">{expired ? "Sin resolución · Fecha vencida" : phases[request.phase]}</p>
+                {request.requesterEmail && (
+                  <p className="break-all text-xs text-muted-foreground">
+                    {request.requesterEmail} · Correo sin verificar
+                  </p>
+                )}
               </div>
               <p className="col-start-1 row-start-2 text-xs min-[621px]:col-start-auto min-[621px]:row-start-auto">
                 {request.requestedDate ?? request.compensatoryDate}
@@ -277,15 +397,33 @@ export function CompensatoryOperationalWorkspace({
                   ? `${request.hours} h`
                   : minutesLabel(request.requestedMinutes)}
               </p>
-              <Button
-                type="button"
-                variant={request.phase === "pending" ? "default" : "outline"}
-                className={`col-start-2 row-start-2 min-h-11 min-[621px]:col-start-auto min-[621px]:row-start-auto ${request.phase !== "pending" ? "bg-card shadow-none hover:bg-muted" : ""}`}
-                disabled={disabled}
-                onClick={() => openRequest(request)}
-              >
-                {request.phase === "pending" ? "Revisar" : "Ver detalle"}
-              </Button>
+              <div className="col-start-2 row-start-2 flex flex-col gap-1 min-[621px]:col-start-auto min-[621px]:row-start-auto">
+                <Button
+                  type="button"
+                  variant={canDecide ? "default" : "outline"}
+                  className={`min-h-11 ${!canDecide ? "bg-card shadow-none hover:bg-muted" : ""}`}
+                  disabled={disabled}
+                  onClick={() => openRequest(request)}
+                >
+                  {canDecide ? "Revisar" : "Ver detalle"}
+                </Button>
+                {["approved", "consumed"].includes(request.phase) && (
+                  <>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="min-h-11"
+                      disabled={disabled}
+                      onClick={() => openCoverage(request)}
+                    >
+                      Registrar quién cubre
+                    </Button>
+                    <span className="max-w-44 whitespace-normal text-xs text-muted-foreground">
+                      Sin modificar aprobación ni saldo
+                    </span>
+                  </>
+                )}
+              </div>
             </article>
           );
         })}
@@ -318,7 +456,7 @@ export function CompensatoryOperationalWorkspace({
         onClick={() => setTool("movement")}
       >
         <Plus className="mr-2 size-4" aria-hidden="true" />
-        Registrar horas
+        Gestionar horas
       </Button>
     </section>
   );
@@ -329,7 +467,11 @@ export function CompensatoryOperationalWorkspace({
       className={`min-w-0 space-y-3 ${COMPENSATORY_WORKSPACE_DOCK_RESERVE_CLASS}`}
     >
       <div className="flex min-w-0 items-center gap-2">
-        <CompensatoryWorkspaceTabs value={tab} onValueChange={setTab} disabled={busy || toolBusy} />
+        <CompensatoryWorkspaceTabs
+          value={tab}
+          onValueChange={setTab}
+          disabled={busy || toolBusy || historyBusy}
+        />
         <div className="ml-auto min-w-0">
           <CompensatoryWorkspaceScope
             staffOptions={staff.map((person) => ({
@@ -374,6 +516,21 @@ export function CompensatoryOperationalWorkspace({
       )}
       <CompensatoryWorkspaceTabPanel value="pending" activeTab={tab}>
         {balance}
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm text-muted-foreground">
+            Registrar un pedido recibido por otro medio.
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            className="min-h-11"
+            disabled={disabled || !staff.some((person) => person.isActive)}
+            onClick={() => setTool("adminRequest")}
+          >
+            <FilePlus2 className="mr-2 size-4" aria-hidden="true" />
+            Cargar solicitud
+          </Button>
+        </div>
         <div className="mb-2 flex items-center justify-between gap-2">
           <h2 className="text-lg font-medium">Pendientes de decisión</h2>
           <span className="text-xs text-muted-foreground">{pending.length}</span>
@@ -401,31 +558,42 @@ export function CompensatoryOperationalWorkspace({
         </p>
       </CompensatoryWorkspaceTabPanel>
       <CompensatoryWorkspaceTabPanel value="history" activeTab={tab}>
-        <h2 className="mb-2 text-lg font-medium">Historial cronológico de solicitudes</h2>
-        {!loading && requestList(history, "No hay solicitudes registradas.")}
+        {balance}
+        {selectedView ? (
+          <CompensatoryHistoryPanel
+            key={`${selectedView.id}:${historyRevision}`}
+            staff={selectedView}
+            serviceDay={data?.serviceDay}
+            requests={requests}
+            onOpenRequest={(id) => {
+              const request = data?.requests.find((entry) => entry.id === id);
+              if (request && !disabled) openRequest(request);
+            }}
+            onSaved={refreshHistoryContext}
+            onBusyChange={setHistoryBusy}
+            {...(bankApi?.getHistory ? { api: { getHistory: bankApi.getHistory } } : {})}
+          />
+        ) : (
+          <>
+            <p className="mb-3 text-sm text-muted-foreground">
+              Selecciona un agente para consultar sus períodos y movimientos.
+            </p>
+            <h2 className="mb-2 text-lg font-medium">Historial cronológico de solicitudes</h2>
+            {!loading && requestList(history, "No hay solicitudes registradas.")}
+          </>
+        )}
       </CompensatoryWorkspaceTabPanel>
       <div className="flex flex-wrap gap-2 border-t pt-3">
         <Button
           type="button"
           variant="outline"
           className="min-h-11 bg-card shadow-none hover:bg-muted"
-          disabled={busy || toolBusy}
+          disabled={busy || toolBusy || historyBusy}
           onClick={() => setTool("tools")}
         >
           <Settings2 className="mr-2 size-4" aria-hidden="true" />
           Herramientas
         </Button>
-        {selected && (
-          <Button
-            type="button"
-            variant="ghost"
-            className="min-h-11"
-            onClick={() => setTool("ledger")}
-            disabled={disabled}
-          >
-            Movimientos del agente
-          </Button>
-        )}
       </div>
 
       <Dialog
@@ -445,11 +613,22 @@ export function CompensatoryOperationalWorkspace({
             <DialogTitle>Solicitud de compensatorio</DialogTitle>
             <DialogDescription>
               {currentStaff?.name} ·{" "}
-              {currentRequest ? phases[currentRequest.phase] : "Actualizando registro"}
+              {currentRequest ? (currentExpired ? compensatoryRequestPhaseLabel(currentRequest.phase, currentRequest.requestedDate, data?.serviceDay) : phases[currentRequest.phase]) : "Actualizando registro"}
             </DialogDescription>
           </DialogHeader>
           {currentRequest && (
             <>
+              {currentExpired && <p className="text-sm">La fecha solicitada pasó sin una resolución registrada. Se conserva como antecedente; no implica aprobación ni consumo de horas.</p>}
+              {["approved", "consumed"].includes(currentRequest.phase) && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={disabled}
+                  onClick={() => openCoverage(currentRequest)}
+                >
+                  Registrar quién cubre
+                </Button>
+              )}
               <dl className="grid grid-cols-2 gap-3 text-sm">
                 <div>
                   <dt className="text-muted-foreground">Fecha original</dt>
@@ -467,6 +646,31 @@ export function CompensatoryOperationalWorkspace({
                   <dt className="text-muted-foreground">Teléfono operativo</dt>
                   <dd className="break-words">{currentRequest.requesterMobile}</dd>
                 </div>
+                {currentRequest.requesterEmail && (
+                  <div className="col-span-2">
+                    <dt className="text-muted-foreground">Correo de contacto</dt>
+                    <dd className="break-all">
+                      {currentRequest.requesterEmail} · Sin verificar; Coordinación debe confirmar
+                      el destinatario antes de enviar la resolución.
+                    </dd>
+                    {currentRequest.submissionSource === "public" && (!currentStaff?.email || emailPromotionAttempt.current?.requestId === currentRequest.id) && (
+                      <Button type="button" variant="outline" className="mt-2" disabled={disabled} onClick={() => {
+                        if (!currentStaff) return;
+                        try {
+                          emailPromotionAttempt.current = getRequestEmailPromotionAttempt(emailPromotionAttempt.current, {
+                            requestId: currentRequest.id,
+                            expectedVersion: currentStaff.version,
+                            reason: "Correo de contacto de solicitud revisado por Coordinación; identidad no verificada.",
+                          });
+                          setActionError("");
+                          setEmailReviewOpen(true);
+                        } catch (cause) { setActionError(message(cause)); }
+                      }}>
+                        Agregar al perfil
+                      </Button>
+                    )}
+                  </div>
+                )}
               </dl>
               {currentStaff && (
                 <p className="rounded-md bg-muted p-3 text-sm">
@@ -485,6 +689,10 @@ export function CompensatoryOperationalWorkspace({
                   Decisión: {displayTime(currentRequest.decisionAt)} ·{" "}
                   {currentRequest.decisionReason}
                 </p>
+              )}
+              {decisionEmailResult && <p role="status" className="text-sm">{decisionEmailResult}</p>}
+              {currentRequest.decisionAt && (
+                <CompensatoryNotificationPanel requestId={currentRequest.id} api={notificationApi} />
               )}
               {currentRequest.cancelledAt && (
                 <p className="text-xs text-muted-foreground">
@@ -506,7 +714,7 @@ export function CompensatoryOperationalWorkspace({
                     {audit.actorKind === "system" ? "Sistema" : audit.actorName} · {audit.reason}
                   </p>
                 ))}
-              {(["unclassified", "pending"].includes(currentRequest.phase) ||
+              {!decisionSaved && !currentExpired && (["unclassified", "pending"].includes(currentRequest.phase) ||
                 (currentRequest.phase === "approved" &&
                   currentRequest.requestedDate &&
                   data &&
@@ -581,6 +789,45 @@ export function CompensatoryOperationalWorkspace({
                     disabled={busy}
                     onChange={(event) => setReason(event.target.value)}
                   />
+                  {currentRequest.phase === "pending" && (
+                    <div className="space-y-2 text-sm">
+                      <label className="flex min-h-11 items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={sendDecisionEmail}
+                          disabled={busy}
+                          onChange={(event) => {
+                            setSendDecisionEmail(event.currentTarget.checked);
+                            setEmailReviewed(false);
+                          }}
+                        />
+                        Enviar la resolución por correo al agente
+                      </label>
+                      {sendDecisionEmail && (
+                        <>
+                          <label className="block space-y-1" htmlFor="decision-email">
+                            Correo del agente
+                            <Input
+                              id="decision-email"
+                              type="email"
+                              value={decisionEmail}
+                              required
+                              disabled={busy}
+                              onChange={(event) => {
+                                setDecisionEmail(event.currentTarget.value);
+                                setEmailReviewed(false);
+                              }}
+                            />
+                          </label>
+                          <label className="flex min-h-11 items-center gap-2">
+                            <input type="checkbox" checked={emailReviewed} disabled={busy} onChange={(event) => setEmailReviewed(event.currentTarget.checked)} />
+                            Confirmo que revisé el correo y corresponde al agente.
+                          </label>
+                          <p className="text-muted-foreground">La decisión se guarda primero; si el correo falla, no se pierde.</p>
+                        </>
+                      )}
+                    </div>
+                  )}
                   <Button type="submit" className="min-h-11 w-full" disabled={disabled}>
                     {busy
                       ? "Confirmando…"
@@ -588,7 +835,7 @@ export function CompensatoryOperationalWorkspace({
                         ? "Enviar a pendientes"
                         : currentRequest.phase === "approved"
                           ? "Cancelar y liberar reserva"
-                          : "Confirmar decisión"}
+                          : sendDecisionEmail ? "Confirmar decisión y enviar correo" : "Confirmar decisión"}
                   </Button>
                 </form>
               )}
@@ -612,9 +859,28 @@ export function CompensatoryOperationalWorkspace({
         </DialogContent>
       </Dialog>
 
+      <Dialog open={emailReviewOpen} onOpenChange={(open) => !busy && setEmailReviewOpen(open)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Revisar correo antes de agregarlo</DialogTitle>
+            <DialogDescription>
+              Este correo fue escrito en una solicitud pública y no verifica la identidad de quien la envió. Confirmá que corresponde al agente. La acción solo completa una ficha sin correo y quedará auditada; no envía mensajes.
+            </DialogDescription>
+          </DialogHeader>
+          <p className="break-all rounded-md bg-muted p-3 text-sm">{currentRequest?.requesterEmail}</p>
+          {actionError && <p role="alert" className="text-sm text-destructive">{actionError}</p>}
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" disabled={busy} onClick={() => setEmailReviewOpen(false)}>Cancelar</Button>
+            <Button type="button" disabled={busy || !emailPromotionAttempt.current} onClick={() => void addRequestEmailToProfile()}>
+              {busy ? "Guardando…" : emailPromotionAttempt.current ? "Confirmar y agregar" : "Sin intento pendiente"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={Boolean(tool)} onOpenChange={closeTool}>
         <DialogContent
-          className={`max-h-[90svh] overflow-y-auto ${tool === "import" || tool === "ledger" ? "sm:max-w-5xl" : "sm:max-w-xl"}`}
+          className={`max-h-[90svh] overflow-y-auto ${tool === "import" ? "sm:max-w-5xl" : "sm:max-w-xl"}`}
           onInteractOutside={(event) => event.preventDefault()}
           onEscapeKeyDown={(event) => {
             if (toolBusy) event.preventDefault();
@@ -623,9 +889,13 @@ export function CompensatoryOperationalWorkspace({
           <DialogHeader>
             <DialogTitle>{tool ? toolTitles[tool] : "Herramientas"}</DialogTitle>
             <DialogDescription>
-              {selected
-                ? `${selected.name} · DNI ${selected.dni}`
-                : "Administración de agentes y revisión de archivos"}
+              {tool === "coverage"
+                ? `${staff.find((person) => person.id === coverageRequest?.staffId)?.name ?? "Solicitud"} · Registrar quién cubre no cambia la aprobación ni el saldo de horas.`
+                : tool === "adminRequest"
+                  ? "Carga administrativa de contingencia. El pedido quedará pendiente de resolución."
+                  : selected
+                    ? `${selected.name} · DNI ${selected.dni}`
+                    : "Administración de agentes y revisión de archivos"}
             </DialogDescription>
           </DialogHeader>
           {tool === "tools" ? (
@@ -641,12 +911,49 @@ export function CompensatoryOperationalWorkspace({
                   <Button type="button" variant="outline" onClick={() => setTool("profile")}>
                     Editar ficha / desactivar / eliminar
                   </Button>
-                  <Button type="button" variant="outline" onClick={() => setTool("ledger")}>
-                    Movimientos y correcciones
-                  </Button>
                 </>
               )}
             </div>
+          ) : tool === "coverage" ? (
+            coverageRequest ? (
+              <CompensatoryCoveragePanel
+                key={coverageRequest.id}
+                request={coverageRequest}
+                staff={staff}
+                onSaved={refreshHistoryContext}
+                onBusyChange={setToolBusy}
+              />
+            ) : (
+              <p role="alert">No se pudo recuperar la solicitud. Cierra y actualiza la bandeja.</p>
+            )
+          ) : tool === "adminRequest" ? (
+            <CompensatoryAdminRequestForm
+              staff={staff}
+              {...(selectedView?.isActive ? { initialStaffId: selectedView.id } : {})}
+              onSaved={requestSaved}
+              onBusyChange={setToolBusy}
+            />
+          ) : tool === "movement" && selectedView ? (
+            <CompensatoryHoursForm
+              key={selectedView.id}
+              staff={selectedView}
+              {...(selected
+                ? {
+                    availableMinutes: selected.availableMinutes,
+                    reservedMinutes: selected.reservedMinutes,
+                  }
+                : {})}
+              onSaved={hoursSaved}
+              onBusyChange={setToolBusy}
+              {...(bankApi
+                ? {
+                    api: {
+                      ...(bankApi.getHistory ? { getHistory: bankApi.getHistory } : {}),
+                      ...(bankApi.recordMovement ? { recordMovement: bankApi.recordMovement } : {}),
+                    },
+                  }
+                : {})}
+            />
           ) : (
             tool && (
               <CompensatoryBankPanel

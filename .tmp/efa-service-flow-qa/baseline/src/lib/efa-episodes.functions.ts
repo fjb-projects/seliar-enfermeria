@@ -1,0 +1,128 @@
+import { createServerFn, createServerOnlyFn } from "@tanstack/react-start";
+import { z } from "zod";
+import { currentAccessSession } from "./auth.functions";
+import { requireActiveSession, requireEfa } from "./access";
+
+export const episodeIdSchema = z.string().uuid();
+export const noticeIdSchema = z.string().uuid();
+const positiveVersion = z.number().int().positive();
+const eventAt = z.iso.datetime({ offset: true });
+const motive = z.string().trim().max(2000).nullable().optional();
+const address = z.string().max(1000).nullable().optional();
+const interventionNumber = z.string().trim().max(100).nullable().optional();
+export const episodeCreateSchema = z
+  .object({
+    clientCreationKey: z.string().uuid(),
+    childCreateKey: z.string().uuid().optional(),
+    direction: z.literal("incoming").optional(),
+    guardId: z.string().uuid(),
+    eventAt,
+    motive,
+    address,
+    interventionNumber,
+  })
+  .refine((input) => (input.childCreateKey === undefined) === (input.direction === undefined), {
+    message: "La clave y dirección de la llamada inicial deben enviarse juntas.",
+  })
+  .strict();
+export const episodeUpdateSchema = z
+  .object({
+    episodeId: episodeIdSchema,
+    expectedVersion: positiveVersion,
+    operationId: z.string().uuid(),
+    eventAt,
+    motive: z.string().trim().max(2000).nullable(),
+    address: z.string().max(1000).nullable(),
+    interventionNumber: z.string().trim().max(100).nullable(),
+  })
+  .strict();
+export const episodeCloseSchema = z
+  .object({
+    episodeId: episodeIdSchema,
+    expectedVersion: positiveVersion,
+    operationId: z.string().uuid(),
+  })
+  .strict();
+export const episodeCancellationSchema = episodeCloseSchema;
+
+const getService = createServerOnlyFn(async () => {
+  const { efaEpisodes } = await import("./efa-episodes.server");
+  return efaEpisodes;
+});
+
+export const listEfaEpisodes = createServerFn({ method: "GET" }).handler(async () => {
+  const access = requireActiveSession(await currentAccessSession());
+  return getService().then((service) => service.list(access.userId));
+});
+
+export const getEfaEpisode = createServerFn({ method: "GET" })
+  .validator((data: unknown) => episodeIdSchema.parse(data))
+  .handler(async ({ data }) => {
+    const access = requireActiveSession(await currentAccessSession());
+    return getService().then((service) => service.get(access.userId, data));
+  });
+
+export const getEfaEpisodeHistory = createServerFn({ method: "GET" })
+  .validator((data: unknown) => episodeIdSchema.parse(data))
+  .handler(async ({ data }) => {
+    const access = requireActiveSession(await currentAccessSession());
+    return getService().then((service) => service.history(access.userId, data));
+  });
+
+export const listEfaEpisodeNotices = createServerFn({ method: "GET" }).handler(async () => {
+  const access = requireActiveSession(await currentAccessSession());
+  return getService().then((service) => service.listNotices(access.userId));
+});
+
+export const markEfaEpisodeNoticeRead = createServerFn({ method: "POST" })
+  .validator((data: unknown) => noticeIdSchema.parse(data))
+  .handler(async ({ data }) => {
+    const access = requireActiveSession(await currentAccessSession());
+    return getService().then((service) => service.markNoticeRead(access.userId, data));
+  });
+
+export const createEfaEpisode = createServerFn({ method: "POST" })
+  .validator((data: unknown) => episodeCreateSchema.parse(data))
+  .handler(async ({ data }) => {
+    const access = requireEfa(await currentAccessSession());
+    const { childCreateKey, direction, ...episodeData } = data;
+    return getService().then((service) =>
+      service.create(access.userId, {
+        ...episodeData,
+        ...(childCreateKey !== undefined && direction !== undefined
+          ? { childCreateKey, direction }
+          : {}),
+        motive: data.motive ?? null,
+        address: data.address?.trim() ?? null,
+        interventionNumber: data.interventionNumber ?? null,
+      }),
+    );
+  });
+
+export const updateEfaEpisode = createServerFn({ method: "POST" })
+  .validator((data: unknown) => episodeUpdateSchema.parse(data))
+  .handler(async ({ data }) => {
+    const access = requireEfa(await currentAccessSession());
+    return getService().then((service) => service.update(access.userId, data));
+  });
+
+export const closeEfaEpisode = createServerFn({ method: "POST" })
+  .validator((data: unknown) => episodeCloseSchema.parse(data))
+  .handler(async ({ data }) => {
+    const access = requireEfa(await currentAccessSession());
+    return getService().then((service) => service.close(access.userId, data));
+  });
+
+export const cancelEfaEpisode = createServerFn({ method: "POST" })
+  .validator((data: unknown) => episodeCancellationSchema.parse(data))
+  .handler(async ({ data }) => {
+    const access = requireEfa(await currentAccessSession());
+    return getService().then((service) => service.cancel(access.userId, data));
+  });
+
+export const reactivateEfaEpisode = createServerFn({ method: "POST" })
+  .validator((data: unknown) => episodeCancellationSchema.parse(data))
+  .handler(async ({ data }) => {
+    const access = requireEfa(await currentAccessSession());
+    return getService().then((service) => service.reactivate(access.userId, data));
+  });

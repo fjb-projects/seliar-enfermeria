@@ -1,0 +1,13 @@
+
+Oops! Something went wrong! :(
+
+ESLint: 9.39.5
+
+RangeError: Invalid string length
+    at C:\Users\Fernando\Documents\FerJuan\SeLIAR\Control de Turnos Seguros\node_modules\eslint\lib\cli-engine\formatters\stylish.js:84:5
+    at Array.forEach (<anonymous>)
+    at module.exports (C:\Users\Fernando\Documents\FerJuan\SeLIAR\Control de Turnos Seguros\node_modules\eslint\lib\cli-engine\formatters\stylish.js:37:10)
+    at Object.format (C:\Users\Fernando\Documents\FerJuan\SeLIAR\Control de Turnos Seguros\node_modules\eslint\lib\eslint\eslint.js:1269:12)
+    at printResults (C:\Users\Fernando\Documents\FerJuan\SeLIAR\Control de Turnos Seguros\node_modules\eslint\lib\cli.js:123:33)
+    at async Object.execute (C:\Users\Fernando\Documents\FerJuan\SeLIAR\Control de Turnos Seguros\node_modules\eslint\lib\cli.js:509:4)
+    at async main (C:\Users\Fernando\Documents\FerJuan\SeLIAR\Control de Turnos Seguros\node_modules\eslint\bin\eslint.js:175:19)

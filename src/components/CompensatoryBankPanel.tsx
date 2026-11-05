@@ -9,6 +9,7 @@ import {
 } from "@/components/CompensatorySourceReview";
 import { StaffDirectoryFields } from "@/components/StaffDirectoryFields";
 import { CompensatoryAgentInput } from "@/components/CompensatoryAgentInput";
+import { CompensatoryPeriodPanel } from "@/components/CompensatoryPeriodPanel";
 import {
   insertCompensatoryRequest,
   listCompensatoryRequests,
@@ -121,6 +122,12 @@ function Field({
 function getErrorMessage(error: unknown, fallback: string) {
   if (error instanceof Error && error.message.trim()) return error.message;
   return fallback;
+}
+
+export function requiresPeriodHistoryReversal(
+  entry: Pick<LedgerView, "compensatoryPeriodId" | "periodEffect">,
+) {
+  return Boolean(entry.compensatoryPeriodId && entry.periodEffect === "record");
 }
 
 function readDirectoryValues(form: FormData, prefix: "staff" | "profile") {
@@ -1157,6 +1164,9 @@ export function CompensatoryBankPanel({
                   </CardContent>
                 </Card>
               )}
+              {selected && (!tool || tool === "ledger") && (
+                <CompensatoryPeriodPanel key={selected.id} staffId={selected.id} />
+              )}
               {(!tool || tool === "ledger") && (
                 <details
                   className="rounded-lg border bg-card"
@@ -1261,6 +1271,16 @@ export function CompensatoryBankPanel({
                                   <td className="p-2">{entry.actorName}</td>
                                   <td className="p-2">
                                     {selected?.isActive &&
+                                      requiresPeriodHistoryReversal(entry) && (
+                                        <a
+                                          className="text-sm underline underline-offset-2"
+                                          href={`#compensatory-period-${entry.compensatoryPeriodId}`}
+                                        >
+                                          Gestionar reversión en historial de períodos
+                                        </a>
+                                      )}
+                                    {selected?.isActive &&
+                                      !entry.compensatoryPeriodId &&
                                       entry.kind !== "reversal" &&
                                       !entry.reversesEntryId &&
                                       !entries.some(

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { formatRequestedHours } from "./compensatory-email-template";
 import type { CompensatoryActor, StaffRecord } from "./compensatory-bank.server";
 import type {
   CompensatoryRequestInput,
@@ -15,6 +16,9 @@ export type CompensatoryJsonValue =
   | CompensatoryJsonValue[]
   | { [key: string]: CompensatoryJsonValue };
 export type CompensatoryLifecycleRequest = CompensatoryRequestRecord & {
+  requesterEmail?: string | null;
+  requesterEmailVerifiedAt?: Date | null;
+  submissionSource?: "admin" | "public";
   phase: CompensatoryRequestPhase;
   version: number;
   requestedDate: string | null;
@@ -60,6 +64,19 @@ export type CompensatoryLifecycleLedger = {
   requestId: string;
 };
 export type LifecycleOperation = { payloadHash: string; resultId: string };
+export type CompensatoryDecisionNotification = {
+  id: string;
+  requestId: string;
+  decisionVersion: number;
+  decision: "approved" | "rejected";
+  recipientKind: "requester" | "admin";
+  recipient: string | null;
+  status: "pending_review" | "pending_recipient";
+  reason: string;
+  subject: string;
+  text: string;
+  createdAt: Date;
+};
 
 export interface CompensatoryLifecycleTransaction {
   findActor(userId: string): Promise<CompensatoryActor | null>;
@@ -84,6 +101,7 @@ export interface CompensatoryLifecycleTransaction {
     changes: Partial<CompensatoryLifecycleRequest>,
   ): Promise<void>;
   insertRequestAudit(audit: CompensatoryLifecycleAudit): Promise<void>;
+  insertDecisionNotification(notification: CompensatoryDecisionNotification): Promise<void>;
   reservedMinutes(staffId: string): Promise<number>;
   updateStaffBalance(staffId: string, balanceMinutes: number): Promise<void>;
   insertConsumptionLedger(entry: CompensatoryLifecycleLedger): Promise<void>;
@@ -413,6 +431,46 @@ export function createCompensatoryLifecycleService(
             requestedMinutes: request.requestedMinutes,
           },
         });
+        const decisionLabel = phase === "approved" ? "aprobada" : "rechazada";
+        const requesterText = [
+          `Hola ${request.requesterName},`,
+          "",
+          `Tu solicitud de compensatorio fue ${decisionLabel}.`,
+          "",
+          `Fecha solicitada: ${request.requestedDate}`,
+          `Horas solicitadas: ${formatRequestedHours(request.requestedMinutes)}`,
+          "",
+          `Fundamento: ${why}`,
+          "",
+          "Este mensaje comunica la resolución registrada por Coordinación.",
+        ].join("\n");
+        const adminText = [
+          "Se registró una resolución de solicitud de horas compensatorias.",
+          `Solicitud: ${request.id}`,
+          `Agente: ${request.requesterName}`,
+          `Resolución: ${decisionLabel}`,
+          `Fecha solicitada: ${request.requestedDate}`,
+          `Horas solicitadas: ${formatRequestedHours(request.requestedMinutes)}`,
+          `Fundamento: ${why}`,
+        ].join("\n");
+        for (const [recipientKind, recipient] of [
+          ["requester", request.requesterEmail ?? null],
+          ["admin", null],
+        ] as const) {
+          await tx.insertDecisionNotification({
+            id: newId(),
+            requestId: request.id,
+            decisionVersion: updated.version,
+            decision: phase,
+            recipientKind,
+            recipient,
+            status: recipient ? "pending_review" : "pending_recipient",
+            reason: why,
+            subject: `Resolución de solicitud de horas compensatorias: ${decisionLabel}`,
+            text: recipientKind === "requester" ? requesterText : adminText,
+            createdAt: decidedAt,
+          });
+        }
         if (phase === "approved" && request.requestedDate === nowDay)
           await consume(
             tx,

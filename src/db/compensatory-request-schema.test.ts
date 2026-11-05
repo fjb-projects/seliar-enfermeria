@@ -1,4 +1,5 @@
 import { getTableColumns } from "drizzle-orm";
+import { getTableConfig } from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
 import { compensatoryRequest } from "./schema";
 
@@ -39,6 +40,19 @@ describe("compensatory request schema", () => {
       expect(columns[key].notNull).toBe(true);
     }
     expect(columns.staffId.notNull).toBe(true);
+    expect(columns.createdByUserId.notNull).toBe(false);
+    expect(columns.requesterEmail.notNull).toBe(false);
+    expect(columns.requesterEmailVerifiedAt.notNull).toBe(false);
+    expect(columns.submissionSource.default).toBe("admin");
+    expect(getTableConfig(compensatoryRequest).indexes.map((index) => index.config.name)).toContain(
+      "compensatory_request_public_operation_unique",
+    );
+    expect(getTableConfig(compensatoryRequest).checks.map((item) => item.name)).toEqual(
+      expect.arrayContaining([
+        "compensatory_request_public_provenance_valid",
+        "compensatory_request_source_allowed",
+      ]),
+    );
     expect(columns).not.toHaveProperty("sourceResponseId");
   });
 });

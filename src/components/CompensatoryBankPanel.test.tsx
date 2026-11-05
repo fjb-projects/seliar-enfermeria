@@ -1,6 +1,10 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { CompensatoryBankPanel, StaffAuditHistory } from "./CompensatoryBankPanel";
+import {
+  CompensatoryBankPanel,
+  requiresPeriodHistoryReversal,
+  StaffAuditHistory,
+} from "./CompensatoryBankPanel";
 import type { StaffAuditView, StaffView } from "@/lib/compensatory-bank.functions";
 
 const staff: StaffView = {
@@ -16,6 +20,13 @@ const staff: StaffView = {
 };
 
 describe("compensatory bank panel", () => {
+  it("routes period-linked ledger reversals through period history only", () => {
+    expect(
+      requiresPeriodHistoryReversal({ compensatoryPeriodId: "period-1", periodEffect: "record" }),
+    ).toBe(true);
+    expect(requiresPeriodHistoryReversal({ compensatoryPeriodId: null, periodEffect: null })).toBe(false);
+  });
+
   it("shows staff identity, monthly reference, and no-login policy", () => {
     const html = renderToStaticMarkup(<CompensatoryBankPanel initialStaff={[staff]} />);
     expect(html).toContain("DNI");
@@ -52,6 +63,7 @@ describe("compensatory bank panel", () => {
     expect(html).toContain("Registrar horas");
     expect(html).toContain("Motivo y respaldo");
     expect(html).toContain("Movimientos recientes");
+    expect(html).toContain("Historial por período");
     expect(html).toContain("Importar agentes seleccionados");
     expect(html).not.toContain("Aprobar solicitud");
     expect(html).toContain("Eliminar agente definitivamente");

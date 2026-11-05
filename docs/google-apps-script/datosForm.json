@@ -1,0 +1,258 @@
+{
+  "generatedAt": "2026-09-24T00:28:44.015Z",
+  "forms": [
+    {
+      "key": "cambioGuardia",
+      "label": "Cambio de guardia",
+      "status": "ok",
+      "formId": "11qqqTr5KLNAJdBqqkXNbp4EkZ8-oZRL1q_oo9J2AjBw",
+      "title": "SOLICITUD CAMBIO DE GUARDIA",
+      "description": "SOLICITUD DE CAMBIO DE GUARDIA DE COMUN ACUERDO PENDIENTE DE APROBACION",
+      "confirmationMessage": "RECIBIDO.",
+      "publishedUrl": "https://docs.google.com/forms/d/e/1FAIpQLSfeN1xQZhm_FyucOkHTgdfq8d4Xm46_3hICAV1M5IWPnYTmdg/viewform",
+      "itemCount": 12,
+      "items": [
+        {
+          "id": 1891793506,
+          "index": 0,
+          "type": "TEXT",
+          "title": "Dirección de correo electrónico",
+          "helpText": "",
+          "required": true
+        },
+        {
+          "id": 1124723262,
+          "index": 1,
+          "type": "MULTIPLE_CHOICE",
+          "title": "LA GUARDIA SE CUBRE DE FORMA COMPLETA O PARCIAL? ",
+          "helpText": "",
+          "required": true,
+          "choices": [
+            "Completa (Toda la guardia)",
+            "Parcial (Reemplazo por franja horaria / X horas)"
+          ]
+        },
+        {
+          "id": 685400638,
+          "index": 2,
+          "type": "TEXT",
+          "title": "NOMBRE SOLICITANTE 1",
+          "helpText": "",
+          "required": true
+        },
+        {
+          "id": 1528569897,
+          "index": 3,
+          "type": "TEXT",
+          "title": "MOVIL SOLICITANTE 1",
+          "helpText": "",
+          "required": true
+        },
+        {
+          "id": 1874658295,
+          "index": 4,
+          "type": "DATE",
+          "title": "FECHA DE GUARDIA 1",
+          "helpText": "",
+          "required": true,
+          "includesYear": null,
+          "includesMonth": null,
+          "includesDay": null
+        },
+        {
+          "id": 173561701,
+          "index": 5,
+          "type": "TEXT",
+          "title": "CAMBIA CON ",
+          "helpText": "",
+          "required": true
+        },
+        {
+          "id": 2045056247,
+          "index": 6,
+          "type": "TEXT",
+          "title": "MOVIL",
+          "helpText": "",
+          "required": true
+        },
+        {
+          "id": 596869713,
+          "index": 7,
+          "type": "DATE",
+          "title": "FECHA DE DEVOLUCION ",
+          "helpText": "",
+          "required": true,
+          "includesYear": null,
+          "includesMonth": null,
+          "includesDay": null
+        },
+        {
+          "id": 717914967,
+          "index": 8,
+          "type": "PAGE_BREAK",
+          "title": "DETALLE DE REMPLAZO PARCIAL",
+          "helpText": "  \"Complete esta sección únicamente si cubre una fracción o cantidad de horas específicas de la guardia en reemplazo del agente titular. Registre con exactitud los horarios de inicio y finalización para el correcto cómputo y balance en el sistema de control horario mensual.\"  ",
+          "required": null
+        },
+        {
+          "id": 1553242674,
+          "index": 9,
+          "type": "TIME",
+          "title": "  Hora de INICIO del reemplazo  ",
+          "helpText": "",
+          "required": false
+        },
+        {
+          "id": 925189804,
+          "index": 10,
+          "type": "TIME",
+          "title": "  Hora de FIN del reemplazo  ",
+          "helpText": "",
+          "required": false
+        },
+        {
+          "id": 831934368,
+          "index": 11,
+          "type": "PARAGRAPH_TEXT",
+          "title": "Motivo o aclaración del cambio.  ",
+          "helpText": "",
+          "required": false
+        }
+      ]
+    },
+    {
+      "key": "compensatorio",
+      "label": "Compensatorio",
+      "status": "ok",
+      "formId": "1612Y6uGxxpqR6rhetzjboXjlna3he6hFwV9VYr_QA-g",
+      "title": "SOLICITUD DE COMPENSATORIO",
+      "description": "COMPENSATORIOS\n**ARTÍCULO 68°. **a. Cuando el servicio lo permita, el Jefe de la Unidad de Organización podrá autorizar franquicias de hasta 3 jornadas laborables por mes calendario (en forma total o fraccionada), compensables en días o turnos complementarios, de trabajo, de igual duración que la franquicia otorgada.\nEstas franquicias deben\ncompensarse dentro de los 30 días posteriores a su otorgamiento, pudiendo prolongarse este término hasta 90 días cuando fundadas razones de servicio, así lo justifiquen.\nb. Cuando por razones de\nservicio excepcionales, el agente deba desempeñarse fuera del horario habitual de trabajo, y las horas trabajadas en ampliación horaria no hayan sido autorizadas como “horas extraordinarias”, deberán computársele como “horas compensatorias”, valorándose cada hora trabajada en exceso, del mismo modo que se efectúa el cálculo para el pago de las extras, teniendo en cuenta el día (laborable o no) y el horario en que efectuó la ampliación horaria.\nLas horas compensatorias\nregistradas a favor del agente deberán otorgarse cuando éste lo solicite y siempre que el servicio lo permita. No obstante, no podrá prorrogarse su autorización por más de 48 horas a partir de la fecha en que se solicitara.\n",
+      "confirmationMessage": "RECIBIDO. A CONFIRMAR",
+      "publishedUrl": "https://docs.google.com/forms/d/e/1FAIpQLSevGfhbl5uIWHTzBpKma_aFIRWxHOFYzKCv6f_4WiGE1eYZpA/viewform",
+      "itemCount": 5,
+      "items": [
+        {
+          "id": 1851963092,
+          "index": 0,
+          "type": "TEXT",
+          "title": "Correo electrónico",
+          "helpText": "",
+          "required": true
+        },
+        {
+          "id": 77797409,
+          "index": 1,
+          "type": "TEXT",
+          "title": "NOMBRE Y APELLIDO",
+          "helpText": "",
+          "required": true
+        },
+        {
+          "id": 1572866606,
+          "index": 2,
+          "type": "LIST",
+          "title": "MOVIL",
+          "helpText": "",
+          "required": true,
+          "choices": [
+            "Móvil 1",
+            "Móvil 2",
+            "Móvil 3",
+            "Móvil 4",
+            "Móvil 5",
+            "Móvil 6",
+            "Móvil 7",
+            "Móvil 9",
+            "Móvil 11",
+            "Móvil 12",
+            "Móvil 15",
+            "Móvil 26",
+            "Móvil Flotante",
+            "Otro Movil no Nomenclado"
+          ]
+        },
+        {
+          "id": 556605314,
+          "index": 3,
+          "type": "DATE",
+          "title": "FECHA DEL COMPENSATORIO",
+          "helpText": "",
+          "required": true,
+          "includesYear": null,
+          "includesMonth": null,
+          "includesDay": null
+        },
+        {
+          "id": 718502073,
+          "index": 4,
+          "type": "TEXT",
+          "title": "CANTIDAD DE HORAS",
+          "helpText": "",
+          "required": true
+        }
+      ]
+    },
+    {
+      "key": "lao",
+      "label": "Solicitud de LAO",
+      "status": "ok",
+      "formId": "1Pf19ZzgsJhtNomUGcO-nc748-OmM3AwcZbD-J_b-zxc",
+      "title": "SOLICITUD  DE JUSTIFICACIONES Y LICENCIAS",
+      "description": "Por favor, completa este formulario para solicitar tu licencia, teniendo en cuenta las siguientes indicaciones:\n·         Selecciona un único mes de inicio dentro del período.\n·         Indica claramente la fecha de inicio y fin de tu licencia.\n·         Ten en cuenta que solo se permitirán un máximo de 12 licencias simultáneas.\n .          Hasta 15 dias personal d mas d 10 años d antiguedad. Hasta 10 los de menos.",
+      "confirmationMessage": "Se registró tu respuesta",
+      "publishedUrl": "https://docs.google.com/forms/d/e/1FAIpQLSfHxF43xxTnkOuXm83dZDRt1ADqZXKtlsSCNHJ4rVZgXGEhlQ/viewform",
+      "itemCount": 5,
+      "items": [
+        {
+          "id": 1849920835,
+          "index": 0,
+          "type": "TEXT",
+          "title": "Correo Electrónico",
+          "helpText": "",
+          "required": true
+        },
+        {
+          "id": 1489095025,
+          "index": 1,
+          "type": "TEXT",
+          "title": "NOMBRE Y APELLIDO",
+          "helpText": "",
+          "required": true
+        },
+        {
+          "id": 497043890,
+          "index": 2,
+          "type": "DATE",
+          "title": "MES DE INICIO DE LAO",
+          "helpText": "",
+          "required": true,
+          "includesYear": null,
+          "includesMonth": null,
+          "includesDay": null
+        },
+        {
+          "id": 1242305715,
+          "index": 3,
+          "type": "DATE",
+          "title": "FECHA DE INICIO LAO",
+          "helpText": "SOLICITAR 1RA QUINCENA O 2DA QUINCENA",
+          "required": true,
+          "includesYear": null,
+          "includesMonth": null,
+          "includesDay": null
+        },
+        {
+          "id": 864116122,
+          "index": 4,
+          "type": "DATE",
+          "title": "FECHA  FIN DE LAO",
+          "helpText": "",
+          "required": true,
+          "includesYear": null,
+          "includesMonth": null,
+          "includesDay": null
+        }
+      ]
+    }
+  ]
+}

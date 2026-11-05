@@ -27,7 +27,7 @@ export type StaffRecord = {
   createdAt: Date;
 } & Partial<StaffDirectoryFields>;
 
-export type LedgerKind = "opening" | "credit" | "debit" | "reversal";
+export type LedgerKind = "opening" | "credit" | "debit" | "reversal" | "request_consumption";
 
 export type StaffAuditState = {
   dni?: string;
@@ -59,6 +59,8 @@ export type LedgerRecord = {
   balanceBeforeMinutes: number;
   balanceAfterMinutes: number;
   reversesEntryId: string | null;
+  compensatoryPeriodId?: string | null;
+  periodEffect?: "record" | "reversal" | null;
 };
 
 export type StaffAuditRecord = {
@@ -74,6 +76,48 @@ export type StaffAuditRecord = {
   versionAfter: number;
   before: StaffAuditState | null;
   after: StaffAuditState;
+};
+
+export type CompensatoryPeriodRecord = {
+  id: string;
+  staffId: string;
+  year: number;
+  month: number | null;
+  generatedMinutes: number | null;
+  externalTakenMinutes: number | null;
+  annualNetMinutes: number | null;
+  effectiveDate: string;
+  reason: string;
+  actorUserId: string;
+  actorName: string;
+  operationId: string;
+  revision: number;
+  status: "active" | "reversed";
+  reversedAt: Date | null;
+  reversedByUserId: string | null;
+  reversedByName: string | null;
+  reversalOperationId: string | null;
+  reversalReason: string | null;
+  createdAt: Date;
+};
+
+export type CompensatoryPeriod = {
+  id: string;
+  year: number;
+  month: number | null;
+  generatedMinutes: number | null;
+  externalTakenMinutes: number | null;
+  registeredTakenMinutes: number | null;
+  netMinutes: number;
+  effectiveDate: string;
+  reason: string;
+  actorName: string;
+  createdAt: string;
+  revision: number;
+  status: "active" | "reversed";
+  reversedAt: string | null;
+  reversedByName: string | null;
+  reversalReason: string | null;
 };
 
 export type StaffView = Omit<StaffRecord, "createdAt"> & { createdAt: string };
@@ -101,6 +145,11 @@ export interface CompensatoryBankTransaction {
   updateStaff(id: string, version: number, changes: Partial<StaffRecord>): Promise<void>;
   updateBalance(id: string, balanceMinutes: number): Promise<void>;
   listLedger(staffId: string): Promise<LedgerRecord[]>;
+  listCompensatoryPeriods(staffId: string, year: number): Promise<CompensatoryPeriodRecord[]>;
+  findCompensatoryPeriod(staffId: string, year: number, month: number | null): Promise<CompensatoryPeriodRecord | null>;
+  findCompensatoryPeriodById(staffId: string, periodId: string): Promise<CompensatoryPeriodRecord | null>;
+  insertCompensatoryPeriod(period: CompensatoryPeriodRecord): Promise<void>;
+  reverseCompensatoryPeriod(periodId: string, reversal: Pick<CompensatoryPeriodRecord, "reversedAt" | "reversedByUserId" | "reversedByName" | "reversalOperationId" | "reversalReason">): Promise<void>;
   listAudits(staffId: string): Promise<StaffAuditRecord[]>;
   findLedger(id: string): Promise<LedgerRecord | null>;
   insertLedger(entry: LedgerRecord): Promise<void>;
@@ -175,6 +224,37 @@ function normalizedReason(value: string) {
   if (!reason || reason.length > 1000)
     throw new Error("El motivo es obligatorio y debe tener hasta 1000 caracteres.");
   return reason;
+}
+
+function assertYear(value: number) {
+  if (!Number.isSafeInteger(value) || value < 2000 || value > 9999)
+    throw new Error("El año del período no es válido.");
+}
+
+function periodDate(year: number, month: number | null) {
+  return month === null
+    ? `${year}-12-31`
+    : `${year}-${String(month).padStart(2, "0")}-${new Date(Date.UTC(year, month, 0)).getUTCDate()}`;
+}
+
+function registeredTakenByMonth(entries: LedgerRecord[], year: number) {
+  const totals: Record<string, number> = Object.fromEntries(
+    Array.from({ length: 12 }, (_, index) => [String(index + 1), 0]),
+  );
+  const byId = new Map(entries.map((entry) => [entry.id, entry]));
+  for (const entry of entries) {
+    const consumed = entry.kind === "request_consumption"
+      ? entry
+      : entry.kind === "reversal" && entry.reversesEntryId
+        ? byId.get(entry.reversesEntryId)
+        : undefined;
+    if (consumed?.kind !== "request_consumption" || !consumed.effectiveDate.startsWith(`${year}-`)) continue;
+    const month = String(Number(consumed.effectiveDate.slice(5, 7)));
+    if (Object.hasOwn(totals, month)) {
+      totals[month] = (totals[month] ?? 0) - entry.minutes;
+    }
+  }
+  return totals;
 }
 
 function normalizedDirectoryFields(input: StaffDirectoryInput): Partial<StaffDirectoryFields> {
@@ -300,6 +380,208 @@ export function createCompensatoryBankService(
           entries: entries.map(ledgerView),
           changes: changes.map(auditView),
         };
+      });
+    },
+
+    async listCompensatoryPeriods(
+      userId: string,
+      input: { staffId: string; year: number },
+    ): Promise<{ periods: CompensatoryPeriod[]; registeredTakenByMonth: Record<string, number> }> {
+      assertYear(input.year);
+      return store.transaction(async (tx) => {
+        await authorize(tx, userId);
+        if (!(await tx.lockStaff(input.staffId))) throw new Error("No se encontró el agente.");
+        const [periods, ledger] = await Promise.all([
+          tx.listCompensatoryPeriods(input.staffId, input.year),
+          tx.listLedger(input.staffId),
+        ]);
+        const registered = registeredTakenByMonth(ledger, input.year);
+        return {
+          periods: periods.map((period) => {
+            const monthly = period.month !== null;
+            const registeredMinutes = monthly ? registered[String(period.month)] ?? 0 : null;
+            return {
+              id: period.id,
+              year: period.year,
+              month: period.month,
+              generatedMinutes: period.generatedMinutes,
+              externalTakenMinutes: period.externalTakenMinutes,
+              registeredTakenMinutes: registeredMinutes,
+              netMinutes: monthly
+                ? (period.generatedMinutes ?? 0) - (period.externalTakenMinutes ?? 0) - (registeredMinutes ?? 0)
+                : (period.annualNetMinutes ?? 0),
+              effectiveDate: period.effectiveDate,
+              reason: period.reason,
+              actorName: period.actorName,
+              createdAt: period.createdAt.toISOString(),
+              revision: period.revision,
+              status: period.status,
+              reversedAt: period.reversedAt?.toISOString() ?? null,
+              reversedByName: period.reversedByName,
+              reversalReason: period.reversalReason,
+            };
+          }),
+          registeredTakenByMonth: registered,
+        };
+      });
+    },
+
+    async recordCompensatoryPeriod(
+      userId: string,
+      input: {
+        operationId: string;
+        staffId: string;
+        year: number;
+        month: number | null;
+        generatedMinutes: number | null;
+        externalTakenMinutes: number | null;
+        annualNetMinutes: number | null;
+        reason: string;
+      },
+    ): Promise<{ id: string }> {
+      assertYear(input.year);
+      const reason = normalizedReason(input.reason);
+      const annual = input.month === null;
+      if (annual) {
+        if (![2024, 2025].includes(input.year) || input.generatedMinutes !== null || input.externalTakenMinutes !== null ||
+          !Number.isSafeInteger(input.annualNetMinutes) || input.annualNetMinutes! < 0 || input.annualNetMinutes! > maxInteger) {
+          throw new Error("El período anual requiere un neto no negativo de 2024 o 2025 y no admite desglose mensual.");
+        }
+      } else if (
+        !Number.isSafeInteger(input.month) || input.month! < 1 || input.month! > 12 ||
+        !Number.isSafeInteger(input.generatedMinutes) || input.generatedMinutes! < 0 || input.generatedMinutes! > maxInteger ||
+        !Number.isSafeInteger(input.externalTakenMinutes) || input.externalTakenMinutes! < 0 || input.externalTakenMinutes! > maxInteger ||
+        input.annualNetMinutes !== null
+      ) {
+        throw new Error("El período mensual requiere el año en curso, mes 1–12 y cantidades enteras no negativas.");
+      }
+      const normalized = { ...input, reason };
+      return store.transaction(async (tx) => {
+        const actor = await authorize(tx, userId);
+        return operation(tx, userId, input.operationId, "record_period", normalized, async () => {
+          const staff = await lockedStaff(tx, input.staffId);
+          if (!staff.isActive)
+            throw new Error("Reactiva al agente antes de registrar períodos.");
+          const monthly = input.month !== null;
+          if (monthly && input.year !== Number((await tx.serviceDay()).slice(0, 4)))
+            throw new Error("Solo se admiten períodos mensuales del año en curso.");
+          const effectiveDate = periodDate(input.year, input.month);
+          const previousPeriods = await tx.listCompensatoryPeriods(staff.id, input.year);
+          if (previousPeriods.some((period) => period.month === input.month && period.status === "active"))
+            throw new Error("Ya existe un período para ese agente y fecha.");
+          const revision = previousPeriods
+            .filter((period) => period.month === input.month)
+            .reduce((maximum, period) => Math.max(maximum, period.revision), 0) + 1;
+          const id = newId();
+          const period: CompensatoryPeriodRecord = {
+            id,
+            staffId: staff.id,
+            year: input.year,
+            month: input.month,
+            generatedMinutes: input.generatedMinutes,
+            externalTakenMinutes: input.externalTakenMinutes,
+            annualNetMinutes: input.annualNetMinutes,
+            effectiveDate,
+            reason,
+            actorUserId: userId,
+            actorName: actor.name,
+            operationId: input.operationId,
+            revision,
+            status: "active",
+            reversedAt: null,
+            reversedByUserId: null,
+            reversedByName: null,
+            reversalOperationId: null,
+            reversalReason: null,
+            createdAt: await tx.databaseNow(),
+          };
+          const balanceDelta = monthly
+            ? input.generatedMinutes! - input.externalTakenMinutes!
+            : input.annualNetMinutes!;
+          const after = staff.balanceMinutes + balanceDelta;
+          if (after < 0) throw new Error("El período supera el saldo disponible.");
+          if (balanceDelta < 0 && after < (await tx.reservedMinutes(staff.id)))
+            throw new Error("El período supera el saldo disponible después de las reservas.");
+          if (after > maxInteger) throw new Error("El saldo supera el máximo registrable.");
+          await tx.insertCompensatoryPeriod(period);
+          if (balanceDelta !== 0) {
+            await appendLedger(tx, {
+              id: newId(),
+              staffId: staff.id,
+              kind: balanceDelta > 0 ? "credit" : "debit",
+              minutes: balanceDelta,
+              effectiveDate,
+              reason,
+              actorUserId: userId,
+              actorName: actor.name,
+              balanceBeforeMinutes: staff.balanceMinutes,
+              balanceAfterMinutes: after,
+              reversesEntryId: null,
+              compensatoryPeriodId: id,
+              periodEffect: "record",
+            });
+          }
+          return { id };
+        });
+      });
+    },
+
+    async reverseCompensatoryPeriod(
+      userId: string,
+      input: { operationId: string; staffId: string; periodId: string; reason: string },
+    ): Promise<{ id: string }> {
+      const reason = normalizedReason(input.reason);
+      const payload = { staffId: input.staffId, periodId: input.periodId, reason };
+      return store.transaction(async (tx) => {
+        const actor = await authorize(tx, userId);
+        return operation(tx, userId, input.operationId, "reverse_period", payload, async () => {
+          const staff = await lockedStaff(tx, input.staffId);
+          const period = await tx.findCompensatoryPeriodById(staff.id, input.periodId);
+          if (!period) throw new Error("No se encontró el período.");
+          if (period.status !== "active") throw new Error("El período ya fue revertido.");
+          const monthly = period.month !== null;
+          const expectedDelta = monthly
+            ? (period.generatedMinutes ?? 0) - (period.externalTakenMinutes ?? 0)
+            : period.annualNetMinutes ?? 0;
+          const entries = await tx.listLedger(staff.id);
+          const originalEffect = entries.find(
+            (entry) => entry.compensatoryPeriodId === period.id && entry.periodEffect === "record",
+          );
+          if (expectedDelta === 0 ? Boolean(originalEffect) : !originalEffect || originalEffect.minutes !== expectedDelta)
+            throw new Error("El efecto contable del período no coincide con su historial; requiere revisión.");
+          const delta = originalEffect ? -originalEffect.minutes : 0;
+          const after = staff.balanceMinutes + delta;
+          if (after < 0) throw new Error("La reversión del período supera el saldo disponible.");
+          if (delta < 0 && after < (await tx.reservedMinutes(staff.id)))
+            throw new Error("La reversión del período supera el saldo disponible después de las reservas.");
+          if (after > maxInteger) throw new Error("El saldo supera el máximo registrable.");
+          const occurredAt = await tx.databaseNow();
+          if (originalEffect) {
+            await appendLedger(tx, {
+              id: newId(),
+              staffId: staff.id,
+              kind: "reversal",
+              minutes: delta,
+              effectiveDate: await tx.serviceDay(),
+              reason,
+              actorUserId: userId,
+              actorName: actor.name,
+              balanceBeforeMinutes: staff.balanceMinutes,
+              balanceAfterMinutes: after,
+              reversesEntryId: originalEffect.id,
+              compensatoryPeriodId: period.id,
+              periodEffect: "reversal",
+            });
+          }
+          await tx.reverseCompensatoryPeriod(period.id, {
+            reversedAt: occurredAt,
+            reversedByUserId: userId,
+            reversedByName: actor.name,
+            reversalOperationId: input.operationId,
+            reversalReason: reason,
+          });
+          return { id: period.id };
+        });
       });
     },
 
@@ -553,6 +835,8 @@ export function createCompensatoryBankService(
             const original = await tx.findLedger(input.entryId);
             if (!original || original.staffId !== staff.id)
               throw new Error("No se encontró el movimiento.");
+            if (original.compensatoryPeriodId)
+              throw new Error("Los movimientos de período deben revertirse desde el período correspondiente.");
             if (
               original.kind === "reversal" ||
               entries.some((entry) => entry.reversesEntryId === original.id)

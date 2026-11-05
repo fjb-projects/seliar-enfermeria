@@ -1,10 +1,11 @@
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { getDatabase } from "../db/index.server";
 import {
   accountAccess,
   accountRoleGrant,
   compensatoryLedger,
   compensatoryOperation,
+  compensatoryPeriod,
   compensatoryRequest,
   compensatoryStaff,
   compensatoryStaffAudit,
@@ -14,6 +15,7 @@ import {
   createCompensatoryBankService,
   type CompensatoryBankStore,
   type CompensatoryBankTransaction,
+  type CompensatoryPeriodRecord,
   type LedgerRecord,
   type StaffAuditRecord,
   type StaffRecord,
@@ -115,6 +117,64 @@ export function createCompensatoryBankStore(
                 asc(compensatoryLedger.createdAt),
                 asc(compensatoryLedger.id),
               )) as LedgerRecord[];
+          },
+          async listCompensatoryPeriods(staffId, year) {
+            return (await db
+              .select()
+              .from(compensatoryPeriod)
+              .where(and(eq(compensatoryPeriod.staffId, staffId), eq(compensatoryPeriod.year, year)))
+              .orderBy(
+                asc(compensatoryPeriod.effectiveDate),
+                asc(compensatoryPeriod.month),
+                asc(compensatoryPeriod.revision),
+                asc(compensatoryPeriod.id),
+              )) as CompensatoryPeriodRecord[];
+          },
+          async findCompensatoryPeriod(staffId, year, month) {
+            const periodMonth = month === null
+              ? isNull(compensatoryPeriod.month)
+              : eq(compensatoryPeriod.month, month);
+            const rows = await db
+              .select()
+              .from(compensatoryPeriod)
+              .where(and(
+                eq(compensatoryPeriod.staffId, staffId),
+                eq(compensatoryPeriod.year, year),
+                periodMonth,
+                eq(compensatoryPeriod.status, "active"),
+              ))
+              .limit(1);
+            return (rows[0] as CompensatoryPeriodRecord | undefined) ?? null;
+          },
+          async findCompensatoryPeriodById(staffId, periodId) {
+            const rows = await db
+              .select()
+              .from(compensatoryPeriod)
+              .where(and(eq(compensatoryPeriod.staffId, staffId), eq(compensatoryPeriod.id, periodId)))
+              .for("update")
+              .limit(1);
+            return (rows[0] as CompensatoryPeriodRecord | undefined) ?? null;
+          },
+          async insertCompensatoryPeriod(period) {
+            await db.insert(compensatoryPeriod).values({
+              ...period,
+              periodKey: period.month === null ? "annual" : String(period.month).padStart(2, "0"),
+            });
+          },
+          async reverseCompensatoryPeriod(periodId, reversal) {
+            const rows = await db
+              .update(compensatoryPeriod)
+              .set({
+                status: "reversed",
+                reversedAt: reversal.reversedAt,
+                reversedByUserId: reversal.reversedByUserId,
+                reversedByName: reversal.reversedByName,
+                reversalOperationId: reversal.reversalOperationId,
+                reversalReason: reversal.reversalReason,
+              })
+              .where(and(eq(compensatoryPeriod.id, periodId), eq(compensatoryPeriod.status, "active")))
+              .returning({ id: compensatoryPeriod.id });
+            if (!rows.length) throw new Error("El período cambió; actualiza el historial.");
           },
           async listAudits(staffId) {
             const rows = await db

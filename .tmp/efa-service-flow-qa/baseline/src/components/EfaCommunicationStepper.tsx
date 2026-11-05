@@ -1,0 +1,1987 @@
+import { Button } from "@/components/ui/button";
+import { useEffect, useRef, useState } from "react";
+import { createClientOnlyFn, useServerFn } from "@tanstack/react-start";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  EfaActionConfirmation,
+  isActionConfirmationCurrent,
+} from "@/components/EfaActionConfirmation";
+import {
+  createEfaCommunication,
+  cancelEfaCommunication,
+  finalizeEfaCommunication,
+  getEfaCommunicationHistory,
+  listEfaCommunicationsForEpisode,
+  listEfaCommunicationNotices,
+  markEfaCommunicationNoticeRead,
+  reactivateEfaCommunication,
+  updateEfaCommunication,
+} from "@/lib/efa-communications.functions";
+import type {
+  EfaCommunicationAuditRecord,
+  EfaCommunicationMutationResult,
+  EfaCommunicationStatus,
+  EfaCommunicationView,
+} from "@/lib/efa-communications.server";
+import type {
+  CommunicationQueueEntry,
+  CommunicationQueueStore,
+} from "@/lib/efa-communications.queue";
+
+const loadCommunicationClient = createClientOnlyFn(() => import("@/lib/efa-communications.client"));
+const loadCommunicationQueue = createClientOnlyFn(() => import("@/lib/efa-communications.queue"));
+
+// eslint-disable-next-line react-refresh/only-export-components
+export const communicationSteps = [
+  "Dirección",
+  "Inicio real",
+  "Fin real",
+  "Prioridad",
+  "Revisión",
+] as const;
+
+// eslint-disable-next-line react-refresh/only-export-components
+export function createCommunicationSubmissionGate() {
+  let submitting = false;
+  return {
+    acquire(): (() => void) | null {
+      if (submitting) return null;
+      submitting = true;
+      let released = false;
+      return () => {
+        if (released) return;
+        released = true;
+        submitting = false;
+      };
+    },
+  };
+}
+
+export function canSelectInitialCommunication(input: {
+  targetOperationId: string;
+  activeTargetOperationId: string | null;
+  targetCommunicationId: string;
+  activeTargetCommunicationId: string | null;
+  selectedCommunicationId: string | null;
+  selectedOperationId: string;
+  dirty: boolean;
+  hasPendingOperation: boolean;
+  busy: boolean;
+  selectionClaimed: boolean;
+  currentRevision: number;
+  expectedRevision: number;
+}): boolean {
+  return Boolean(
+    input.targetCommunicationId &&
+    input.activeTargetOperationId === input.targetOperationId &&
+    input.activeTargetCommunicationId === input.targetCommunicationId &&
+    input.selectedCommunicationId === null &&
+    input.selectedOperationId === "" &&
+    !input.dirty &&
+    !input.hasPendingOperation &&
+    !input.busy &&
+    !input.selectionClaimed &&
+    input.currentRevision === input.expectedRevision,
+  );
+}
+
+// eslint-disable-next-line react-refresh/only-export-components
+export function canFocusInitialCallHeading(input: {
+  hasPendingFocus: boolean;
+  selectionClaimed: boolean;
+  selectedCommunicationId: string | null;
+  targetCommunicationId: string;
+  currentRevision: number;
+  expectedRevision: number;
+}) {
+  return Boolean(
+    input.hasPendingFocus &&
+    input.selectionClaimed &&
+    input.selectedCommunicationId === input.targetCommunicationId &&
+    input.currentRevision === input.expectedRevision,
+  );
+}
+
+export function communicationStateLabel(state: EfaCommunicationView["state"]) {
+  return state === "draft"
+    ? "Borrador · pendiente de completar"
+    : state === "cancelled"
+      ? "Anulada"
+      : "Finalizada";
+}
+
+export function communicationLifecycleAction(
+  state: EfaCommunicationStatus,
+): "cancel" | "reactivate" {
+  return state === "cancelled" ? "reactivate" : "cancel";
+}
+
+export function communicationStepResolution(input: {
+  directionPresent: boolean;
+  directionReviewed: boolean;
+  startedAt: string;
+  startedAtReviewed: boolean;
+  endedAt: string;
+  endedAtReviewed: boolean;
+  priority: string;
+  finalized: boolean;
+}): [boolean, boolean, boolean, boolean, boolean] {
+  return [
+    input.directionPresent || input.directionReviewed,
+    Boolean(input.startedAt) || input.startedAtReviewed,
+    Boolean(input.endedAt) || input.endedAtReviewed,
+    Boolean(input.priority),
+    input.finalized,
+  ];
+}
+
+export function EfaCommunicationStepper({
+  step,
+  resolvedSteps,
+  onStepChange,
+  children,
+}: {
+  step: number;
+  resolvedSteps: readonly boolean[];
+  onStepChange: (step: number) => void;
+  children: React.ReactNode;
+}) {
+  const currentStep = Math.min(Math.max(step, 0), communicationSteps.length - 1);
+  const stepName = communicationSteps[currentStep];
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const previousStepRef = useRef(currentStep);
+
+  useEffect(() => {
+    if (previousStepRef.current === currentStep) return;
+    previousStepRef.current = currentStep;
+    const heading = headingRef.current;
+    if (!heading) return;
+    heading.focus({ preventScroll: true });
+    heading.scrollIntoView({
+      block: "start",
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+    });
+  }, [currentStep]);
+
+  return (
+    <section aria-labelledby="communication-step-heading" className="space-y-4">
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <h3
+            ref={headingRef}
+            id="communication-step-heading"
+            tabIndex={-1}
+            className="scroll-mt-20 text-base font-semibold outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          >
+            Paso {currentStep + 1} de {communicationSteps.length}: {stepName}
+          </h3>
+          <span className="text-sm text-muted-foreground" aria-hidden="true">
+            {currentStep + 1}/{communicationSteps.length}
+          </span>
+        </div>
+        <progress
+          className="h-2 w-full accent-primary"
+          aria-label="Progreso de la llamada"
+          value={currentStep + 1}
+          max={communicationSteps.length}
+        />
+        <ol aria-label="Pasos para registrar la llamada" className="flex gap-1.5">
+          {communicationSteps.map((label, index) => (
+            <li key={label} className="min-w-0 flex-1">
+              <button
+                type="button"
+                className={`relative min-h-11 w-full rounded-md border px-1 text-xs sm:text-sm ${
+                  resolvedSteps[index]
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-100"
+                    : "border-amber-200 bg-amber-50 text-amber-950 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-100"
+                } ${index === currentStep ? "z-10 ring-2 ring-primary ring-offset-2 font-semibold" : ""}`}
+                aria-current={index === currentStep ? "step" : undefined}
+                aria-label={`Ir al paso ${index + 1}: ${label}${resolvedSteps[index] ? ", completado" : ""}`}
+                onClick={() => onStepChange(index)}
+              >
+                <span className="hidden sm:inline">{label}</span>
+                <span className="sm:hidden">
+                  {resolvedSteps[index] ? "✓ " : ""}
+                  {index + 1}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ol>
+      </div>
+
+      <div aria-live="polite">{children}</div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          className="min-h-11 min-w-0 w-full"
+          aria-label="Paso anterior"
+          disabled={currentStep === 0}
+          onClick={() => onStepChange(currentStep - 1)}
+        >
+          Anterior
+        </Button>
+        <Button
+          type="button"
+          className="min-h-11 min-w-0 w-full"
+          aria-label="Siguiente paso"
+          disabled={currentStep === communicationSteps.length - 1}
+          onClick={() => onStepChange(currentStep + 1)}
+        >
+          Siguiente
+        </Button>
+      </div>
+    </section>
+  );
+}
+
+type CommunicationStep = (typeof communicationSteps)[number];
+type CommunicationNotice = {
+  id: string;
+  communicationId: string;
+  createdAt: string;
+  readAt: string | null;
+};
+type CommunicationHistory = Omit<EfaCommunicationAuditRecord, "occurredAt"> & {
+  occurredAt: string;
+};
+type FormTimes = { startedAt: string; endedAt: string };
+type Direction = "incoming" | "outgoing";
+type Priority = "red" | "yellow" | "green";
+
+const nowBue = (value: string) =>
+  new Date(value).toLocaleString("es-AR", { timeZone: "America/Argentina/Buenos_Aires" });
+const priorityLabel = (value: Priority | null) =>
+  value === "red"
+    ? "Roja"
+    : value === "yellow"
+      ? "Amarilla"
+      : value === "green"
+        ? "Verde"
+        : "Sin prioridad";
+const directionLabel = (value: Direction) => (value === "incoming" ? "Entrante" : "Saliente");
+// eslint-disable-next-line react-refresh/only-export-components -- Keep the tested permission gate beside its UI use.
+export const canEditCommunication = (canWrite: boolean, communication: { canEdit: boolean }) =>
+  canWrite && communication.canEdit;
+// eslint-disable-next-line react-refresh/only-export-components -- Keep the tested permission gate beside its UI use.
+export const canCreateCommunication = (canWrite: boolean, episodeCanEdit: boolean) =>
+  canWrite && episodeCanEdit;
+// eslint-disable-next-line react-refresh/only-export-components -- The recovery visibility predicate is tested and used by this render path.
+export function shouldShowCommunicationEditor(input: {
+  hasSelectedCall: boolean;
+  canEditSelected: boolean;
+  dirty: boolean;
+  canCreateCall: boolean;
+  pendingCreateRecovery: boolean;
+}) {
+  return input.hasSelectedCall
+    ? input.canEditSelected
+    : (input.dirty && input.canCreateCall) || input.pendingCreateRecovery;
+}
+const queueStatusLabel = (status: CommunicationQueueEntry["status"]) =>
+  status === "pending"
+    ? "pendiente"
+    : status === "uncertain"
+      ? "sin confirmación"
+      : status === "paused-conflict"
+        ? "pausada por conflicto"
+        : status === "paused-permission"
+          ? "pausada por permisos"
+          : status === "paused-mismatch"
+            ? "pausada por recibo distinto"
+            : "confirmada; falta limpiar copia local";
+
+export function EfaCommunicationPanel({
+  episodeId,
+  episodeLabel,
+  currentUserId,
+  canWrite,
+  episodeCanEdit,
+  initialCallTarget,
+  onInitialCallSelected,
+}: {
+  episodeId: string;
+  episodeLabel: string;
+  currentUserId: string;
+  canWrite: boolean;
+  episodeCanEdit: boolean;
+  initialCallTarget?: { operationId: string; communicationId: string } | null;
+  onInitialCallSelected?: (operationId: string, communicationId: string) => void;
+}) {
+  const listForEpisode = useServerFn(listEfaCommunicationsForEpisode);
+  const listNotices = useServerFn(listEfaCommunicationNotices);
+  const markNoticeRead = useServerFn(markEfaCommunicationNoticeRead);
+  const createCall = useServerFn(createEfaCommunication);
+  const updateCall = useServerFn(updateEfaCommunication);
+  const finalizeCall = useServerFn(finalizeEfaCommunication);
+  const cancelCall = useServerFn(cancelEfaCommunication);
+  const reactivateCall = useServerFn(reactivateEfaCommunication);
+  const getHistory = useServerFn(getEfaCommunicationHistory);
+  const [calls, setCalls] = useState<EfaCommunicationView[]>([]);
+  const [notices, setNotices] = useState<CommunicationNotice[]>([]);
+  const [history, setHistory] = useState<CommunicationHistory[]>([]);
+  const [historyFor, setHistoryFor] = useState<string | null>(null);
+  const [selected, setSelected] = useState<EfaCommunicationView | null>(null);
+  const [direction, setDirection] = useState<Direction>("incoming");
+  const [directionReviewed, setDirectionReviewed] = useState(false);
+  const [priority, setPriority] = useState<Priority | "">("");
+  const [times, setTimes] = useState<FormTimes>({ startedAt: "", endedAt: "" });
+  const [timeReviewed, setTimeReviewed] = useState({ startedAt: false, endedAt: false });
+  const [step, setStep] = useState(0);
+  const [queueEntries, setQueueEntries] = useState<CommunicationQueueEntry[]>([]);
+  const [selectedOperationId, setSelectedOperationId] = useState("");
+  const [pendingEntry, setPendingEntry] = useState<CommunicationQueueEntry | null>(null);
+  const [conflictCurrent, setConflictCurrent] = useState<EfaCommunicationView | null>(null);
+  const [conflictOperationId, setConflictOperationId] = useState("");
+  const [queueReady, setQueueReady] = useState(false);
+  const [callsReady, setCallsReady] = useState(false);
+  const [queueError, setQueueError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [confirmingLifecycle, setConfirmingLifecycle] = useState<"cancel" | "reactivate" | null>(
+    null,
+  );
+  const [finalizeConfirmationTarget, setFinalizeConfirmationTarget] = useState<string | null>(null);
+  const [refreshWarning, setRefreshWarning] = useState("");
+  const [dirty, setDirty] = useState(false);
+  const activeRef = useRef(true);
+  const ownerRef = useRef(currentUserId);
+  const episodeRef = useRef(episodeId);
+  const canWriteRef = useRef(canWrite);
+  const busyRef = useRef(false);
+  const storeRef = useRef<CommunicationQueueStore | null>(null);
+  const callsRef = useRef(calls);
+  const queueEntriesRef = useRef(queueEntries);
+  const selectedOperationRef = useRef(selectedOperationId);
+  const selectedCallRef = useRef(selected);
+  const lifecycleOperationRef = useRef<{ key: string; operationId: string } | null>(null);
+  const historyRequestRef = useRef<string | null>(null);
+  const pendingRef = useRef(pendingEntry);
+  const dirtyRef = useRef(dirty);
+  const initialCallTargetRef = useRef(initialCallTarget ?? null);
+  const onInitialCallSelectedRef = useRef(onInitialCallSelected);
+  const initialSelectionRevisionRef = useRef(0);
+  const initialSelectionClaimedRef = useRef(false);
+  const consumedInitialCallsRef = useRef(new Set<string>());
+  const pendingInitialCallFocusRef = useRef<{
+    communicationId: string;
+    revision: number;
+  } | null>(null);
+  const initialCallHeadingRef = useRef<HTMLDivElement | null>(null);
+  const originalTimesRef = useRef<{ startedAt: string | null; endedAt: string | null }>({
+    startedAt: null,
+    endedAt: null,
+  });
+  const submissionGateRef = useRef(createCommunicationSubmissionGate());
+  queueEntriesRef.current = queueEntries;
+  selectedOperationRef.current = selectedOperationId;
+  selectedCallRef.current = selected;
+  callsRef.current = calls;
+  pendingRef.current = pendingEntry;
+  dirtyRef.current = dirty;
+  initialCallTargetRef.current = initialCallTarget ?? null;
+  onInitialCallSelectedRef.current = onInitialCallSelected;
+  ownerRef.current = currentUserId;
+  episodeRef.current = episodeId;
+  canWriteRef.current = canWrite;
+
+  const currentContext = () =>
+    activeRef.current && ownerRef.current === currentUserId && episodeRef.current === episodeId;
+
+  function noteCallEditorInteraction() {
+    initialSelectionRevisionRef.current += 1;
+    initialSelectionClaimedRef.current = true;
+    pendingInitialCallFocusRef.current = null;
+  }
+
+  function canApplyInitialCallSelection(
+    target: { operationId: string; communicationId: string },
+    expectedRevision: number,
+  ) {
+    return canSelectInitialCommunication({
+      targetOperationId: target.operationId,
+      activeTargetOperationId: initialCallTargetRef.current?.operationId ?? null,
+      targetCommunicationId: target.communicationId,
+      activeTargetCommunicationId: initialCallTargetRef.current?.communicationId ?? null,
+      selectedCommunicationId: selectedCallRef.current?.id ?? null,
+      selectedOperationId: selectedOperationRef.current,
+      dirty: dirtyRef.current,
+      hasPendingOperation: Boolean(pendingRef.current),
+      busy: busyRef.current,
+      selectionClaimed: initialSelectionClaimedRef.current,
+      currentRevision: initialSelectionRevisionRef.current,
+      expectedRevision,
+    });
+  }
+
+  async function reloadCalls() {
+    const [nextCalls, nextNotices] = await Promise.all([
+      listForEpisode({ data: episodeId }),
+      listNotices(),
+    ]);
+    if (!currentContext()) return;
+    setCalls(nextCalls as EfaCommunicationView[]);
+    callsRef.current = nextCalls as EfaCommunicationView[];
+    const refreshedSelected = (nextCalls as EfaCommunicationView[]).find(
+      (call) => call.id === selectedCallRef.current?.id,
+    );
+    if (refreshedSelected) {
+      if (selectedCallRef.current?.id === refreshedSelected.id) {
+        selectedCallRef.current = {
+          ...selectedCallRef.current,
+          canEdit: refreshedSelected.canEdit,
+        };
+      }
+      setSelected((current) =>
+        current?.id === refreshedSelected.id
+          ? { ...current, canEdit: refreshedSelected.canEdit }
+          : current,
+      );
+    }
+    const allowedIds = new Set((nextCalls as EfaCommunicationView[]).map((call) => call.id));
+    setNotices(
+      (nextNotices as CommunicationNotice[]).filter((notice) =>
+        allowedIds.has(notice.communicationId),
+      ),
+    );
+  }
+
+  async function restorePending(entry: CommunicationQueueEntry) {
+    setPendingEntry(entry);
+    pendingRef.current = entry;
+    setSelectedOperationId(entry.operationId);
+    selectedOperationRef.current = entry.operationId;
+    setConflictCurrent(null);
+    setConflictOperationId("");
+    const stillCurrent = () =>
+      currentContext() &&
+      selectedOperationRef.current === entry.operationId &&
+      pendingRef.current?.operationId === entry.operationId;
+    try {
+      const client = await loadCommunicationClient();
+      if (!stillCurrent()) return;
+      const payload = entry.payload as Record<string, unknown>;
+      let currentCall =
+        entry.kind === "create"
+          ? null
+          : (callsRef.current.find((call) => call.id === payload["communicationId"]) ?? null);
+      if (entry.kind === "finalize" && !currentCall) {
+        const latest = (await listForEpisode({ data: episodeId })) as EfaCommunicationView[];
+        if (!stillCurrent()) return;
+        callsRef.current = latest;
+        setCalls(latest);
+        currentCall = latest.find((call) => call.id === payload["communicationId"]) ?? null;
+      }
+      const restored = client.restoreCommunicationOperationForm(entry, currentCall);
+      if (!restored) {
+        setError(
+          "No se encontró la llamada actual; la operación se conserva sin restaurar el formulario.",
+        );
+        return;
+      }
+      setDirection(restored.direction);
+      setDirectionReviewed(true);
+      setPriority(restored.priority);
+      setTimes(restored.times);
+      setTimeReviewed({ startedAt: false, endedAt: false });
+      if (currentCall) {
+        originalTimesRef.current = {
+          startedAt: currentCall.startedAt,
+          endedAt: currentCall.endedAt,
+        };
+      }
+      setSelected(currentCall);
+      selectedCallRef.current = currentCall;
+    } catch {
+      if (stillCurrent())
+        setError("No se pudo cargar la llamada actual; la operación local se conserva.");
+      return;
+    }
+    setError(
+      entry.status === "paused-conflict"
+        ? "La llamada cambió en el servidor. Conserva esta operación y actualiza el historial antes de resolverla."
+        : entry.status === "paused-permission"
+          ? "La operación quedó pausada por permisos; no se reenviará automáticamente."
+          : entry.status === "paused-mismatch"
+            ? "El recibo no coincide con la operación guardada. Quedó pausada y no se reenviará."
+            : "",
+    );
+  }
+
+  async function dispatchEntry(entry: CommunicationQueueEntry) {
+    if (
+      !currentContext() ||
+      !storeRef.current ||
+      (!canWriteRef.current && entry.status !== "confirmed-cleanup-failed")
+    )
+      return;
+    const queue = await loadCommunicationQueue();
+    if (!currentContext()) return;
+    if (entry.kind !== "create" && entry.status !== "confirmed-cleanup-failed") {
+      try {
+        const latest = (await listForEpisode({ data: episodeId })) as EfaCommunicationView[];
+        if (!currentContext() || !canWriteRef.current) return;
+        callsRef.current = latest;
+        setCalls(latest);
+        const communicationId = (entry.payload as { communicationId: string }).communicationId;
+        if (!latest.some((call) => call.id === communicationId && call.canEdit)) {
+          if (selectedOperationRef.current === entry.operationId)
+            setError("La llamada actual no permite edición; no se envió la operación guardada.");
+          return;
+        }
+      } catch {
+        if (currentContext() && selectedOperationRef.current === entry.operationId)
+          setError("No se pudo confirmar el permiso actual; no se envió la operación guardada.");
+        return;
+      }
+    }
+    const send = async (stored: CommunicationQueueEntry) => {
+      if (stored.kind === "create")
+        return createCall({
+          data: stored.payload as {
+            clientCreationKey: string;
+            episodeId: string;
+            direction: Direction;
+            startedAt: string | null;
+            endedAt: string | null;
+            priority: Priority | null;
+          },
+        });
+      if (stored.kind === "update")
+        return updateCall({
+          data: stored.payload as {
+            communicationId: string;
+            expectedVersion: number;
+            operationId: string;
+            direction: Direction;
+            startedAt: string | null;
+            endedAt: string | null;
+            priority: Priority | null;
+          },
+        });
+      return finalizeCall({
+        data: stored.payload as {
+          communicationId: string;
+          expectedVersion: number;
+          operationId: string;
+          priority: Priority;
+        },
+      });
+    };
+    const result = await queue.dispatchStoredCommunicationOperation(
+      storeRef.current,
+      entry.ownerUserId,
+      entry.episodeId,
+      entry.operationId,
+      send,
+      () =>
+        currentContext() &&
+        canWriteRef.current &&
+        (entry.kind === "create" ||
+          entry.status === "confirmed-cleanup-failed" ||
+          callsRef.current.some(
+            (call) =>
+              call.id === (entry.payload as { communicationId: string }).communicationId &&
+              call.canEdit,
+          )) &&
+        entry.ownerUserId === currentUserId &&
+        entry.episodeId === episodeId,
+    );
+    if (!currentContext()) return;
+    try {
+      const nextEntries = await storeRef.current.list(currentUserId, episodeId);
+      if (!currentContext()) return;
+      queueEntriesRef.current = nextEntries;
+      setQueueEntries(nextEntries);
+      setQueueError("");
+    } catch {
+      if (currentContext()) setQueueError("No se pudo actualizar la lista local de operaciones.");
+    }
+    const ownsEditor = selectedOperationRef.current === entry.operationId;
+    if (result.status === "confirmed" || result.status === "confirmed-cleanup-failed") {
+      const saved = (result as { result: EfaCommunicationMutationResult }).result;
+      setCalls((current) => [
+        saved.communication,
+        ...current.filter((call) => call.id !== saved.communication.id),
+      ]);
+      callsRef.current = [
+        saved.communication,
+        ...callsRef.current.filter((call) => call.id !== saved.communication.id),
+      ];
+      if (ownsEditor) {
+        setSelected(saved.communication);
+        selectedCallRef.current = saved.communication;
+        const client = await loadCommunicationClient();
+        if (!currentContext() || selectedOperationRef.current !== entry.operationId) return;
+        const restored = client.communicationToFormTimes(saved.communication);
+        setTimes(restored);
+        originalTimesRef.current = {
+          startedAt: saved.communication.startedAt,
+          endedAt: saved.communication.endedAt,
+        };
+        setDirection(saved.communication.direction);
+        setPriority(saved.communication.priority ?? "");
+        setPendingEntry(null);
+        pendingRef.current = null;
+        setSelectedOperationId("");
+        selectedOperationRef.current = "";
+        setDirty(false);
+      }
+      if (ownsEditor) {
+        if (result.status === "confirmed-cleanup-failed") {
+          setMessage(
+            "El servidor confirmó la llamada; no se repetirá el envío. La copia local requiere limpieza.",
+          );
+        } else {
+          setMessage(
+            saved.communication.version === saved.operation.appliedVersion
+              ? `Guardado confirmado (versión ${saved.operation.appliedVersion}).`
+              : `Operación confirmada en versión ${saved.operation.appliedVersion}; versión actual ${saved.communication.version}.`,
+          );
+        }
+      }
+      try {
+        await reloadCalls();
+      } catch {
+        if (currentContext() && ownsEditor)
+          setRefreshWarning(
+            "El guardado quedó confirmado, pero no se pudo actualizar el historial.",
+          );
+      }
+    } else if (result.status === "cleaned") {
+      if (ownsEditor) {
+        try {
+          await reloadCalls();
+        } catch {
+          if (currentContext())
+            setRefreshWarning(
+              "La operación ya estaba confirmada, pero no se pudo actualizar el historial.",
+            );
+        }
+        if (!currentContext() || selectedOperationRef.current !== entry.operationId) return;
+        const payload = entry.payload as Record<string, unknown>;
+        const saved =
+          entry.kind === "create"
+            ? callsRef.current.find(
+                (call) => call.clientCreationKey === payload["clientCreationKey"],
+              )
+            : callsRef.current.find((call) => call.id === payload["communicationId"]);
+        if (saved) {
+          setSelected(saved);
+          selectedCallRef.current = saved;
+          const client = await loadCommunicationClient();
+          if (!currentContext() || selectedOperationRef.current !== entry.operationId) return;
+          setTimes(client.communicationToFormTimes(saved));
+          originalTimesRef.current = { startedAt: saved.startedAt, endedAt: saved.endedAt };
+          setDirection(saved.direction);
+          setPriority(saved.priority ?? "");
+        }
+        setPendingEntry(null);
+        pendingRef.current = null;
+        setSelectedOperationId("");
+        selectedOperationRef.current = "";
+        setDirty(false);
+        setError("");
+        setMessage("La llamada ya estaba confirmada; se limpió su copia local.");
+      }
+    } else if (result.status === "cancelled" && ownsEditor) {
+      setError("Cambió la cuenta, el episodio o el permiso; no se envió la operación.");
+    } else if (ownsEditor && "error" in result) {
+      setError(result.error);
+      setMessage("");
+    }
+  }
+
+  async function submitPayload(
+    kind: CommunicationQueueEntry["kind"],
+    payload: CommunicationQueueEntry["payload"],
+  ) {
+    if (
+      busyRef.current ||
+      !queueReady ||
+      !callsReady ||
+      !storeRef.current ||
+      !canWrite ||
+      pendingRef.current
+    )
+      return;
+    busyRef.current = true;
+    setBusy(true);
+    setError("");
+    setMessage("");
+    setRefreshWarning("");
+    const operationId =
+      kind === "create"
+        ? (payload as { clientCreationKey: string }).clientCreationKey
+        : (payload as { operationId: string }).operationId;
+    const entry: CommunicationQueueEntry = {
+      ownerUserId: currentUserId,
+      episodeId,
+      operationId,
+      kind,
+      payload: Object.freeze({ ...payload }),
+      status: "pending",
+      createdAt: new Date().toISOString(),
+    };
+    setPendingEntry(entry);
+    pendingRef.current = entry;
+    setSelectedOperationId(operationId);
+    selectedOperationRef.current = operationId;
+    try {
+      const queue = await loadCommunicationQueue();
+      if (!currentContext()) return;
+      const frozen = await queue.persistCommunicationOperation(storeRef.current, entry);
+      if (!currentContext()) return;
+      setQueueError("");
+      const nextEntries = await storeRef.current.list(currentUserId, episodeId);
+      if (!currentContext()) return;
+      queueEntriesRef.current = nextEntries;
+      setQueueEntries(nextEntries);
+      await dispatchEntry(frozen);
+    } catch {
+      if (currentContext())
+        setQueueError(
+          "No se pudo guardar la copia local. Conserva esta pantalla y reintenta la misma operación antes del envío.",
+        );
+    } finally {
+      if (currentContext()) {
+        busyRef.current = false;
+        setBusy(false);
+      }
+    }
+  }
+
+  async function retryQueueEntry(entry: CommunicationQueueEntry) {
+    if (busyRef.current || !storeRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      if (entry.status !== "confirmed-cleanup-failed") {
+        if (!canWriteRef.current) return;
+        const queue = await loadCommunicationQueue();
+        if (!currentContext()) return;
+        const frozen = await queue.persistCommunicationOperation(storeRef.current, entry);
+        if (!currentContext()) return;
+        setQueueError("");
+        const entries = await storeRef.current.list(currentUserId, episodeId);
+        if (!currentContext()) return;
+        queueEntriesRef.current = entries;
+        setQueueEntries(entries);
+        await dispatchEntry(frozen);
+      } else {
+        await dispatchEntry(entry);
+      }
+    } catch {
+      if (currentContext())
+        setQueueError("No se pudo guardar o reintentar la misma operación local.");
+    } finally {
+      if (currentContext()) {
+        busyRef.current = false;
+        setBusy(false);
+      }
+    }
+  }
+
+  async function loadCurrentConflictVersion(entry: CommunicationQueueEntry) {
+    const payload = entry.payload as Record<string, unknown>;
+    const communicationId = payload["communicationId"];
+    if (
+      entry.status !== "paused-conflict" ||
+      typeof communicationId !== "string" ||
+      !currentContext() ||
+      selectedOperationRef.current !== entry.operationId
+    )
+      return;
+    const ticket = {
+      owner: currentUserId,
+      episode: episodeId,
+      operation: entry.operationId,
+      communication: communicationId,
+    };
+    const stillSelected = () =>
+      currentContext() &&
+      ownerRef.current === ticket.owner &&
+      episodeRef.current === ticket.episode &&
+      selectedOperationRef.current === ticket.operation &&
+      pendingRef.current?.operationId === ticket.operation;
+    setBusy(true);
+    busyRef.current = true;
+    setError("");
+    try {
+      const client = await loadCommunicationClient();
+      if (!stillSelected()) return;
+      const outcome = await client.loadCurrentConflictVersion(
+        async () => (await listForEpisode({ data: ticket.episode })) as EfaCommunicationView[],
+        ticket.communication,
+        stillSelected,
+      );
+      if (!stillSelected() || outcome.status === "cancelled") return;
+      if (outcome.status !== "loaded") {
+        setError("No se encontró la llamada actual; la operación local se conserva.");
+        return;
+      }
+      const found = outcome.communication;
+      const latest = outcome.rows;
+      callsRef.current = latest;
+      setCalls(latest);
+      setConflictCurrent(found);
+      setConflictOperationId(ticket.operation);
+    } catch {
+      if (stillSelected())
+        setError("No se pudo cargar la versión actual; se conservó el borrador local.");
+    } finally {
+      if (stillSelected()) {
+        busyRef.current = false;
+        setBusy(false);
+      }
+    }
+  }
+
+  async function resolveConflict(
+    entry: CommunicationQueueEntry,
+    choice: "keep-local" | "use-server",
+  ) {
+    const payload = entry.payload as Record<string, unknown>;
+    const communicationId = payload["communicationId"];
+    const latest = conflictCurrent;
+    const ticket = { owner: currentUserId, episode: episodeId, operation: entry.operationId };
+    const isCurrentTicket = () =>
+      currentContext() &&
+      ownerRef.current === ticket.owner &&
+      episodeRef.current === ticket.episode &&
+      selectedOperationRef.current === ticket.operation &&
+      pendingRef.current?.operationId === ticket.operation &&
+      conflictOperationId === ticket.operation &&
+      latest?.id === communicationId;
+    if (entry.status !== "paused-conflict" || !latest || !isCurrentTicket() || !storeRef.current)
+      return;
+    setBusy(true);
+    busyRef.current = true;
+    try {
+      const client = await loadCommunicationClient();
+      if (!isCurrentTicket()) return;
+      const queue = await loadCommunicationQueue();
+      if (!isCurrentTicket()) return;
+      const removed = await queue.removeSelectedCommunicationConflict(
+        storeRef.current,
+        entry,
+        isCurrentTicket,
+      );
+      if (!removed) return;
+      if (!isCurrentTicket()) return;
+      const entries = queueEntriesRef.current.filter(
+        (queued) => queued.operationId !== ticket.operation,
+      );
+      queueEntriesRef.current = entries;
+      setQueueEntries(entries);
+      setPendingEntry(null);
+      pendingRef.current = null;
+      setSelectedOperationId("");
+      selectedOperationRef.current = "";
+      setConflictCurrent(null);
+      setConflictOperationId("");
+      setSelected(latest);
+      selectedCallRef.current = latest;
+      if (choice === "use-server") {
+        setTimes(client.communicationToFormTimes(latest));
+        setTimeReviewed({ startedAt: false, endedAt: false });
+        originalTimesRef.current = { startedAt: latest.startedAt, endedAt: latest.endedAt };
+        setDirection(latest.direction);
+        setDirectionReviewed(false);
+        setPriority(latest.priority ?? "");
+        setDirty(false);
+      } else if (entry.kind === "finalize") {
+        setTimes(client.communicationToFormTimes(latest));
+        setTimeReviewed({ startedAt: false, endedAt: false });
+        originalTimesRef.current = { startedAt: latest.startedAt, endedAt: latest.endedAt };
+        setDirection(latest.direction);
+        setDirectionReviewed(false);
+        setPriority((entry.payload as { priority: Priority }).priority);
+        setDirty(true);
+      } else {
+        originalTimesRef.current = { startedAt: latest.startedAt, endedAt: latest.endedAt };
+        setDirty(true);
+      }
+      setError("");
+      setMessage(
+        choice === "use-server"
+          ? "Se descartó la operación conflictiva y se cargó la versión actual."
+          : "Se descartó la operación conflictiva; tus datos quedan en el formulario para una nueva revisión.",
+      );
+      busyRef.current = false;
+      setBusy(false);
+    } catch {
+      if (isCurrentTicket())
+        setError("No se pudo resolver la operación local; se conservó el borrador.");
+    } finally {
+      if (isCurrentTicket()) {
+        busyRef.current = false;
+        setBusy(false);
+      }
+    }
+  }
+
+  async function saveCurrent() {
+    if (
+      !canWrite ||
+      (selected
+        ? !canEditCommunication(canWrite, selected)
+        : !canCreateCommunication(canWrite, episodeCanEdit)) ||
+      !callsReady ||
+      (dirty === false && selected) ||
+      pendingRef.current
+    )
+      return;
+    const release = submissionGateRef.current.acquire();
+    if (!release) return;
+    try {
+      const client = await loadCommunicationClient();
+      if (!currentContext()) return;
+      const payloadTimes = client.communicationFormToPayloadTimes(times, originalTimesRef.current);
+      if (selected) {
+        await submitPayload("update", {
+          communicationId: selected.id,
+          expectedVersion: selected.version,
+          operationId: crypto.randomUUID(),
+          direction,
+          ...payloadTimes,
+          priority: priority || null,
+        });
+      } else {
+        const clientCreationKey = crypto.randomUUID();
+        await submitPayload("create", {
+          clientCreationKey,
+          episodeId,
+          direction,
+          ...payloadTimes,
+          priority: priority || null,
+        });
+      }
+    } finally {
+      release();
+    }
+  }
+
+  async function finalizeCurrent(confirmedTargetKey: string) {
+    const currentTargetKey = selected
+      ? `${currentUserId}:${episodeId}:${selected.id}:${selected.version}`
+      : null;
+    if (
+      !isActionConfirmationCurrent(confirmedTargetKey, currentTargetKey) ||
+      !canWrite ||
+      !currentContext() ||
+      step !== 4 ||
+      !callsReady ||
+      !selected ||
+      selectedCallRef.current?.id !== selected.id ||
+      selectedCallRef.current?.version !== selected.version ||
+      !canEditCommunication(canWrite, selected) ||
+      dirty ||
+      pendingRef.current ||
+      busyRef.current ||
+      selected.state !== "draft" ||
+      !priority
+    )
+      return;
+    const release = submissionGateRef.current.acquire();
+    if (!release) return;
+    try {
+      await submitPayload("finalize", {
+        communicationId: selected.id,
+        expectedVersion: selected.version,
+        operationId: crypto.randomUUID(),
+        priority,
+      });
+    } finally {
+      release();
+    }
+  }
+
+  async function confirmLifecycleTransition() {
+    if (
+      !confirmingLifecycle ||
+      !selected ||
+      !canWrite ||
+      !callsReady ||
+      !(selected.canManageLifecycle ?? selected.canEdit) ||
+      dirty ||
+      pendingRef.current ||
+      busyRef.current
+    )
+      return;
+    const action = confirmingLifecycle;
+    busyRef.current = true;
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const client = await loadCommunicationClient();
+      if (!currentContext()) return;
+      const operation = client.reuseCommunicationLifecycleOperation(
+        lifecycleOperationRef.current,
+        action,
+        selected.id,
+        selected.version,
+        () => crypto.randomUUID(),
+      );
+      lifecycleOperationRef.current = operation;
+      const result =
+        action === "cancel"
+          ? await cancelCall({
+              data: {
+                communicationId: selected.id,
+                expectedVersion: selected.version,
+                operationId: operation.operationId,
+              },
+            })
+          : await reactivateCall({
+              data: {
+                communicationId: selected.id,
+                expectedVersion: selected.version,
+                operationId: operation.operationId,
+              },
+            });
+      if (!currentContext()) return;
+      const updated = (result as EfaCommunicationMutationResult).communication;
+      callsRef.current = [updated, ...callsRef.current.filter((call) => call.id !== updated.id)];
+      setCalls(callsRef.current);
+      selectedCallRef.current = updated;
+      setSelected(updated);
+      setConfirmingLifecycle(null);
+      lifecycleOperationRef.current = null;
+      setMessage(
+        action === "cancel"
+          ? "La llamada quedó anulada; su historial se conserva."
+          : "La llamada se reactivó con su estado anterior.",
+      );
+      await reloadCalls();
+    } catch {
+      if (currentContext()) {
+        setError(
+          "No se pudo confirmar el cambio. Reintentá la misma acción para consultar el resultado sin duplicarlo.",
+        );
+        setMessage("");
+      }
+    } finally {
+      if (currentContext()) {
+        busyRef.current = false;
+        setBusy(false);
+      }
+    }
+  }
+
+  async function selectCall(call: EfaCommunicationView) {
+    if (pendingRef.current || busyRef.current) return;
+    noteCallEditorInteraction();
+    const client = await loadCommunicationClient();
+    if (!currentContext()) return;
+    setSelected(call);
+    selectedCallRef.current = call;
+    setConfirmingLifecycle(null);
+    setDirection(call.direction);
+    setDirectionReviewed(false);
+    setPriority(call.priority ?? "");
+    const nextTimes = client.communicationToFormTimes(call);
+    setTimes(nextTimes);
+    setTimeReviewed({ startedAt: false, endedAt: false });
+    originalTimesRef.current = { startedAt: call.startedAt, endedAt: call.endedAt };
+    setDirty(false);
+    setStep(0);
+    setMessage("");
+    setError("");
+  }
+
+  async function startNew() {
+    if (
+      !canCreateCommunication(canWrite, episodeCanEdit) ||
+      !callsReady ||
+      pendingRef.current ||
+      busyRef.current
+    )
+      return;
+    noteCallEditorInteraction();
+    setSelected(null);
+    selectedCallRef.current = null;
+    setDirection("incoming");
+    setDirectionReviewed(false);
+    setPriority("");
+    setTimes({ startedAt: "", endedAt: "" });
+    setTimeReviewed({ startedAt: false, endedAt: false });
+    originalTimesRef.current = { startedAt: null, endedAt: null };
+    setDirty(true);
+    setStep(0);
+    setError("");
+    setMessage("");
+  }
+
+  async function captureTime(field: keyof FormTimes) {
+    noteCallEditorInteraction();
+    const clickedAt = new Date();
+    const client = await loadCommunicationClient();
+    if (!currentContext()) return;
+    const value = client.captureCommunicationTime(clickedAt);
+    setTimes((current) => ({ ...current, [field]: value }));
+    setTimeReviewed((current) => ({ ...current, [field]: true }));
+    dirtyRef.current = true;
+    setDirty(true);
+  }
+
+  async function showHistory(call: EfaCommunicationView) {
+    const callId = call.id;
+    historyRequestRef.current = callId;
+    try {
+      const rows = (await getHistory({ data: callId })) as CommunicationHistory[];
+      if (!currentContext() || historyRequestRef.current !== callId) return;
+      setHistory(rows);
+      setHistoryFor(callId);
+    } catch {
+      if (currentContext() && historyRequestRef.current === callId)
+        setError("No se pudo cargar el historial de la llamada.");
+    }
+  }
+
+  async function acknowledgeNotice(noticeId: string) {
+    try {
+      const updated = (await markNoticeRead({ data: noticeId })) as CommunicationNotice;
+      if (!currentContext()) return;
+      setNotices((current) =>
+        current.map((notice) => (notice.id === updated.id ? updated : notice)),
+      );
+    } catch {
+      if (currentContext()) setError("No se pudo marcar el aviso como leído.");
+    }
+  }
+
+  useEffect(() => {
+    activeRef.current = true;
+    let active = true;
+    void (async () => {
+      let entries: CommunicationQueueEntry[] = [];
+      try {
+        const queue = await loadCommunicationQueue();
+        if (!active) return;
+        const store = queue.createIndexedDbCommunicationQueueStore();
+        storeRef.current = store;
+        entries = await store.list(currentUserId, episodeId);
+        if (!active || !currentContext()) return;
+        queueEntriesRef.current = entries;
+        setQueueEntries(entries);
+      } catch {
+        if (active && currentContext()) {
+          setQueueError(
+            "El almacenamiento local no está disponible; no se enviarán llamadas sin persistir primero la operación.",
+          );
+        }
+      }
+      if (!active || !currentContext()) return;
+      setQueueReady(true);
+      try {
+        const [nextCalls, nextNotices] = await Promise.all([
+          listForEpisode({ data: episodeId }),
+          listNotices(),
+        ]);
+        if (!active || !currentContext()) return;
+        setCalls(nextCalls as EfaCommunicationView[]);
+        callsRef.current = nextCalls as EfaCommunicationView[];
+        const ids = new Set((nextCalls as EfaCommunicationView[]).map((call) => call.id));
+        setNotices(
+          (nextNotices as CommunicationNotice[]).filter((notice) =>
+            ids.has(notice.communicationId),
+          ),
+        );
+        setCallsReady(true);
+        if (entries.length === 1) await restorePending(entries[0]!);
+      } catch {
+        if (active && currentContext())
+          setError("No se pudo cargar el historial de llamadas del episodio.");
+      }
+    })();
+    const onOnline = () => {
+      if (!active || !currentContext() || !canWriteRef.current || !storeRef.current) return;
+      const attemptOnce = async () => {
+        try {
+          const entries = await storeRef.current?.list(currentUserId, episodeId);
+          if (!active || !currentContext()) return;
+          const eligible = (entries ?? []).filter(
+            (entry) => entry.status === "pending" || entry.status === "uncertain",
+          );
+          for (const entry of eligible) {
+            if (!active || !currentContext()) return;
+            if (busyRef.current) return;
+            busyRef.current = true;
+            setBusy(true);
+            try {
+              await dispatchEntry(entry);
+            } finally {
+              if (active && currentContext()) {
+                busyRef.current = false;
+                setBusy(false);
+              }
+            }
+          }
+        } catch {
+          if (active && currentContext())
+            setQueueError("No se pudo revisar la cola local al recuperar la conexión.");
+        }
+      };
+      void attemptOnce();
+    };
+    window.addEventListener("online", onOnline);
+    return () => {
+      active = false;
+      activeRef.current = false;
+      window.removeEventListener("online", onOnline);
+    };
+    // The component is keyed by account/episode; its async callbacks use refs for all changing state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUserId, episodeId]);
+
+  useEffect(() => {
+    const target = initialCallTarget;
+    if (!target || !callsReady || !currentContext()) return;
+    const targetKey = `${target.operationId}:${target.communicationId}`;
+    if (consumedInitialCallsRef.current.has(targetKey)) return;
+    const expectedRevision = initialSelectionRevisionRef.current;
+    if (!canApplyInitialCallSelection(target, expectedRevision)) return;
+
+    void (async () => {
+      try {
+        const freshCalls = (await listForEpisode({ data: episodeId })) as EfaCommunicationView[];
+        if (!currentContext() || !canApplyInitialCallSelection(target, expectedRevision)) return;
+        callsRef.current = freshCalls;
+        setCalls(freshCalls);
+        const initialCall = freshCalls.find((call) => call.id === target.communicationId);
+        if (!initialCall) return;
+        const client = await loadCommunicationClient();
+        if (
+          !currentContext() ||
+          !canApplyInitialCallSelection(target, expectedRevision) ||
+          !callsRef.current.some((call) => call.id === target.communicationId)
+        )
+          return;
+        const currentCall = callsRef.current.find((call) => call.id === target.communicationId);
+        if (!currentCall) return;
+        consumedInitialCallsRef.current.add(targetKey);
+        initialSelectionClaimedRef.current = true;
+        pendingInitialCallFocusRef.current = {
+          communicationId: currentCall.id,
+          revision: expectedRevision,
+        };
+        setSelected(currentCall);
+        selectedCallRef.current = currentCall;
+        setConfirmingLifecycle(null);
+        setDirection(currentCall.direction);
+        setPriority(currentCall.priority ?? "");
+        const nextTimes = client.communicationToFormTimes(currentCall);
+        setTimes(nextTimes);
+        originalTimesRef.current = {
+          startedAt: currentCall.startedAt,
+          endedAt: currentCall.endedAt,
+        };
+        setDirty(false);
+        dirtyRef.current = false;
+        setStep(0);
+        setMessage("");
+        setError("");
+        onInitialCallSelectedRef.current?.(target.operationId, target.communicationId);
+      } catch {
+        if (currentContext() && canApplyInitialCallSelection(target, expectedRevision)) {
+          setError(
+            "No se pudo abrir la llamada registrada. El servicio y la llamada siguen guardados.",
+          );
+        }
+      }
+    })();
+  }, [callsReady, initialCallTarget?.operationId, initialCallTarget?.communicationId]);
+
+  useEffect(() => {
+    const pendingFocus = pendingInitialCallFocusRef.current;
+    if (!pendingFocus) return;
+    if (
+      !currentContext() ||
+      !canFocusInitialCallHeading({
+        hasPendingFocus: true,
+        selectionClaimed: initialSelectionClaimedRef.current,
+        selectedCommunicationId: selectedCallRef.current?.id ?? null,
+        targetCommunicationId: pendingFocus.communicationId,
+        currentRevision: initialSelectionRevisionRef.current,
+        expectedRevision: pendingFocus.revision,
+      })
+    ) {
+      pendingInitialCallFocusRef.current = null;
+      return;
+    }
+    const heading = initialCallHeadingRef.current;
+    if (!heading) {
+      pendingInitialCallFocusRef.current = null;
+      return;
+    }
+    pendingInitialCallFocusRef.current = null;
+    heading.scrollIntoView({ block: "start" });
+    heading.focus({ preventScroll: true });
+  }, [selected?.id]);
+
+  const canCreateCall =
+    canCreateCommunication(canWrite, episodeCanEdit) &&
+    queueReady &&
+    callsReady &&
+    Boolean(storeRef.current) &&
+    !pendingEntry &&
+    !busy;
+  const canEditSelected = Boolean(selected && canEditCommunication(canWrite, selected));
+  const resolvedSteps = communicationStepResolution({
+    directionPresent: Boolean(selected?.direction),
+    directionReviewed,
+    startedAt: times.startedAt,
+    startedAtReviewed: timeReviewed.startedAt,
+    endedAt: times.endedAt,
+    endedAtReviewed: timeReviewed.endedAt,
+    priority,
+    finalized: selected?.state === "finalized",
+  });
+  const saveStatus =
+    busy && pendingEntry
+      ? "Guardando…"
+      : pendingEntry
+        ? "Pendiente"
+        : dirty
+          ? "Cambios sin guardar"
+          : selected
+            ? "Guardado"
+            : "Sin guardar";
+  const pendingCreateRecovery =
+    canWrite && episodeCanEdit && Boolean(queueError) && pendingEntry?.kind === "create";
+  const selectedQueued =
+    queueEntries.find((entry) => entry.operationId === selectedOperationId) ?? null;
+  const formatState = (state: CommunicationHistory["afterState"]) => {
+    const details = state as Record<string, unknown>;
+    const directionText = details["direction"] === "incoming" ? "Entrante" : "Saliente";
+    const startText =
+      typeof details["startedAt"] === "string"
+        ? nowBue(details["startedAt"] as string)
+        : "sin inicio observado";
+    const endText =
+      typeof details["endedAt"] === "string"
+        ? nowBue(details["endedAt"] as string)
+        : "sin fin observado";
+    return `${directionText}; inicio: ${startText}; fin: ${endText}; prioridad: ${priorityLabel((details["priority"] as Priority | null) ?? null)}; estado: ${details["state"] === "finalized" ? "finalizada" : "borrador"}`;
+  };
+
+  return (
+    <div className="space-y-3" aria-label={`Llamadas de ${episodeLabel}`}>
+      <Card className="min-w-0 border-0 bg-transparent p-0 shadow-none">
+        <CardHeader className="space-y-2 p-0 pb-1">
+          <CardTitle>Llamadas</CardTitle>
+          <details className="text-sm text-muted-foreground">
+            <summary className="min-h-11 cursor-pointer py-2 font-medium">
+              Guardado y privacidad
+            </summary>
+            <p>
+              Las llamadas enviadas quedan en este dispositivo. Los campos sin enviar no son un
+              respaldo; la cola temporal contiene datos privados del episodio.
+            </p>
+          </details>
+          {!canWrite && (
+            <p className="rounded-md border p-3 text-sm">
+              Solo lectura: tu acceso vigente no permite editar llamadas.
+            </p>
+          )}
+        </CardHeader>
+        <CardContent className="min-w-0 space-y-3 p-0">
+          {queueError && (
+            <p role="alert" className="rounded-md border p-3 text-sm">
+              {queueError}
+            </p>
+          )}
+          {!queueReady && (
+            <p className="text-sm text-muted-foreground">Preparando almacenamiento local…</p>
+          )}
+          {queueEntries.length > 0 && (
+            <div className="space-y-2">
+              <Label htmlFor={`communication-pending-${episodeId}`}>
+                Operaciones locales pendientes
+              </Label>
+              <select
+                id={`communication-pending-${episodeId}`}
+                className="min-h-11 w-full min-w-0 max-w-full rounded-md border bg-background px-3"
+                value={selectedOperationId}
+                disabled={busy}
+                onChange={(event) => {
+                  noteCallEditorInteraction();
+                  const entry = queueEntries.find(
+                    (candidate) => candidate.operationId === event.target.value,
+                  );
+                  if (entry) void restorePending(entry);
+                }}
+              >
+                <option value="">Selecciona una operación</option>
+                {queueEntries.map((entry) => (
+                  <option key={entry.operationId} value={entry.operationId}>
+                    {entry.kind === "create"
+                      ? "Nueva llamada"
+                      : entry.kind === "update"
+                        ? "Corrección"
+                        : "Finalización"}{" "}
+                    · {queueStatusLabel(entry.status)}
+                  </option>
+                ))}
+              </select>
+              {selectedQueued &&
+                selectedQueued.status !== "paused-conflict" &&
+                selectedQueued.status !== "paused-permission" &&
+                selectedQueued.status !== "paused-mismatch" && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="min-h-11 w-full"
+                    disabled={
+                      busy || (!canWrite && selectedQueued.status !== "confirmed-cleanup-failed")
+                    }
+                    onClick={() => void retryQueueEntry(selectedQueued)}
+                  >
+                    {selectedQueued.status === "confirmed-cleanup-failed"
+                      ? "Reintentar limpieza local"
+                      : "Reintentar la misma llamada"}
+                  </Button>
+                )}
+              {selectedQueued?.status === "paused-conflict" && (
+                <div className="space-y-2 rounded-md border p-3">
+                  <p className="text-sm">
+                    El servidor rechazó esta versión por conflicto; la operación no se aplicó. Carga
+                    la versión actual para elegir cómo resolver solo esta operación.
+                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="min-h-11 w-full"
+                    disabled={busy}
+                    onClick={() => void loadCurrentConflictVersion(selectedQueued)}
+                  >
+                    Cargar versión actual
+                  </Button>
+                  {conflictCurrent && conflictOperationId === selectedQueued.operationId && (
+                    <div className="space-y-2 text-sm">
+                      <p>Versión actual del servidor: {conflictCurrent.version}.</p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="min-h-11 w-full"
+                        disabled={busy}
+                        onClick={() => void resolveConflict(selectedQueued, "use-server")}
+                      >
+                        Usar versión del servidor y descartar esta operación
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="min-h-11 w-full"
+                        disabled={busy}
+                        onClick={() => void resolveConflict(selectedQueued, "keep-local")}
+                      >
+                        Conservar mis datos y descartar esta operación
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+          {calls.length > 0 ? (
+            <ul className="space-y-2" aria-label="Llamadas registradas">
+              {calls.map((call) => (
+                <li key={call.id} className="rounded-lg border p-3">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="font-medium">
+                      {directionLabel(call.direction)} · {communicationStateLabel(call.state)} ·{" "}
+                      {priorityLabel(call.priority)}
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="min-h-11"
+                        disabled={busy || Boolean(pendingEntry)}
+                        onClick={() => void selectCall(call)}
+                      >
+                        {canWrite && call.canEdit ? "Ver / editar" : "Ver llamada"}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="min-h-11"
+                        disabled={busy}
+                        onClick={() => void showHistory(call)}
+                      >
+                        Historial
+                      </Button>
+                    </div>
+                  </div>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    Inicio real: {call.startedAt ? nowBue(call.startedAt) : "sin registrar"} · fin
+                    real: {call.endedAt ? nowBue(call.endedAt) : "sin registrar"}
+                  </p>
+                  {historyFor === call.id && (
+                    <ol className="mt-3 space-y-3 border-l pl-4" aria-label="Historial de cambios">
+                      {history.map((audit) => (
+                        <li key={audit.id}>
+                          <p className="text-sm font-medium">
+                            {audit.action === "created"
+                              ? "Llamada registrada"
+                              : audit.action === "updated"
+                                ? "Datos corregidos"
+                                : "Llamada finalizada"}{" "}
+                            · versión {audit.versionBefore ?? "—"} → {audit.versionAfter} ·{" "}
+                            {nowBue(audit.occurredAt)}
+                          </p>
+                          {audit.beforeState && (
+                            <p className="text-xs text-muted-foreground">
+                              Antes: {formatState(audit.beforeState)}
+                            </p>
+                          )}
+                          <p className="text-xs text-muted-foreground">
+                            Después: {formatState(audit.afterState)}
+                          </p>
+                        </li>
+                      ))}
+                    </ol>
+                  )}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Todavía no hay llamadas en este episodio.
+            </p>
+          )}
+          {notices.map((notice) =>
+            notice.readAt ? null : (
+              <div key={notice.id} className="rounded-md border p-3 text-sm">
+                Una persona administradora corrigió una llamada de este episodio.
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="ml-2 min-h-11"
+                  onClick={() => void acknowledgeNotice(notice.id)}
+                >
+                  Marcar aviso como leído
+                </Button>
+              </div>
+            ),
+          )}
+          {canWrite && (
+            <Button
+              type="button"
+              className="min-h-11 w-full sm:w-auto"
+              disabled={!canCreateCall}
+              onClick={() => void startNew()}
+            >
+              Nueva llamada
+            </Button>
+          )}
+        </CardContent>
+      </Card>
+
+      {shouldShowCommunicationEditor({
+        hasSelectedCall: Boolean(selected),
+        canEditSelected,
+        dirty,
+        canCreateCall,
+        pendingCreateRecovery,
+      }) && (
+        <Card className="min-w-0 border-0 bg-transparent p-0 shadow-none">
+          <CardHeader className="p-0 pb-1">
+            <CardTitle
+              ref={initialCallHeadingRef}
+              role="heading"
+              aria-level={3}
+              tabIndex={-1}
+              className="focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+            >
+              {selected
+                ? selected.state === "cancelled"
+                  ? `Ver llamada anulada · versión ${selected.version}`
+                  : `Editar llamada · versión ${selected.version}`
+                : "Nueva llamada"}
+            </CardTitle>
+            <p className="text-sm text-muted-foreground" aria-live="polite">
+              Estado del guardado: <span className="font-medium text-foreground">{saveStatus}</span>
+            </p>
+          </CardHeader>
+          <CardContent className="min-w-0 space-y-3 p-0">
+            <EfaCommunicationStepper
+              step={step}
+              resolvedSteps={resolvedSteps}
+              onStepChange={(nextStep) => {
+                noteCallEditorInteraction();
+                setStep(nextStep);
+              }}
+            >
+              {step === 0 && (
+                <fieldset className="space-y-3">
+                  <legend className="text-sm font-medium">
+                    Selecciona el sentido de la llamada
+                  </legend>
+                  {(["incoming", "outgoing"] as const).map((value) => (
+                    <label
+                      key={value}
+                      className="flex min-h-11 min-w-0 items-center gap-3 border-b py-2"
+                      onClick={() => {
+                        if (!selected) setDirectionReviewed(true);
+                      }}
+                    >
+                      <input
+                        type="radio"
+                        name={`communication-direction-${episodeId}`}
+                        checked={direction === value}
+                        disabled={
+                          !(selected ? canEditSelected : canCreateCall) ||
+                          Boolean(pendingEntry) ||
+                          busy
+                        }
+                        onChange={() => {
+                          noteCallEditorInteraction();
+                          setDirection(value);
+                          setDirectionReviewed(true);
+                          dirtyRef.current = true;
+                          setDirty(true);
+                        }}
+                      />
+                      <span className="min-w-0">{directionLabel(value)}</span>
+                    </label>
+                  ))}
+                </fieldset>
+              )}
+              {(step === 1 || step === 2) && (
+                <div className="space-y-3">
+                  <p className="text-sm text-muted-foreground">
+                    Hora opcional. Ahora la completa localmente; el campo manual usa la hora local.
+                  </p>
+                  <Label htmlFor={`communication-time-${episodeId}-${step}`}>
+                    {step === 1 ? "Inicio real (opcional)" : "Fin real (opcional)"}
+                  </Label>
+                  <div className="grid min-w-0 grid-cols-1 gap-2 min-[360px]:grid-cols-[minmax(0,1fr)_auto]">
+                    <Input
+                      id={`communication-time-${episodeId}-${step}`}
+                      className="h-11 min-w-0 w-full"
+                      type="datetime-local"
+                      step="0.001"
+                      value={step === 1 ? times.startedAt : times.endedAt}
+                      disabled={
+                        !(selected ? canEditSelected : canCreateCall) ||
+                        Boolean(pendingEntry) ||
+                        busy
+                      }
+                      onChange={(event) => {
+                        const field = step === 1 ? "startedAt" : "endedAt";
+                        noteCallEditorInteraction();
+                        setTimes((current) => ({ ...current, [field]: event.target.value }));
+                        dirtyRef.current = true;
+                        setDirty(true);
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="min-h-11 w-full min-[360px]:w-auto"
+                      disabled={
+                        !(selected ? canEditSelected : canCreateCall) ||
+                        Boolean(pendingEntry) ||
+                        busy
+                      }
+                      onClick={() => void captureTime(step === 1 ? "startedAt" : "endedAt")}
+                    >
+                      Ahora
+                    </Button>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="min-h-11 px-2"
+                    disabled={
+                      !(selected ? canEditSelected : canCreateCall) || Boolean(pendingEntry) || busy
+                    }
+                    onClick={() => {
+                      const field = step === 1 ? "startedAt" : "endedAt";
+                      noteCallEditorInteraction();
+                      setTimes((current) => ({ ...current, [field]: "" }));
+                      setTimeReviewed((current) => ({ ...current, [field]: true }));
+                      dirtyRef.current = true;
+                      setDirty(true);
+                    }}
+                  >
+                    Dejar sin hora
+                  </Button>
+                </div>
+              )}
+              {step === 3 && (
+                <fieldset className="space-y-3">
+                  <legend className="text-sm font-medium">
+                    Prioridad observada (opcional para borrador)
+                  </legend>
+                  {[
+                    { value: "red", label: "Roja" },
+                    { value: "yellow", label: "Amarilla" },
+                    { value: "green", label: "Verde" },
+                  ].map(({ value, label }) => (
+                    <label
+                      key={value}
+                      className="flex min-h-11 min-w-0 items-center gap-3 border-b py-2"
+                    >
+                      <input
+                        type="radio"
+                        name={`communication-priority-${episodeId}`}
+                        checked={priority === value}
+                        disabled={
+                          !(selected ? canEditSelected : canCreateCall) ||
+                          Boolean(pendingEntry) ||
+                          busy
+                        }
+                        onChange={() => {
+                          noteCallEditorInteraction();
+                          setPriority(value as Priority);
+                          dirtyRef.current = true;
+                          setDirty(true);
+                        }}
+                      />
+                      <span className="min-w-0">{label}</span>
+                    </label>
+                  ))}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="min-h-11 w-full"
+                    disabled={
+                      !(selected ? canEditSelected : canCreateCall) || Boolean(pendingEntry) || busy
+                    }
+                    onClick={() => {
+                      noteCallEditorInteraction();
+                      setPriority("");
+                      dirtyRef.current = true;
+                      setDirty(true);
+                    }}
+                  >
+                    Sin prioridad observada
+                  </Button>
+                </fieldset>
+              )}
+              {step === 4 && (
+                <div className="min-w-0 space-y-3 rounded-md border p-3">
+                  <h3 className="font-medium">Revisa los datos de la llamada</h3>
+                  <p>Dirección: {directionLabel(direction)}</p>
+                  <p>Inicio real: {times.startedAt || "Sin registrar"}</p>
+                  <p>Fin real: {times.endedAt || "Sin registrar"}</p>
+                  <p>Prioridad: {priorityLabel(priority || null)}</p>
+                  {selected?.state === "finalized" && (
+                    <p>La llamada conservará su estado finalizada al guardar correcciones.</p>
+                  )}
+                  {selected?.state === "cancelled" && (
+                    <p>La llamada anulada no se puede finalizar hasta su reactivación.</p>
+                  )}
+                  {selected?.state === "draft" && (
+                    <div className="space-y-2 rounded-md bg-muted/50 p-3">
+                      <p className="text-sm font-medium">Requisitos para finalizar</p>
+                      {!priority && (
+                        <p className="text-sm">
+                          Falta elegir una prioridad.{" "}
+                          <button
+                            type="button"
+                            className="min-h-11 font-medium text-primary underline underline-offset-2"
+                            onClick={() => {
+                              noteCallEditorInteraction();
+                              setStep(3);
+                            }}
+                          >
+                            Ir a Prioridad
+                          </button>
+                        </p>
+                      )}
+                      {dirty && (
+                        <p className="text-sm">
+                          Hay cambios sin guardar; guarda la llamada antes de finalizar.
+                        </p>
+                      )}
+                      {pendingEntry && (
+                        <p className="text-sm">
+                          Hay una operación pendiente; resuélvela antes de finalizar.
+                        </p>
+                      )}
+                      {busy && <p className="text-sm">Hay otra operación en curso.</p>}
+                      {(!queueReady || !callsReady) && (
+                        <p className="text-sm">
+                          Espera a que termine la preparación de la llamada.
+                        </p>
+                      )}
+                      {(!canWrite || !canEditSelected) && (
+                        <p className="text-sm">
+                          El acceso vigente no permite finalizar esta llamada.
+                        </p>
+                      )}
+                      {priority &&
+                        !dirty &&
+                        !pendingEntry &&
+                        !busy &&
+                        queueReady &&
+                        callsReady &&
+                        canWrite &&
+                        canEditSelected && (
+                          <p className="text-sm">La llamada está lista para finalizar.</p>
+                        )}
+                    </div>
+                  )}
+                  {!selected && (
+                    <div className="space-y-1 text-sm">
+                      <p>
+                        {pendingEntry
+                          ? "La operación local debe confirmarse antes de habilitar la finalización."
+                          : "Guarda la llamada primero; solo se puede finalizar una llamada guardada."}
+                      </p>
+                      {dirty && !pendingEntry && <p>Hay cambios sin guardar.</p>}
+                    </div>
+                  )}
+                </div>
+              )}
+            </EfaCommunicationStepper>
+
+            {error && (
+              <p role="alert" className="rounded-md border border-destructive p-3 text-sm">
+                {error}
+              </p>
+            )}
+            {message && (
+              <p role="status" className="rounded-md border p-3 text-sm">
+                {message}
+              </p>
+            )}
+            {refreshWarning && (
+              <p role="status" className="rounded-md border p-3 text-sm">
+                {refreshWarning}
+              </p>
+            )}
+            {queueError && pendingEntry && (
+              <Button
+                type="button"
+                variant="outline"
+                className="min-h-11 w-full"
+                disabled={busy || !queueReady}
+                onClick={() => void retryQueueEntry(pendingEntry)}
+              >
+                Reintentar guardar la misma operación local
+              </Button>
+            )}
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                className={`min-h-11 min-w-0 ${step === 4 ? "flex-1 text-xs px-2 sm:text-sm sm:px-4" : "w-auto"}`}
+                disabled={
+                  !(selected ? canEditSelected : canCreateCall) ||
+                  !queueReady ||
+                  !callsReady ||
+                  busy ||
+                  Boolean(pendingEntry) ||
+                  (Boolean(selected) && !dirty)
+                }
+                onClick={() => void saveCurrent()}
+              >
+                {busy ? "Guardando…" : "Guardar llamada"}
+              </Button>
+              {step === 4 && selected?.state === "draft" && (
+                <Button
+                  type="button"
+                  className="min-h-11 min-w-0 flex-1 text-xs px-2 sm:flex-none sm:text-sm sm:px-4"
+                  disabled={
+                    !canEditSelected ||
+                    !queueReady ||
+                    !callsReady ||
+                    busy ||
+                    Boolean(pendingEntry) ||
+                    dirty ||
+                    !priority
+                  }
+                  onClick={() =>
+                    setFinalizeConfirmationTarget(
+                      `${currentUserId}:${episodeId}:${selected.id}:${selected.version}`,
+                    )
+                  }
+                >
+                  Finalizar llamada
+                </Button>
+              )}
+            </div>
+            {selected && (selected.canManageLifecycle ?? selected.canEdit) && (
+              <details className="rounded-md border px-3">
+                <summary className="min-h-11 cursor-pointer py-3 font-medium">Más acciones</summary>
+                <div className="space-y-2 pb-3">
+                  {!confirmingLifecycle && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="min-h-11"
+                      disabled={!canWrite || !callsReady || busy || Boolean(pendingEntry) || dirty}
+                      onClick={() =>
+                        setConfirmingLifecycle(communicationLifecycleAction(selected.state))
+                      }
+                    >
+                      {selected.state === "cancelled"
+                        ? "Reactivar comunicación"
+                        : "Anular comunicación"}
+                    </Button>
+                  )}
+                  {confirmingLifecycle && (
+                    <div
+                      className="flex flex-col gap-2 rounded-md border border-amber-500/50 p-3 sm:flex-row sm:items-center"
+                      aria-live="polite"
+                    >
+                      <p className="text-sm">
+                        {confirmingLifecycle === "cancel"
+                          ? "La comunicación quedará anulada, pero su historial y despachos vinculados se conservarán."
+                          : "Se restaurará el estado que tenía antes de la anulación."}
+                      </p>
+                      <Button
+                        type="button"
+                        className="min-h-11"
+                        disabled={busy}
+                        onClick={() => void confirmLifecycleTransition()}
+                      >
+                        {confirmingLifecycle === "cancel"
+                          ? "Confirmar anulación"
+                          : "Confirmar reactivación"}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="min-h-11"
+                        disabled={busy}
+                        onClick={() => setConfirmingLifecycle(null)}
+                      >
+                        Cancelar acción
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </details>
+            )}
+          </CardContent>
+        </Card>
+      )}
+      <EfaActionConfirmation
+        open={finalizeConfirmationTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setFinalizeConfirmationTarget(null);
+        }}
+        capturedTargetKey={finalizeConfirmationTarget}
+        currentTargetKey={
+          selected ? `${currentUserId}:${episodeId}:${selected.id}:${selected.version}` : null
+        }
+        title="Finalizar llamada"
+        description="La llamada pasará a estado finalizada. Se conservarán la prioridad y los horarios registrados."
+        confirmLabel="Finalizar llamada"
+        onConfirm={(targetKey) => void finalizeCurrent(targetKey)}
+      />
+    </div>
+  );
+}
