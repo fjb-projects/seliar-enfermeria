@@ -39,7 +39,7 @@ function readChoices(sourcePath: string) {
 describe("EFA mobile catalog migration", () => {
   it("matches both existing mobile option catalogs verbatim", () => {
     expect(readChoices("src/lib/compensatorio.functions.ts")).toEqual(mobileChoices);
-    expect(readChoices("src/routes/compensatorio.tsx")).toEqual(mobileChoices);
+    expect(readChoices("src/components/CompensatoryPublicForm.tsx")).toEqual(mobileChoices);
   });
 
   it("seeds every literal option with its locale-independent normalized name", () => {

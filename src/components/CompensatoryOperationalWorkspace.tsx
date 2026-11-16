@@ -1,0 +1,986 @@
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentProps,
+  type FormEvent,
+} from "react";
+import { RefreshCw, Settings2, Plus, FilePlus2, Download } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { CompensatoryBankPanel, type BankOperationRegistry } from "./CompensatoryBankPanel";
+import { CompensatoryHoursForm } from "./CompensatoryHoursForm";
+import { CompensatoryHistoryPanel } from "./CompensatoryHistoryPanel";
+import { CompensatoryAdminRequestForm } from "./CompensatoryAdminRequestForm";
+import { CompensatoryCoveragePanel } from "./CompensatoryCoveragePanel";
+import { CompensatoryExportPanel } from "./CompensatoryExportPanel";
+import { CompensatoryNotificationPanel } from "./CompensatoryNotificationPanel";
+import { listCompensatoryNotifications, reviewAndSendCompensatoryNotification } from "@/lib/compensatory-notification.functions";
+import {
+  CompensatoryWorkspaceTabs,
+  CompensatoryWorkspaceTabPanel,
+  CompensatoryWorkspaceScope,
+  COMPENSATORY_WORKSPACE_DOCK_RESERVE_CLASS,
+  type CompensatoryWorkspaceTab,
+} from "./CompensatoryWorkspaceControls";
+import {
+  getCompensatoryOperationalWorkspace,
+  classifyCompensatoryRequest,
+  decideCompensatoryRequest,
+  cancelCompensatoryRequest,
+} from "@/lib/compensatory-lifecycle.functions";
+import { addCompensatoryRequestEmailToProfile } from "@/lib/compensatory-request-email.functions";
+import { decideAndNotify, type DecisionEmailResult } from "@/lib/compensatory-decision-email-flow";
+import type { StaffView } from "@/lib/compensatory-bank.functions";
+import { isExpiredPendingRequest, compensatoryRequestPhaseLabel } from "@/lib/compensatory-history-view";
+
+export type OperationalWorkspaceData = Awaited<
+  ReturnType<typeof getCompensatoryOperationalWorkspace>
+>;
+type RequestRow = OperationalWorkspaceData["requests"][number];
+type WorkspaceApi = {
+  workspace: typeof getCompensatoryOperationalWorkspace;
+  classify: typeof classifyCompensatoryRequest;
+  decide: typeof decideCompensatoryRequest;
+  cancel: typeof cancelCompensatoryRequest;
+  addEmail: typeof addCompensatoryRequestEmailToProfile;
+};
+const defaultApi: WorkspaceApi = {
+  workspace: getCompensatoryOperationalWorkspace,
+  classify: classifyCompensatoryRequest,
+  decide: decideCompensatoryRequest,
+  cancel: cancelCompensatoryRequest,
+  addEmail: addCompensatoryRequestEmailToProfile,
+};
+const notificationApi = { listCompensatoryNotifications, reviewAndSendCompensatoryNotification };
+const phases = {
+  unclassified: "Sin resolución registrada",
+  pending: "Pendiente de decisión",
+  approved: "Aprobada · Consumo programado",
+  rejected: "Rechazada",
+  cancelled: "Cancelada",
+  consumed: "Efectivizada",
+};
+const toolTitles = {
+  tools: "Herramientas",
+  movement: "Gestionar horas",
+  adminRequest: "Cargar solicitud",
+  coverage: "Quién cubre el compensatorio",
+  profile: "Ficha del agente",
+  create: "Nuevo agente",
+  import: "Importación y vinculaciones",
+  export: "Exportar horas netas",
+};
+type Tool = keyof typeof toolTitles;
+export type RequestEmailPromotionAttempt = {
+  requestId: string;
+  expectedVersion: number;
+  reason: string;
+  clientOperationId: string;
+};
+export function getRequestEmailPromotionAttempt(
+  existing: RequestEmailPromotionAttempt | null,
+  next: Omit<RequestEmailPromotionAttempt, "clientOperationId">,
+  newId: () => string = () => crypto.randomUUID(),
+): RequestEmailPromotionAttempt {
+  if (existing) {
+    if (existing.requestId !== next.requestId) {
+      throw new Error("Resuelve el intento pendiente antes de cambiar de solicitud.");
+    }
+    return existing;
+  }
+  return { ...next, clientOperationId: newId() };
+}
+function minutesLabel(value: number) {
+  return `${Math.floor(value / 60)} h${value % 60 ? ` ${value % 60} min` : ""}`;
+}
+function displayTime(value: Date | string) {
+  return new Date(value).toLocaleString("es-AR", { timeZone: "America/Argentina/Buenos_Aires" });
+}
+function message(cause: unknown) {
+  return cause instanceof Error
+    ? cause.message
+    : "No se pudo completar la operación. Inténtalo nuevamente.";
+}
+
+export function CompensatoryOperationalWorkspace({
+  initialStaff,
+  initialWorkspace,
+  api: overrides,
+  bankApi,
+}: {
+  initialStaff: StaffView[];
+  initialWorkspace?: OperationalWorkspaceData;
+  api?: Partial<WorkspaceApi>;
+  bankApi?: ComponentProps<typeof CompensatoryBankPanel>["api"];
+}) {
+  const api = useMemo(() => ({ ...defaultApi, ...overrides }), [overrides]);
+  const [data, setData] = useState(initialWorkspace);
+  const [tab, setTab] = useState<CompensatoryWorkspaceTab>("pending");
+  const [staffId, setStaffId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(!initialWorkspace);
+  const [loadError, setLoadError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [requestId, setRequestId] = useState<string | null>(null);
+  const [coverageRequestId, setCoverageRequestId] = useState<string | null>(null);
+  const [decision, setDecision] = useState<"" | "approve" | "reject" | "cancel">("");
+  const [reason, setReason] = useState("");
+  const [sendDecisionEmail, setSendDecisionEmail] = useState(false);
+  const [decisionEmail, setDecisionEmail] = useState("");
+  const [emailReviewed, setEmailReviewed] = useState(false);
+  const [decisionSaved, setDecisionSaved] = useState(false);
+  const [decisionEmailResult, setDecisionEmailResult] = useState("");
+  const [actionError, setActionError] = useState("");
+  const [emailReviewOpen, setEmailReviewOpen] = useState(false);
+  const emailPromotionAttempt = useRef<RequestEmailPromotionAttempt | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [tool, setTool] = useState<Tool | null>(null);
+  const [toolBusy, setToolBusy] = useState(false);
+  const [historyBusy, setHistoryBusy] = useState(false);
+  const [historyRevision, setHistoryRevision] = useState(0);
+  const loadSequence = useRef(0);
+  const operations = useRef(new Map<string, { hash: string; id: string }>());
+  const bankOperations = useRef<BankOperationRegistry>(new Map());
+
+  const refresh = useCallback(async () => {
+    const sequence = ++loadSequence.current;
+    setLoading(true);
+    try {
+      const latest = await api.workspace({ data: {} });
+      if (sequence !== loadSequence.current) return false;
+      setData(latest);
+      setStaffId((id) => (id && !latest.staff.some((staff) => staff.id === id) ? null : id));
+      setLoadError("");
+      return true;
+    } catch (cause) {
+      if (sequence === loadSequence.current) setLoadError(message(cause));
+      return false;
+    } finally {
+      if (sequence === loadSequence.current) setLoading(false);
+    }
+  }, [api]);
+  useEffect(() => {
+    void refresh();
+    return () => {
+      loadSequence.current += 1;
+    };
+  }, [refresh]);
+
+  const staff = useMemo<StaffView[]>(
+    () =>
+      data
+        ? data.staff.map((person) => ({
+            ...person,
+            createdAt: new Date(person.createdAt).toISOString(),
+          }))
+        : initialStaff,
+    [data, initialStaff],
+  );
+  const selected = data?.staff.find((person) => person.id === staffId);
+  const requests = (data?.requests ?? []).filter(
+    (request) => !staffId || request.staffId === staffId,
+  );
+  const pending = requests
+    .filter((request) => request.phase === "pending" && !isExpiredPendingRequest(request, data?.serviceDay))
+    .sort((a, b) => (a.requestedDate ?? "").localeCompare(b.requestedDate ?? ""));
+  const scheduled = requests
+    .filter((request) => request.phase === "approved")
+    .sort((a, b) => (a.requestedDate ?? "").localeCompare(b.requestedDate ?? ""));
+  const history = [...requests].sort(
+    (a, b) =>
+      new Date(b.decisionAt ?? b.createdAt).getTime() -
+      new Date(a.decisionAt ?? a.createdAt).getTime(),
+  );
+  const unclassified = requests.filter((request) => request.phase === "unclassified");
+  const currentRequest = data?.requests.find((request) => request.id === requestId);
+  const currentExpired = currentRequest && isExpiredPendingRequest(currentRequest, data?.serviceDay);
+  const currentStaff = data?.staff.find((person) => person.id === currentRequest?.staffId);
+  const coverageRequest = data?.requests.find((request) => request.id === coverageRequestId);
+  const disabled = loading || busy || toolBusy || historyBusy || Boolean(loadError);
+  const selectedView = staff.find((person) => person.id === staffId);
+  const refreshHistoryContext = useCallback(async () => {
+    await refresh();
+  }, [refresh]);
+  const hoursSaved = useCallback(async () => {
+    await refresh();
+    setHistoryRevision((revision) => revision + 1);
+  }, [refresh]);
+  const requestSaved = useCallback(async () => {
+    setTab("pending");
+    if (!(await refresh())) throw new Error("No se pudo actualizar la bandeja de solicitudes.");
+  }, [refresh]);
+
+  function openRequest(request: RequestRow) {
+    setRequestId(request.id);
+    setDecision("");
+    setReason("");
+    setSendDecisionEmail(false);
+    setDecisionEmail(request.requesterEmail ?? "");
+    setEmailReviewed(false);
+    setDecisionSaved(false);
+    setDecisionEmailResult("");
+    setActionError("");
+  }
+  function openCoverage(request: RequestRow) {
+    if (disabled) return;
+    setRequestId(null);
+    setCoverageRequestId(request.id);
+    setTool("coverage");
+  }
+  async function submitRequest(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!currentRequest || disabled || decisionSaved || currentExpired) return;
+    const form = new FormData(event.currentTarget);
+    const common = {
+      requestId: currentRequest.id,
+      expectedVersion: currentRequest.version,
+      reason: reason.trim(),
+    };
+    const kind =
+      currentRequest.phase === "unclassified"
+        ? "classify"
+        : currentRequest.phase === "approved"
+          ? "cancel"
+          : "decide";
+    if (!common.reason) {
+      setActionError("Indica el fundamento de la operación.");
+      return;
+    }
+    if (kind === "decide" && decision !== "approve" && decision !== "reject") {
+      setActionError("Selecciona una decisión.");
+      return;
+    }
+    if (kind === "decide" && sendDecisionEmail && (!emailReviewed || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(decisionEmail.trim()))) {
+      setActionError("Revisá el destinatario y confirmá que corresponde al agente.");
+      return;
+    }
+    const classification = {
+      ...common,
+      requestedDate: String(form.get("requestedDate") ?? ""),
+      minutes: Number(form.get("hours")) * 60 + Number(form.get("minutes")),
+    };
+    const payload =
+      kind === "classify"
+        ? classification
+        : kind === "cancel"
+          ? common
+          : { ...common, decision: decision as "approve" | "reject" };
+    const hash = JSON.stringify(payload),
+      key = `${currentRequest.id}:${kind}`;
+    const previous = operations.current.get(key);
+    const clientOperationId = previous?.hash === hash ? previous.id : crypto.randomUUID();
+    operations.current.set(key, { hash, id: clientOperationId });
+    setBusy(true);
+    setActionError("");
+    try {
+      let emailResult: DecisionEmailResult | null = null;
+      if (kind === "classify")
+        await api.classify({ data: { ...classification, clientOperationId } });
+      else if (kind === "cancel") await api.cancel({ data: { ...common, clientOperationId } });
+      else if (sendDecisionEmail) {
+        emailResult = await decideAndNotify(
+          { requestId: currentRequest.id, expectedVersion: currentRequest.version, recipient: decisionEmail.trim(), notificationOperationId: crypto.randomUUID() },
+          {
+            decide: () => api.decide({ data: { ...common, decision: decision as "approve" | "reject", clientOperationId } }),
+            list: (id) => notificationApi.listCompensatoryNotifications({ data: { requestId: id } }),
+            send: (data) => notificationApi.reviewAndSendCompensatoryNotification({ data }),
+          },
+        );
+      } else
+        await api.decide({
+          data: { ...common, decision: decision as "approve" | "reject", clientOperationId },
+        });
+      if (kind === "decide") setDecisionSaved(true);
+      if (emailResult) {
+        const status = emailResult.kind === "notification" ? emailResult.status : emailResult.kind;
+        setDecisionEmailResult(
+          status === "accepted" ? "Decisión guardada. Resend aceptó el correo; esto no confirma su entrega."
+            : status === "delivered" ? "Decisión guardada. El correo figura como entregado."
+            : status === "uncertain" || status === "sending" ? "Decisión guardada. El resultado del correo es incierto; no lo envíes nuevamente sin revisar su estado."
+            : "Decisión guardada. El correo quedó pendiente; revisá su estado antes de intentar enviarlo."
+        );
+      }
+      if (!(await refresh())) {
+        setActionError(
+          kind === "decide" ? "La decisión quedó guardada, pero no se pudo actualizar la vista. Actualizá el estado antes de continuar." : "La operación pudo guardarse, pero no se pudo actualizar la vista. Conserva los datos y reintenta para confirmar sin duplicarla.",
+        );
+        return;
+      }
+      operations.current.delete(key);
+      if (kind !== "decide") {
+        setRequestId(null);
+        setTab(kind === "classify" ? "pending" : "history");
+        setNotice("Operación registrada y auditada. El saldo se actualiza según la fecha efectiva.");
+      } else if (!emailResult) {
+        setDecisionEmailResult("Decisión guardada. El correo queda pendiente de revisión.");
+      }
+    } catch (cause) {
+      setActionError(message(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function addRequestEmailToProfile() {
+    const attempt = emailPromotionAttempt.current;
+    if (!attempt || !currentRequest || !currentStaff || disabled) return;
+    setBusy(true);
+    setActionError("");
+    try {
+      await api.addEmail({ data: attempt });
+      emailPromotionAttempt.current = null;
+      setEmailReviewOpen(false);
+      setNotice("Correo agregado a la ficha. La identidad del remitente no quedó verificada.");
+      await refresh();
+    } catch (cause) {
+      setActionError(message(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+  const finishTool = useCallback(() => {
+    setTool(null);
+    setToolBusy(false);
+    void refresh();
+  }, [refresh]);
+  function closeTool(open: boolean) {
+    if (!open && !toolBusy) finishTool();
+  }
+
+  function requestList(items: RequestRow[], empty: string) {
+    return items.length ? (
+      <div className="divide-y rounded-lg border bg-card">
+        {items.map((request) => {
+          const person = staff.find((entry) => entry.id === request.staffId);
+          const expired = isExpiredPendingRequest(request, data?.serviceDay);
+          const canDecide = request.phase === "pending" && !expired;
+          const overdue =
+            request.phase === "approved" &&
+            request.requestedDate &&
+            data &&
+            request.requestedDate <= data.serviceDay;
+          return (
+            <article
+              key={request.id}
+              className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-3 py-3 min-[621px]:grid-cols-[minmax(0,1fr)_8rem_5rem_auto]"
+            >
+              <div className="min-w-0">
+                <p className="break-words text-sm font-semibold">
+                  {person?.name ?? request.requesterName}
+                </p>
+                <p className="text-xs text-muted-foreground">{expired ? "Sin resolución · Fecha vencida" : phases[request.phase]}</p>
+                {request.requesterEmail && (
+                  <p className="break-all text-xs text-muted-foreground">
+                    {request.requesterEmail} · Correo sin verificar
+                  </p>
+                )}
+              </div>
+              <p className="col-start-1 row-start-2 text-xs min-[621px]:col-start-auto min-[621px]:row-start-auto">
+                {request.requestedDate ?? request.compensatoryDate}
+                <span className="block text-muted-foreground">
+                  {overdue
+                    ? "Procesamiento pendiente"
+                    : request.phase === "approved"
+                      ? "Descuento a las 00:00"
+                      : "Fecha solicitada"}
+                </span>
+              </p>
+              <p className="col-start-2 row-start-1 whitespace-nowrap text-sm font-semibold tabular-nums min-[621px]:col-start-auto min-[621px]:row-start-auto">
+                {request.requestedMinutes === null
+                  ? `${request.hours} h`
+                  : minutesLabel(request.requestedMinutes)}
+              </p>
+              <div className="col-start-2 row-start-2 flex flex-col gap-1 min-[621px]:col-start-auto min-[621px]:row-start-auto">
+                <Button
+                  type="button"
+                  variant={canDecide ? "default" : "outline"}
+                  className={`min-h-11 ${!canDecide ? "bg-card shadow-none hover:bg-muted" : ""}`}
+                  disabled={disabled}
+                  onClick={() => openRequest(request)}
+                >
+                  {canDecide ? "Revisar" : "Ver detalle"}
+                </Button>
+                {["approved", "consumed"].includes(request.phase) && (
+                  <>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="min-h-11"
+                      disabled={disabled}
+                      onClick={() => openCoverage(request)}
+                    >
+                      Registrar quién cubre
+                    </Button>
+                    <span className="max-w-44 whitespace-normal text-xs text-muted-foreground">
+                      Sin modificar aprobación ni saldo
+                    </span>
+                  </>
+                )}
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    ) : (
+      <p className="py-6 text-sm text-muted-foreground">{empty}</p>
+    );
+  }
+  const balance = selected && (
+    <section
+      className="mb-4 rounded-lg border bg-card p-3"
+      aria-label={`Saldo de ${selected.name}`}
+    >
+      <div className="grid grid-cols-3 gap-2">
+        {[
+          ["Saldo", selected.balanceMinutes],
+          ["Reservadas", selected.reservedMinutes],
+          ["Disponible", selected.availableMinutes],
+        ].map(([label, value]) => (
+          <div key={String(label)}>
+            <p className="text-xs text-muted-foreground">{label}</p>
+            <p className="text-xl font-semibold tabular-nums">{minutesLabel(Number(value))}</p>
+          </div>
+        ))}
+      </div>
+      <Button
+        type="button"
+        className="mt-3 min-h-11 w-full min-[621px]:w-auto"
+        disabled={disabled || !selected.isActive}
+        onClick={() => setTool("movement")}
+      >
+        <Plus className="mr-2 size-4" aria-hidden="true" />
+        Gestionar horas
+      </Button>
+    </section>
+  );
+
+  return (
+    <div
+      data-operational-workspace
+      className={`min-w-0 space-y-3 ${COMPENSATORY_WORKSPACE_DOCK_RESERVE_CLASS}`}
+    >
+      <div className="flex min-w-0 items-center gap-2">
+        <CompensatoryWorkspaceTabs
+          value={tab}
+          onValueChange={setTab}
+          disabled={busy || toolBusy || historyBusy}
+        />
+        <div className="ml-auto min-w-0">
+          <CompensatoryWorkspaceScope
+            staffOptions={staff.map((person) => ({
+              id: person.id,
+              label: `${person.name} · DNI ${person.dni}`,
+            }))}
+            selectedStaffId={staffId}
+            onSelectStaff={setStaffId}
+            disabled={disabled}
+          />
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          className="size-9 shrink-0 border-border bg-card text-foreground shadow-none hover:bg-muted max-[620px]:size-11"
+          aria-label="Actualizar solicitudes"
+          disabled={loading || busy || toolBusy}
+          onClick={() => void refresh()}
+        >
+          <RefreshCw
+            aria-hidden="true"
+            className={`size-4 ${loading ? "motion-safe:animate-spin" : ""}`}
+          />
+        </Button>
+      </div>
+      {loading && (
+        <p role="status" className="text-sm text-muted-foreground">
+          Actualizando solicitudes y saldos…
+        </p>
+      )}
+      {loadError && (
+        <p role="alert" className="text-sm text-destructive">
+          {loadError} Usa Actualizar para reintentar; no se tomarán decisiones con datos sin
+          verificar.
+        </p>
+      )}
+      {notice && (
+        <p role="status" className="text-sm">
+          {notice}
+        </p>
+      )}
+      <CompensatoryWorkspaceTabPanel value="pending" activeTab={tab}>
+        {balance}
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm text-muted-foreground">
+            Registrar un pedido recibido por otro medio.
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            className="min-h-11"
+            disabled={disabled || !staff.some((person) => person.isActive)}
+            onClick={() => setTool("adminRequest")}
+          >
+            <FilePlus2 className="mr-2 size-4" aria-hidden="true" />
+            Cargar solicitud
+          </Button>
+        </div>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <h2 className="text-lg font-medium">Pendientes de decisión</h2>
+          <span className="text-xs text-muted-foreground">{pending.length}</span>
+        </div>
+        {!loading && requestList(pending, "No hay solicitudes pendientes de decisión.")}
+        {unclassified.length > 0 && (
+          <Button
+            type="button"
+            variant="link"
+            className="mt-2 h-auto whitespace-normal p-0 text-left text-xs"
+            onClick={() => setTab("history")}
+          >
+            {unclassified.length} antecedentes sin clasificar. Revisar en Historial; no implican
+            aprobación ni descuento.
+          </Button>
+        )}
+      </CompensatoryWorkspaceTabPanel>
+      <CompensatoryWorkspaceTabPanel value="scheduled" activeTab={tab}>
+        {balance}
+        <h2 className="mb-2 text-lg font-medium">Aprobados próximos</h2>
+        {!loading && requestList(scheduled, "No hay consumos programados.")}
+        <p className="mt-2 text-xs text-muted-foreground">
+          Las horas permanecen reservadas hasta el descuento del día aprobado, incluso si el
+          ejecutor debe recuperar un procesamiento vencido.
+        </p>
+      </CompensatoryWorkspaceTabPanel>
+      <CompensatoryWorkspaceTabPanel value="history" activeTab={tab}>
+        {balance}
+        {selectedView ? (
+          <CompensatoryHistoryPanel
+            key={`${selectedView.id}:${historyRevision}`}
+            staff={selectedView}
+            serviceDay={data?.serviceDay}
+            requests={requests}
+            onOpenRequest={(id) => {
+              const request = data?.requests.find((entry) => entry.id === id);
+              if (request && !disabled) openRequest(request);
+            }}
+            onSaved={refreshHistoryContext}
+            onBusyChange={setHistoryBusy}
+            {...(bankApi?.getHistory ? { api: { getHistory: bankApi.getHistory } } : {})}
+          />
+        ) : (
+          <>
+            <p className="mb-3 text-sm text-muted-foreground">
+              Selecciona un agente para consultar sus períodos y movimientos.
+            </p>
+            <h2 className="mb-2 text-lg font-medium">Historial cronológico de solicitudes</h2>
+            {!loading && requestList(history, "No hay solicitudes registradas.")}
+          </>
+        )}
+      </CompensatoryWorkspaceTabPanel>
+      <div className="flex flex-wrap gap-2 border-t pt-3">
+        <Button type="button" variant="outline" className="min-h-11 bg-card shadow-none hover:bg-muted" disabled={disabled} onClick={() => setTool("export")}>
+          <Download className="mr-2 size-4" aria-hidden="true" />
+          Exportar horas
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          className="min-h-11 bg-card shadow-none hover:bg-muted"
+          disabled={busy || toolBusy || historyBusy}
+          onClick={() => setTool("tools")}
+        >
+          <Settings2 className="mr-2 size-4" aria-hidden="true" />
+          Herramientas
+        </Button>
+      </div>
+
+      <Dialog
+        open={Boolean(requestId)}
+        onOpenChange={(open) => {
+          if (!open && !busy) setRequestId(null);
+        }}
+      >
+        <DialogContent
+          className="max-h-[90svh] overflow-y-auto sm:max-w-xl"
+          onInteractOutside={(event) => event.preventDefault()}
+          onEscapeKeyDown={(event) => {
+            if (busy) event.preventDefault();
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>Solicitud de compensatorio</DialogTitle>
+            <DialogDescription>
+              {currentStaff?.name} ·{" "}
+              {currentRequest ? (currentExpired ? compensatoryRequestPhaseLabel(currentRequest.phase, currentRequest.requestedDate, data?.serviceDay) : phases[currentRequest.phase]) : "Actualizando registro"}
+            </DialogDescription>
+          </DialogHeader>
+          {currentRequest && (
+            <>
+              {currentExpired && <p className="text-sm">La fecha solicitada pasó sin una resolución registrada. Se conserva como antecedente; no implica aprobación ni consumo de horas.</p>}
+              {["approved", "consumed"].includes(currentRequest.phase) && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={disabled}
+                  onClick={() => openCoverage(currentRequest)}
+                >
+                  Registrar quién cubre
+                </Button>
+              )}
+              <dl className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <dt className="text-muted-foreground">Fecha original</dt>
+                  <dd className="break-words">{currentRequest.compensatoryDate}</dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">Horas originales</dt>
+                  <dd>{currentRequest.hours}</dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">Presentada</dt>
+                  <dd className="break-words">{currentRequest.submittedAt}</dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">Teléfono operativo</dt>
+                  <dd className="break-words">{currentRequest.requesterMobile}</dd>
+                </div>
+                {currentRequest.requesterEmail && (
+                  <div className="col-span-2">
+                    <dt className="text-muted-foreground">Correo de contacto</dt>
+                    <dd className="break-all">
+                      {currentRequest.requesterEmail} · Sin verificar; Coordinación debe confirmar
+                      el destinatario antes de enviar la resolución.
+                    </dd>
+                    {currentRequest.submissionSource === "public" && (!currentStaff?.email || emailPromotionAttempt.current?.requestId === currentRequest.id) && (
+                      <Button type="button" variant="outline" className="mt-2" disabled={disabled} onClick={() => {
+                        if (!currentStaff) return;
+                        try {
+                          emailPromotionAttempt.current = getRequestEmailPromotionAttempt(emailPromotionAttempt.current, {
+                            requestId: currentRequest.id,
+                            expectedVersion: currentStaff.version,
+                            reason: "Correo de contacto de solicitud revisado por Coordinación; identidad no verificada.",
+                          });
+                          setActionError("");
+                          setEmailReviewOpen(true);
+                        } catch (cause) { setActionError(message(cause)); }
+                      }}>
+                        Agregar al perfil
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </dl>
+              {currentStaff && (
+                <p className="rounded-md bg-muted p-3 text-sm">
+                  Disponible: {minutesLabel(currentStaff.availableMinutes)} · Reservadas:{" "}
+                  {minutesLabel(currentStaff.reservedMinutes)}
+                </p>
+              )}
+              {currentRequest.phase === "unclassified" && (
+                <p className="text-sm">
+                  Este antecedente no tiene resolución registrada. Solo una revisión explícita puede
+                  enviarlo a pendientes; no se infiere aprobación ni consumo de fechas pasadas.
+                </p>
+              )}
+              {currentRequest.decisionAt && (
+                <p className="text-xs text-muted-foreground">
+                  Decisión: {displayTime(currentRequest.decisionAt)} ·{" "}
+                  {currentRequest.decisionReason}
+                </p>
+              )}
+              {decisionEmailResult && <p role="status" className="text-sm">{decisionEmailResult}</p>}
+              {currentRequest.decisionAt && (
+                <CompensatoryNotificationPanel requestId={currentRequest.id} api={notificationApi} />
+              )}
+              {currentRequest.cancelledAt && (
+                <p className="text-xs text-muted-foreground">
+                  Cancelación: {displayTime(currentRequest.cancelledAt)} ·{" "}
+                  {currentRequest.cancellationReason}
+                </p>
+              )}
+              {currentRequest.consumedAt && (
+                <p className="text-xs text-muted-foreground">
+                  Consumo procesado: {displayTime(currentRequest.consumedAt)} · Fecha efectiva:{" "}
+                  {currentRequest.requestedDate}
+                </p>
+              )}
+              {data?.audits
+                .filter((audit) => audit.requestId === currentRequest.id)
+                .map((audit) => (
+                  <p key={audit.id} className="text-xs text-muted-foreground">
+                    {displayTime(audit.occurredAt)} ·{" "}
+                    {audit.actorKind === "system" ? "Sistema" : audit.actorName} · {audit.reason}
+                  </p>
+                ))}
+              {!decisionSaved && !currentExpired && (["unclassified", "pending"].includes(currentRequest.phase) ||
+                (currentRequest.phase === "approved" &&
+                  currentRequest.requestedDate &&
+                  data &&
+                  currentRequest.requestedDate > data.serviceDay)) && (
+                <form onSubmit={(event) => void submitRequest(event)} className="space-y-3">
+                  {currentRequest.phase === "unclassified" && (
+                    <>
+                      <label className="block space-y-1 text-sm">
+                        Fecha solicitada confirmada
+                        <Input type="date" name="requestedDate" min={data?.serviceDay} required />
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <label className="block space-y-1 text-sm">
+                          Horas
+                          <Input name="hours" type="number" min="0" step="1" required />
+                        </label>
+                        <label className="block space-y-1 text-sm">
+                          Minutos
+                          <Input
+                            name="minutes"
+                            type="number"
+                            min="0"
+                            max="59"
+                            step="1"
+                            defaultValue="0"
+                            required
+                          />
+                        </label>
+                      </div>
+                    </>
+                  )}
+                  {currentRequest.phase === "pending" && (
+                    <>
+                      <p className="text-sm">
+                        Fecha confirmada: {currentRequest.requestedDate} ·{" "}
+                        {minutesLabel(currentRequest.requestedMinutes ?? 0)}. Aprobar reserva horas;
+                        si la fecha es hoy, el consumo se registra inmediatamente.
+                      </p>
+                      <label className="block space-y-1 text-sm" htmlFor="request-decision">
+                        Decisión
+                      </label>
+                      <select
+                        id="request-decision"
+                        value={decision}
+                        className="min-h-11 w-full rounded-md border bg-background px-3"
+                        required
+                        disabled={busy}
+                        onChange={(event) =>
+                          setDecision(event.target.value as "approve" | "reject" | "")
+                        }
+                      >
+                        <option value="">Seleccionar decisión</option>
+                        <option value="approve">Aprobar</option>
+                        <option value="reject">Rechazar</option>
+                      </select>
+                    </>
+                  )}
+                  {currentRequest.phase === "approved" && (
+                    <p className="text-sm">
+                      Cancelar antes de las 00:00 del día aprobado libera la reserva, sin generar un
+                      crédito nuevo.
+                    </p>
+                  )}
+                  <label className="block space-y-1 text-sm" htmlFor="request-reason">
+                    Fundamento
+                  </label>
+                  <Input
+                    id="request-reason"
+                    value={reason}
+                    maxLength={1000}
+                    required
+                    disabled={busy}
+                    onChange={(event) => setReason(event.target.value)}
+                  />
+                  {currentRequest.phase === "pending" && (
+                    <div className="space-y-2 text-sm">
+                      <label className="flex min-h-11 items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={sendDecisionEmail}
+                          disabled={busy}
+                          onChange={(event) => {
+                            setSendDecisionEmail(event.currentTarget.checked);
+                            setEmailReviewed(false);
+                          }}
+                        />
+                        Enviar la resolución por correo al agente
+                      </label>
+                      {sendDecisionEmail && (
+                        <>
+                          <label className="block space-y-1" htmlFor="decision-email">
+                            Correo del agente
+                            <Input
+                              id="decision-email"
+                              type="email"
+                              value={decisionEmail}
+                              required
+                              disabled={busy}
+                              onChange={(event) => {
+                                setDecisionEmail(event.currentTarget.value);
+                                setEmailReviewed(false);
+                              }}
+                            />
+                          </label>
+                          <label className="flex min-h-11 items-center gap-2">
+                            <input type="checkbox" checked={emailReviewed} disabled={busy} onChange={(event) => setEmailReviewed(event.currentTarget.checked)} />
+                            Confirmo que revisé el correo y corresponde al agente.
+                          </label>
+                          <p className="text-muted-foreground">La decisión se guarda primero; si el correo falla, no se pierde.</p>
+                        </>
+                      )}
+                    </div>
+                  )}
+                  <Button type="submit" className="min-h-11 w-full" disabled={disabled}>
+                    {busy
+                      ? "Confirmando…"
+                      : currentRequest.phase === "unclassified"
+                        ? "Enviar a pendientes"
+                        : currentRequest.phase === "approved"
+                          ? "Cancelar y liberar reserva"
+                          : sendDecisionEmail ? "Confirmar decisión y enviar correo" : "Confirmar decisión"}
+                  </Button>
+                </form>
+              )}
+            </>
+          )}
+          {actionError && (
+            <p role="alert" className="text-sm text-destructive">
+              {actionError}
+            </p>
+          )}
+          {loadError && (
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy || loading}
+              onClick={() => void refresh()}
+            >
+              Actualizar estado de la operación
+            </Button>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={emailReviewOpen} onOpenChange={(open) => !busy && setEmailReviewOpen(open)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Revisar correo antes de agregarlo</DialogTitle>
+            <DialogDescription>
+              Este correo fue escrito en una solicitud pública y no verifica la identidad de quien la envió. Confirmá que corresponde al agente. La acción solo completa una ficha sin correo y quedará auditada; no envía mensajes.
+            </DialogDescription>
+          </DialogHeader>
+          <p className="break-all rounded-md bg-muted p-3 text-sm">{currentRequest?.requesterEmail}</p>
+          {actionError && <p role="alert" className="text-sm text-destructive">{actionError}</p>}
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" disabled={busy} onClick={() => setEmailReviewOpen(false)}>Cancelar</Button>
+            <Button type="button" disabled={busy || !emailPromotionAttempt.current} onClick={() => void addRequestEmailToProfile()}>
+              {busy ? "Guardando…" : emailPromotionAttempt.current ? "Confirmar y agregar" : "Sin intento pendiente"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(tool)} onOpenChange={closeTool}>
+        <DialogContent
+          className={`max-h-[90svh] overflow-y-auto ${tool === "import" ? "sm:max-w-5xl" : "sm:max-w-xl"}`}
+          onInteractOutside={(event) => event.preventDefault()}
+          onEscapeKeyDown={(event) => {
+            if (toolBusy) event.preventDefault();
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>{tool ? toolTitles[tool] : "Herramientas"}</DialogTitle>
+            <DialogDescription>
+              {tool === "export"
+                ? "Listado de horas netas de todos los agentes, sin modificar saldos."
+                : tool === "coverage"
+                ? `${staff.find((person) => person.id === coverageRequest?.staffId)?.name ?? "Solicitud"} · Registrar quién cubre no cambia la aprobación ni el saldo de horas.`
+                : tool === "adminRequest"
+                  ? "Carga administrativa de contingencia. El pedido quedará pendiente de resolución."
+                  : selected
+                    ? `${selected.name} · DNI ${selected.dni}`
+                    : "Administración de agentes y revisión de archivos"}
+            </DialogDescription>
+          </DialogHeader>
+          {tool === "tools" ? (
+            <div className="grid gap-2">
+              <Button type="button" variant="outline" onClick={() => setTool("import")}>
+                Importar CSV / vincular JSON
+              </Button>
+              <Button type="button" variant="outline" onClick={() => setTool("create")}>
+                Nuevo agente
+              </Button>
+              {selected && (
+                <>
+                  <Button type="button" variant="outline" onClick={() => setTool("profile")}>
+                    Editar ficha / desactivar / eliminar
+                  </Button>
+                </>
+              )}
+            </div>
+          ) : tool === "export" ? (
+            <CompensatoryExportPanel serviceDay={data?.serviceDay ?? new Intl.DateTimeFormat("en-CA", { timeZone: "America/Argentina/Buenos_Aires" }).format(new Date())} onBusyChange={setToolBusy} />
+          ) : tool === "coverage" ? (
+            coverageRequest ? (
+              <CompensatoryCoveragePanel
+                key={coverageRequest.id}
+                request={coverageRequest}
+                staff={staff}
+                onSaved={refreshHistoryContext}
+                onBusyChange={setToolBusy}
+              />
+            ) : (
+              <p role="alert">No se pudo recuperar la solicitud. Cierra y actualiza la bandeja.</p>
+            )
+          ) : tool === "adminRequest" ? (
+            <CompensatoryAdminRequestForm
+              staff={staff}
+              {...(selectedView?.isActive ? { initialStaffId: selectedView.id } : {})}
+              onSaved={requestSaved}
+              onBusyChange={setToolBusy}
+            />
+          ) : tool === "movement" && selectedView ? (
+            <CompensatoryHoursForm
+              key={selectedView.id}
+              staff={selectedView}
+              {...(selected
+                ? {
+                    availableMinutes: selected.availableMinutes,
+                    reservedMinutes: selected.reservedMinutes,
+                  }
+                : {})}
+              onSaved={hoursSaved}
+              onBusyChange={setToolBusy}
+              {...(bankApi
+                ? {
+                    api: {
+                      ...(bankApi.getHistory ? { getHistory: bankApi.getHistory } : {}),
+                      ...(bankApi.recordMovement ? { recordMovement: bankApi.recordMovement } : {}),
+                    },
+                  }
+                : {})}
+            />
+          ) : (
+            tool && (
+              <CompensatoryBankPanel
+                key={`${tool}:${staffId ?? "general"}`}
+                initialStaff={staff}
+                {...(staffId ? { initialSelectedId: staffId } : {})}
+                tool={tool}
+                {...(bankApi ? { api: bankApi } : {})}
+                onSaved={finishTool}
+                onExit={() => closeTool(false)}
+                onBusyChange={setToolBusy}
+                operationRegistry={bankOperations.current}
+              />
+            )
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

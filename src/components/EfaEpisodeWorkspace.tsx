@@ -109,6 +109,8 @@ export function EfaEpisodeWorkspace({
   }, []);
   return (
     <section className="min-w-0 space-y-2 sm:space-y-3">
+      {/* Commented out for now: the "Área de trabajo" row and its collapse toggle wait for the
+          new service-menu layout. Restore together with headingRef focus and toggleCollapsed.
       <header className="flex items-start justify-between gap-3">
         <div>
           <h4
@@ -123,7 +125,7 @@ export function EfaEpisodeWorkspace({
         <Button
           type="button"
           variant="outline"
-          className="min-h-11 min-w-11 shrink-0 border-slate-300 bg-white px-3 dark:border-slate-700 dark:bg-slate-900"
+          className="min-h-11 min-w-11 shrink-0 px-3"
           aria-label={`${collapsed ? "Expandir" : "Contraer"} área de trabajo`}
           aria-expanded={!collapsed}
           aria-controls={contentId}
@@ -137,6 +139,7 @@ export function EfaEpisodeWorkspace({
           {collapsed ? <ChevronDown aria-hidden="true" /> : <ChevronUp aria-hidden="true" />}
         </Button>
       </header>
+      */}
       <div
         ref={contentRef}
         id={contentId}
@@ -148,8 +151,10 @@ export function EfaEpisodeWorkspace({
         <nav
           role="tablist"
           aria-label="Secciones del servicio"
-          className="sticky z-30 grid min-w-0 grid-cols-2 gap-2 bg-background py-2"
-          style={{ top: "var(--workflow-header-height, 0px)" }}
+          className="sticky z-30 grid min-w-0 grid-cols-2 gap-1 border-b bg-background py-2 transition-[top] duration-200 motion-reduce:transition-none sm:grid-cols-4"
+          style={{
+            top: "calc(var(--workflow-header-height, 0px) + var(--seliar-nav-offset, 0px))",
+          }}
         >
           {sections.map((section) => (
             <Button
@@ -161,7 +166,7 @@ export function EfaEpisodeWorkspace({
               aria-selected={activeSection === section.id}
               aria-controls={panelId}
               tabIndex={activeSection === section.id ? 0 : -1}
-              className={`h-auto min-h-11 w-full min-w-0 justify-start whitespace-normal break-words border px-2 text-left ${activeSection === section.id ? "border-primary bg-primary text-primary-foreground hover:bg-primary/90" : "border-border bg-background text-foreground hover:bg-muted"}`}
+              className={`h-auto min-h-11 w-full min-w-0 justify-start whitespace-normal break-words border-transparent px-2 text-left shadow-none ${activeSection === section.id ? "bg-primary text-primary-foreground hover:bg-primary/90" : "bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground"}`}
               onClick={() => onSelectSection(section.id)}
               onKeyDown={(event) => {
                 const direction =

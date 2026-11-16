@@ -9,6 +9,7 @@ import {
   type AdminInstitutionView,
 } from "@/components/AdminInstitutionCatalog";
 import { PrivateAccountShell, type PrivateSession } from "@/components/PrivateAccountShell";
+import { CoordinationAdminLayout } from "@/components/CoordinationAdminLayout";
 import { Button } from "@/components/ui/button";
 import { listAccounts } from "@/lib/accounts.functions";
 import { listAdminBases } from "@/lib/efa-bases.functions";
@@ -52,32 +53,41 @@ function AdminAccountsPage() {
     }
   }
   return (
-    <PrivateAccountShell session={session}>
-      <div className="space-y-6">
-        <header>
-          <h2 className="text-2xl font-semibold">Administración de cuentas</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Crea cuentas de enfermería y administra sus permisos y estado.
-          </p>
-        </header>
-        {error && (
-          <p role="alert" className="text-sm text-destructive">
-            {error}
-          </p>
-        )}
-        <AccountAdminForm
-          onCreated={async () => {
-            await reload();
-          }}
-        />
-        <AccountAdminList accounts={accounts} onReload={reload} actorId={session.user.id} />
-        <AdminInstitutionCatalog initialInstitutions={data.institutions} />
-        <AdminBaseCatalog initialBases={data.bases} />
-        <AdminStaffingPlan bases={data.bases} />
-        <Button asChild variant="outline" className="min-h-11">
-          <a href="/panel">Volver al panel</a>
-        </Button>
-      </div>
+    <PrivateAccountShell
+      session={session}
+      title="Coordinación"
+      description="Usuarios y accesos"
+      contentWidth="full"
+      surface="calm"
+      compactLayout
+    >
+      <CoordinationAdminLayout active="users">
+        <div className="space-y-6">
+          <header>
+            <h2 className="text-2xl font-semibold">Administración de cuentas</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Crea cuentas de enfermería y administra sus permisos y estado.
+            </p>
+          </header>
+          {error && (
+            <p role="alert" className="text-sm text-destructive">
+              {error}
+            </p>
+          )}
+          <AccountAdminForm
+            onCreated={async () => {
+              await reload();
+            }}
+          />
+          <AccountAdminList accounts={accounts} onReload={reload} actorId={session.user.id} />
+          <AdminInstitutionCatalog initialInstitutions={data.institutions} />
+          <AdminBaseCatalog initialBases={data.bases} />
+          <AdminStaffingPlan bases={data.bases} />
+          <Button asChild variant="outline" className="min-h-11">
+            <a href="/panel">Volver al panel</a>
+          </Button>
+        </div>
+      </CoordinationAdminLayout>
     </PrivateAccountShell>
   );
 }

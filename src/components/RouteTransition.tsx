@@ -2,11 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useRouterState } from "@tanstack/react-router";
 import { RoutePending } from "@/components/RoutePending";
-
-const ROUTE_OVERLAY_DELAY_MS = 120;
-const ROUTE_OVERLAY_EXIT_MS = 180;
-
-type OverlayPhase = "hidden" | "visible" | "exiting";
+import { planOverlayStep, type OverlayPhase } from "@/lib/route-transition";
 
 export function RouteTransition({ children }: { children: ReactNode }) {
   const routerState = useRouterState({
@@ -17,7 +13,7 @@ export function RouteTransition({ children }: { children: ReactNode }) {
   });
   const pageIsBusy = routerState.isLoading && routerState.hasCommittedView;
   const [overlayPhase, setOverlayPhase] = useState<OverlayPhase>("hidden");
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const timerRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (timerRef.current !== null) {
@@ -28,26 +24,11 @@ export function RouteTransition({ children }: { children: ReactNode }) {
     const prefersReducedMotion =
       window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
 
-    if (pageIsBusy) {
-      if (overlayPhase === "hidden") {
-        timerRef.current = window.setTimeout(
-          () => setOverlayPhase("visible"),
-          ROUTE_OVERLAY_DELAY_MS,
-        );
-      } else if (overlayPhase === "exiting") {
-        setOverlayPhase("visible");
-      }
-    } else if (overlayPhase === "visible") {
-      setOverlayPhase(prefersReducedMotion ? "hidden" : "exiting");
-    } else if (overlayPhase === "exiting") {
-      if (prefersReducedMotion) {
-        setOverlayPhase("hidden");
-      } else {
-        timerRef.current = window.setTimeout(
-          () => setOverlayPhase("hidden"),
-          ROUTE_OVERLAY_EXIT_MS,
-        );
-      }
+    const step = planOverlayStep({ phase: overlayPhase, pageIsBusy, prefersReducedMotion });
+    if (step.kind === "set") {
+      setOverlayPhase(step.phase);
+    } else if (step.kind === "after") {
+      timerRef.current = window.setTimeout(() => setOverlayPhase(step.phase), step.delayMs);
     }
 
     return () => {

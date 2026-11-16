@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Check, Clock, Plus } from "lucide-react";
 import { createClientOnlyFn, useServerFn } from "@tanstack/react-start";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { ctaClasses } from "@/lib/cta-classes";
 import {
   addEfaPoliceCoordinationEvent,
   createEfaPoliceCoordination,
@@ -178,7 +180,6 @@ const formatDate = (value: string | null) => formatObservedDateTime(value);
 const nextId = () => crypto.randomUUID();
 const coordinationSteps = ["Datos", "Despachos", "Eventos e historial"] as const;
 
-// eslint-disable-next-line react-refresh/only-export-components -- Shared with focused navigation regression tests.
 export function CoordinationStepNavigation({
   activeStep,
   onStepChange,
@@ -188,60 +189,85 @@ export function CoordinationStepNavigation({
 }) {
   const label = coordinationSteps[activeStep] ?? "Coordinación";
   return (
-    <nav className="min-w-0 space-y-2" aria-label="Pasos de coordinación">
-      <div className="flex min-w-0 items-center justify-between gap-2">
-        <p aria-live="polite" className="min-w-0 text-sm font-medium">
-          Paso {activeStep + 1} de {coordinationSteps.length} · {label}
-        </p>
-        <details className="relative shrink-0">
-          <summary className="flex min-h-11 cursor-pointer items-center rounded-md border px-3 text-sm">
-            Ver pasos
-          </summary>
-          <div className="absolute right-0 z-10 grid min-w-52 max-w-[calc(100vw-2rem)] gap-1 rounded-md border bg-background p-2 shadow-lg">
-            {coordinationSteps.map((stepLabel, index) => (
-              <Button
-                key={stepLabel}
+    <nav className="min-w-0" aria-label="Pasos de coordinación">
+      <p aria-live="polite" className="sr-only">
+        Paso {activeStep + 1} de {coordinationSteps.length}: {label}
+      </p>
+      <ol className="flex min-w-0 gap-1">
+        {coordinationSteps.map((stepLabel, index) => {
+          const active = index === activeStep;
+          return (
+            <li key={stepLabel} className={active ? "min-w-0 flex-[2]" : "min-w-0 flex-1"}>
+              <button
                 type="button"
-                variant={index === activeStep ? "secondary" : "outline"}
-                className="min-h-11 min-w-0 justify-start whitespace-normal text-left"
                 aria-label={`Ir a ${stepLabel}`}
-                aria-current={index === activeStep ? "step" : undefined}
-                onClick={(event) => {
-                  onStepChange(index);
-                  const details = event.currentTarget.closest("details");
-                  if (details) details.open = false;
-                }}
+                aria-current={active ? "step" : undefined}
+                title={stepLabel}
+                className={`flex min-h-11 w-full min-w-0 items-center justify-center rounded border px-2 text-sm ${active ? "border-white/40 bg-white/15 font-semibold" : "border-white/15 hover:bg-white/10"}`}
+                onClick={() => onStepChange(index)}
               >
-                {stepLabel}
-              </Button>
-            ))}
-          </div>
-        </details>
-      </div>
-      <div
-        className="grid min-w-0 grid-cols-2 gap-2"
-        role="group"
-        aria-label="Navegación entre pasos"
-      >
-        <Button
-          type="button"
-          variant="outline"
-          className="min-h-11 min-w-0"
-          disabled={activeStep === 0}
-          onClick={() => onStepChange(Math.max(0, activeStep - 1))}
-        >
-          Anterior
-        </Button>
-        <Button
-          type="button"
-          className="min-h-11 min-w-0"
-          disabled={activeStep === coordinationSteps.length - 1}
-          onClick={() => onStepChange(Math.min(coordinationSteps.length - 1, activeStep + 1))}
-        >
-          Siguiente
-        </Button>
-      </div>
+                <span className="truncate">
+                  {index + 1}. {stepLabel}
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ol>
     </nav>
+  );
+}
+
+/** Previous/next buttons rendered once, after the content of the active step. */
+export function CoordinationStepFooter({
+  activeStep,
+  onStepChange,
+}: {
+  activeStep: number;
+  onStepChange: (step: number) => void;
+}) {
+  return (
+    <div
+      className="grid min-w-0 grid-cols-2 gap-2"
+      role="group"
+      aria-label="Navegación entre pasos"
+    >
+      <Button
+        type="button"
+        variant="outline"
+        className={`${ctaClasses.ghost} min-w-0`}
+        disabled={activeStep === 0}
+        onClick={() => onStepChange(Math.max(0, activeStep - 1))}
+      >
+        Anterior
+      </Button>
+      <Button
+        type="button"
+        className={`${ctaClasses.next} min-w-0`}
+        disabled={activeStep === coordinationSteps.length - 1}
+        onClick={() => onStepChange(Math.min(coordinationSteps.length - 1, activeStep + 1))}
+      >
+        Siguiente
+      </Button>
+    </div>
+  );
+}
+
+/** True when the event draft differs from the untouched blank form. */
+// eslint-disable-next-line react-refresh/only-export-components -- Pure helper exported for deterministic tests.
+export function policeEventDraftDirty(draft: {
+  kind: string;
+  dispatchId: string;
+  occurredAt: string;
+  timeStatus: string;
+  note: string;
+}) {
+  return (
+    draft.kind !== "request" ||
+    draft.dispatchId !== "" ||
+    draft.occurredAt !== "" ||
+    draft.timeStatus !== "not_observed" ||
+    draft.note !== ""
   );
 }
 
@@ -604,13 +630,13 @@ export function EfaPoliceCoordinationPanel({
   >([]);
   const [selectedId, setSelectedId] = useState("");
   const [form, setForm] = useState<CoordinationForm>(blankForm);
-  const [eventForm, setEventForm] = useState<EventForm>(blankEvent);
   const [links, setLinks] = useState<string[]>([]);
   const [coordinationDirty, setCoordinationDirty] = useState(false);
   const [dispatchesDirty, setDispatchesDirty] = useState(false);
   const dirty = coordinationDirty || dispatchesDirty;
   const [dirtyEventId, setDirtyEventId] = useState("");
   const [eventEdits, setEventEdits] = useState<Record<string, EventForm>>({});
+  const [eventForm, setEventForm] = useState<EventForm>(blankEvent);
   const [auditRows, setAuditRows] = useState<Array<Record<string, unknown>>>([]);
   // Asked when the coordination in the editor still has unsaved typing and another one replaces it.
   const [switchConfirmation, setSwitchConfirmation] = useState<{
@@ -1765,7 +1791,7 @@ export function EfaPoliceCoordinationPanel({
         policeHasUnsavedChanges({
           coordinationDirty: coordinationDirtyRef.current,
           dispatchesDirty: dispatchesDirtyRef.current,
-          eventDirty: dirtyEventIdRef.current !== "",
+          eventDirty: dirtyEventIdRef.current !== "" || policeEventDraftDirty(eventForm),
         }),
       isCurrent: () =>
         isLatest() &&
@@ -1806,14 +1832,10 @@ export function EfaPoliceCoordinationPanel({
 
   return (
     <Card className="min-w-0 border-0 bg-transparent p-0 shadow-none">
-      <CardHeader className="space-y-2 p-0 pb-1">
+      <CardHeader className="flex-row flex-wrap items-baseline justify-between gap-x-3 gap-y-1 space-y-0 p-0 pb-1">
         <CardTitle>Apoyo policial</CardTitle>
         <p className="text-sm text-muted-foreground">
           {canWrite ? "Acceso EFA vigente" : "Solo lectura"}
-        </p>
-        <p className="text-sm text-muted-foreground">
-          Puede iniciar una coordinación antes de registrar una llamada o un despacho. Más adelante
-          podrá asociar los despachos de este episodio, incluso si siguen como borrador.
         </p>
       </CardHeader>
       <CardContent
@@ -1823,34 +1845,66 @@ export function EfaPoliceCoordinationPanel({
       >
         {loading && <p className="text-sm text-muted-foreground">Cargando coordinación…</p>}
         {!loading && (
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              variant={selectedId ? "outline" : "secondary"}
-              className="min-h-11"
-              disabled={!writeAllowed || busy || Boolean(pendingOperationId)}
-              onClick={() => void requestEditorSwitch(beginCreate)}
-            >
-              Nueva coordinación
-            </Button>
-            {items.map((item) => (
-              <Button
-                type="button"
-                key={item.id}
-                variant={selectedId === item.id ? "secondary" : "outline"}
-                className="min-h-11"
-                disabled={busy || Boolean(pendingOperationId)}
-                onClick={() => void requestEditorSwitch(() => void selectCoordination(item.id))}
-              >
-                {item.placeType === "incident" ? "Incidente" : "Punto de encuentro"} · v
-                {item.version}
-              </Button>
-            ))}
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            {items.length > 0 && (
+              <ul className="flex min-w-0 flex-wrap gap-2" aria-label="Coordinaciones registradas">
+                {items.map((item) => {
+                  const active = selectedId === item.id;
+                  const created = formatLinkedDispatchDate(item.createdAt);
+                  return (
+                    <li key={item.id}>
+                      <button
+                        type="button"
+                        aria-pressed={active}
+                        disabled={busy || Boolean(pendingOperationId)}
+                        className={`inline-flex min-h-11 items-center gap-2 rounded-lg border border-white/15 px-3 text-sm hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60 ${active ? "bg-white/15 ring-1 ring-inset ring-white/30" : ""}`}
+                        onClick={() =>
+                          void requestEditorSwitch(() => void selectCoordination(item.id))
+                        }
+                      >
+                        <span className="font-medium">
+                          {item.placeType === "incident" ? "Incidente" : "Punto de encuentro"}
+                        </span>
+                        {created && (
+                          <span className="t-clock text-[13px] text-muted-foreground">
+                            {created}
+                          </span>
+                        )}
+                        <span className="text-[13px] text-muted-foreground">v{item.version}</span>
+                        {item.state === "finalized" && (
+                          <Check aria-hidden="true" className="size-4 text-emerald-300" />
+                        )}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
             {items.length === 0 && (
               <p className="text-sm text-muted-foreground">Sin coordinaciones registradas.</p>
             )}
+            <Button
+              type="button"
+              variant="outline"
+              className={`${ctaClasses.indigo} sm:ml-auto`}
+              disabled={!writeAllowed || busy || Boolean(pendingOperationId)}
+              onClick={() => void requestEditorSwitch(beginCreate)}
+            >
+              <Plus aria-hidden="true" className="size-4" />
+              Nueva coordinación
+            </Button>
           </div>
         )}
+        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+          <div className="min-w-0 flex-1 basis-72">
+            <CoordinationStepNavigation activeStep={activeStep} onStepChange={stepChange} />
+          </div>
+          {!loading && (writeAllowed || current) && (
+            <span {...(current ? { title: `Versión ${current.version}` } : {})}>
+              <EfaAutosaveStatus status={saveStatus} />
+            </span>
+          )}
+        </div>
         {unpersisted && (
           <section className="space-y-2 rounded-md border border-destructive p-3">
             <p className="text-sm">
@@ -1859,7 +1913,8 @@ export function EfaPoliceCoordinationPanel({
             </p>
             <Button
               type="button"
-              className="min-h-11"
+              variant="outline"
+              className={ctaClasses.indigo}
               disabled={busy || !writeAllowed}
               onClick={() => void retryUnpersisted()}
             >
@@ -1885,7 +1940,7 @@ export function EfaPoliceCoordinationPanel({
                 <div className="flex gap-2">
                   <Button
                     type="button"
-                    className="min-h-11"
+                    className={ctaClasses.ghost}
                     variant="outline"
                     disabled={busy}
                     onClick={() => void restoreEntry(entry)}
@@ -1894,7 +1949,7 @@ export function EfaPoliceCoordinationPanel({
                   </Button>
                   <Button
                     type="button"
-                    className="min-h-11"
+                    className={ctaClasses.indigo}
                     variant="outline"
                     disabled={
                       busy ||
@@ -1912,27 +1967,6 @@ export function EfaPoliceCoordinationPanel({
             ))}
           </section>
         )}
-        {selectedId === "" && activeStep > 0 && (
-          <section className="min-w-0 space-y-2 border-t pt-3">
-            <p className="text-sm text-muted-foreground">
-              Guarda primero la coordinación para asociar despachos y registrar eventos.
-            </p>
-            <Button
-              type="button"
-              variant="outline"
-              className="min-h-11"
-              onClick={() => stepChange(0)}
-            >
-              Volver a Datos
-            </Button>
-            <CoordinationStepNavigation activeStep={activeStep} onStepChange={stepChange} />
-          </section>
-        )}
-        {message && activeStep === 2 && !current && (
-          <p role="status" className="bg-muted p-2 text-sm" aria-live="polite">
-            {message}
-          </p>
-        )}
         {(selectedId === "" || current) &&
         activeStep === 0 &&
         (selectedId === "" ? writeAllowed : current?.canEdit && writeAllowed) ? (
@@ -1942,12 +1976,12 @@ export function EfaPoliceCoordinationPanel({
                 activeStepTargetRef.current = node;
               }}
               tabIndex={-1}
-              className="scroll-mt-20 font-medium outline-none"
+              className="sr-only scroll-mt-20 outline-none"
             >
               {current ? "Editar coordinación" : "Nueva coordinación"}
             </h3>
             <fieldset disabled={!fieldsEditable} className="space-y-4">
-              <div className="grid min-w-0 grid-cols-1 gap-3 min-[380px]:grid-cols-2">
+              <div className="grid min-w-0 grid-cols-1 gap-3 min-[380px]:grid-cols-2 lg:grid-cols-3">
                 <div className="space-y-2">
                   <Label htmlFor="police-initiator">Iniciador</Label>
                   <select
@@ -2050,7 +2084,7 @@ export function EfaPoliceCoordinationPanel({
               <div className="flex flex-wrap gap-2">
                 <Button
                   type="button"
-                  className="min-h-11"
+                  className={ctaClasses.save}
                   disabled={!coordinationDirty || busy || Boolean(pendingOperationId)}
                   onClick={() =>
                     void autosave
@@ -2066,17 +2100,15 @@ export function EfaPoliceCoordinationPanel({
                   <Button
                     type="button"
                     variant="outline"
-                    className="min-h-11"
+                    className={ctaClasses.ghost}
                     disabled={busy || Boolean(pendingOperationId)}
                     onClick={discardCoordinationChanges}
                   >
                     Descartar cambios
                   </Button>
                 )}
-                {current && <EfaAutosaveStatus status={saveStatus} />}
               </div>
             </fieldset>
-            <CoordinationStepNavigation activeStep={activeStep} onStepChange={stepChange} />
           </section>
         ) : null}
         {!current && activeStep > 0 && (
@@ -2097,22 +2129,12 @@ export function EfaPoliceCoordinationPanel({
             <Button
               type="button"
               variant="outline"
-              className="min-h-11"
+              className={ctaClasses.indigo}
               onClick={() => stepChange(0)}
             >
               Volver a Datos
             </Button>
           </section>
-        )}
-        {activeStep === 0 &&
-          (selectedId === "" || current) &&
-          (!writeAllowed || Boolean(current && !current.canEdit)) && (
-            <CoordinationStepNavigation activeStep={activeStep} onStepChange={stepChange} />
-          )}
-        {message && activeStep === 0 && (
-          <p role="status" className="bg-muted p-2 text-sm" aria-live="polite">
-            {message}
-          </p>
         )}
         {current && activeStep === 1 && (
           <section className="min-w-0 space-y-3 border-t pt-3">
@@ -2126,18 +2148,19 @@ export function EfaPoliceCoordinationPanel({
               >
                 Despachos asociados
               </legend>
-              <p className="text-sm text-muted-foreground">
-                La coordinación guardada permite asociar los despachos de este episodio.
-              </p>
               {dispatches.length === 0 && (
                 <p className="text-sm text-muted-foreground">
                   No hay despachos registrados para este episodio.
                 </p>
               )}
               {dispatches.map((dispatch) => (
-                <label key={dispatch.id} className="flex min-h-11 min-w-0 items-center gap-3">
+                <label
+                  key={dispatch.id}
+                  className="flex min-h-11 min-w-0 items-center gap-3 rounded-lg border border-white/15 px-3 hover:bg-white/10 has-[:checked]:border-white/30 has-[:checked]:bg-white/10"
+                >
                   <input
                     type="checkbox"
+                    className="size-4 shrink-0 accent-[#a9b2ff]"
                     checked={links.includes(dispatch.id)}
                     onChange={(e) => {
                       updateDispatchLinks((values) => {
@@ -2154,11 +2177,10 @@ export function EfaPoliceCoordinationPanel({
                 </label>
               ))}
             </fieldset>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button
                 type="button"
-                variant="outline"
-                className="min-h-11"
+                className={ctaClasses.save}
                 disabled={
                   !dispatchesDirty ||
                   busy ||
@@ -2178,22 +2200,15 @@ export function EfaPoliceCoordinationPanel({
                 <Button
                   type="button"
                   variant="outline"
-                  className="min-h-11"
+                  className={ctaClasses.ghost}
                   disabled={busy || Boolean(pendingOperationId)}
                   onClick={discardDispatchChanges}
                 >
                   Descartar cambios de asociación
                 </Button>
               )}
-              <EfaAutosaveStatus status={saveStatus} />
             </div>
-            <CoordinationStepNavigation activeStep={activeStep} onStepChange={stepChange} />
           </section>
-        )}
-        {message && activeStep === 1 && (
-          <p role="status" className="bg-muted p-2 text-sm" aria-live="polite">
-            {message}
-          </p>
         )}
         {current && activeStep === 2 && (
           <>
@@ -2207,9 +2222,12 @@ export function EfaPoliceCoordinationPanel({
               >
                 Registrar evento de coordinación
               </h3>
-              <p className="text-sm text-muted-foreground">
-                Los eventos por despacho requieren asociarlo primero en el paso Despachos.
-              </p>
+              {current.dispatchIds.length === 0 && (
+                <p className="text-sm text-muted-foreground">
+                  Para registrar llegada, espera o encuentro de un móvil, asociá antes un despacho
+                  en el paso Despachos.
+                </p>
+              )}
               {!current.canEdit || !writeAllowed ? (
                 <p className="text-sm text-muted-foreground">
                   Solo lectura. La asociación de respuesta requiere permisos vigentes.
@@ -2287,7 +2305,8 @@ export function EfaPoliceCoordinationPanel({
                       </div>
                       <Button
                         type="button"
-                        className="min-h-11 min-w-0 self-start whitespace-normal min-[380px]:shrink-0"
+                        variant="outline"
+                        className={`${ctaClasses.indigo} min-w-0 self-start whitespace-normal min-[380px]:shrink-0`}
                         onClick={() => {
                           if (
                             policeEventRequiresDispatch(eventForm.kind)
@@ -2318,6 +2337,7 @@ export function EfaPoliceCoordinationPanel({
                           });
                         }}
                       >
+                        <Clock aria-hidden="true" className="size-4" />
                         Ahora y guardar
                       </Button>
                     </div>
@@ -2365,8 +2385,7 @@ export function EfaPoliceCoordinationPanel({
                   <div className="flex min-w-0 flex-wrap gap-2 min-[380px]:col-span-2">
                     <Button
                       type="button"
-                      variant="outline"
-                      className="min-h-11 min-w-0 whitespace-normal"
+                      className={`${ctaClasses.save} min-w-0 whitespace-normal`}
                       onClick={addEvent}
                     >
                       Guardar hora manual
@@ -2375,12 +2394,6 @@ export function EfaPoliceCoordinationPanel({
                 </fieldset>
               )}
             </section>
-            <CoordinationStepNavigation activeStep={activeStep} onStepChange={stepChange} />
-            {message && (
-              <p role="status" className="bg-muted p-2 text-sm" aria-live="polite">
-                {message}
-              </p>
-            )}
             <section className="space-y-3">
               <h3 className="font-medium">Eventos registrados</h3>
               {current.events.map((event) => {
@@ -2392,12 +2405,20 @@ export function EfaPoliceCoordinationPanel({
                   note: event.note ?? "",
                 };
                 return (
-                  <article className="min-w-0 space-y-2 border-t py-2" key={event.id}>
-                    <p className="font-medium">
-                      {eventLabel(event.kind)} · {formatDate(event.occurredAt)} ·{" "}
-                      {timeStatusLabel(event.timeStatus)}
-                    </p>
-                    <p className="whitespace-pre-wrap text-sm">{event.note || "Sin nota"}</p>
+                  <article
+                    className="min-w-0 space-y-1 border-t border-white/15 py-2"
+                    key={event.id}
+                  >
+                    <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-0.5">
+                      <p className="t-clock w-36 shrink-0 text-[13px] text-muted-foreground">
+                        {formatDate(event.occurredAt)}
+                      </p>
+                      <p className="min-w-0 flex-1 font-medium">{eventLabel(event.kind)}</p>
+                      <p className="text-[13px] text-muted-foreground">
+                        {timeStatusLabel(event.timeStatus)}
+                      </p>
+                    </div>
+                    {event.note && <p className="whitespace-pre-wrap text-sm">{event.note}</p>}
                     {current.canEdit && writeAllowed && (
                       <details>
                         <summary className="min-h-11 cursor-pointer py-2">Corregir evento</summary>
@@ -2519,7 +2540,7 @@ export function EfaPoliceCoordinationPanel({
                           </div>
                           <Button
                             type="button"
-                            className="min-h-11"
+                            className={ctaClasses.save}
                             disabled={dirtyEventId !== event.id}
                             onClick={() => saveEvent(event)}
                           >
@@ -2539,7 +2560,7 @@ export function EfaPoliceCoordinationPanel({
               <Button
                 type="button"
                 variant="outline"
-                className="min-h-11"
+                className={ctaClasses.ghost}
                 disabled={busy}
                 onClick={async () => {
                   const ticket = selectionTicket.current;
@@ -2576,8 +2597,15 @@ export function EfaPoliceCoordinationPanel({
                         {String(audit["versionAfter"])} ·{" "}
                         {formatDate(String(audit["occurredAt"] ?? ""))}
                       </p>
-                      <p>Antes: {JSON.stringify(audit["beforeState"] ?? "Sin estado previo")}</p>
-                      <p>Después: {JSON.stringify(audit["afterState"])}</p>
+                      <details>
+                        <summary className="min-h-11 cursor-pointer py-2">Ver cambios</summary>
+                        <p className="break-words">
+                          Antes: {JSON.stringify(audit["beforeState"] ?? "Sin estado previo")}
+                        </p>
+                        <p className="break-words">
+                          Después: {JSON.stringify(audit["afterState"])}
+                        </p>
+                      </details>
                     </article>
                   ))}
                 </div>
@@ -2585,6 +2613,12 @@ export function EfaPoliceCoordinationPanel({
             </section>
           </>
         )}
+        {message && (
+          <p role="status" className="bg-muted p-2 text-sm" aria-live="polite">
+            {message}
+          </p>
+        )}
+        <CoordinationStepFooter activeStep={activeStep} onStepChange={stepChange} />
         {notices
           .filter((notice) => items.some((item) => item.id === notice.coordinationId))
           .map((notice) => (
@@ -2599,7 +2633,7 @@ export function EfaPoliceCoordinationPanel({
                 <Button
                   type="button"
                   variant="outline"
-                  className="min-h-11"
+                  className={ctaClasses.ghost}
                   onClick={async () => {
                     const identity = { currentUserId, episodeId };
                     try {
@@ -2655,7 +2689,7 @@ export function EfaPoliceCoordinationPanel({
             </details>
             <Button
               type="button"
-              className="min-h-11"
+              className={ctaClasses.ghost}
               variant="outline"
               disabled={busy || !conflict.remote}
               onClick={async () => {
@@ -2720,7 +2754,8 @@ export function EfaPoliceCoordinationPanel({
             {conflict.entry.status === "paused-conflict" && (
               <Button
                 type="button"
-                className="min-h-11"
+                variant="outline"
+                className={ctaClasses.indigo}
                 disabled={busy || !writeAllowed || !conflict.remote}
                 onClick={() => void rebaseConflict()}
               >
@@ -2730,7 +2765,8 @@ export function EfaPoliceCoordinationPanel({
             {conflict.entry.status === "paused-permission" && (
               <Button
                 type="button"
-                className="min-h-11"
+                variant="outline"
+                className={ctaClasses.indigo}
                 disabled={busy || !writeAllowed}
                 onClick={async () => {
                   if (!storeRef.current) return;

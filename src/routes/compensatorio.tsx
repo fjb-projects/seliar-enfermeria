@@ -111,7 +111,9 @@ function isCompleteRequest(request: CompensatoryDraft): request is CompensatoryR
   );
 }
 
-function Compensatorio() {
+// Live public flow: submits through the Google Apps Script integration.
+// The database-backed CompensatoryPublicForm stays unmounted until its release.
+export function Compensatorio() {
   const [request, setRequest] = useState<CompensatoryDraft>(initialRequest);
   const [stage, setStage] = useState<Stage>("details");
   const [attemptedReview, setAttemptedReview] = useState(false);

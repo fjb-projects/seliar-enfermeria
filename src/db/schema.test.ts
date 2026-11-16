@@ -336,7 +336,7 @@ describe("EFA mobile hygiene period persistence", () => {
     const journal = JSON.parse(
       readFileSync(resolve(process.cwd(), "drizzle/meta/_journal.json"), "utf8"),
     ) as { entries: { idx: number; tag: string }[] };
-    expect(journal.entries.at(-1)).toMatchObject({
+    expect(journal.entries.find((entry) => entry.idx === 23)).toMatchObject({
       idx: 23,
       tag: "0023_efa_mobile_hygiene_periods",
     });

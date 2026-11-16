@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import { Link } from "@tanstack/react-router";
 import { useReducer } from "react";
 import { ChevronDown } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -72,18 +71,27 @@ export function PrivateAccountShell({
   children,
   title = "Acceso seguro",
   description = "Gestión de cuentas y permisos",
+  eyebrow = "SeLIAR · Área privada",
   contentWidth = "wide",
   surface,
+  compactLayout = false,
+  titleAction,
 }: {
   session: PrivateSession;
+  /** Optional control at the far end of the page title row. */
+  titleAction?: ReactNode | undefined;
   children: ReactNode;
   /** Page area title; defaults to the account management heading. */
   title?: string;
   description?: string;
+  /** Optional area label; an empty string leaves the task heading unadorned. */
+  eyebrow?: string;
   /** Page width; defaults to the shell's wide column. */
   contentWidth?: WorkflowContentWidth;
   /** Page background; "calm" keeps the gradient on phones only. Defaults to the full gradient. */
   surface?: WorkflowSurface;
+  /** Removes the desktop title and padding when the area provides its own coordination frame. */
+  compactLayout?: boolean;
 }) {
   const { requestLogout, logoutPending, logoutError } = useSeliarNavigation();
   const [headerInteraction, dispatchHeaderInteraction] = useReducer(
@@ -115,13 +123,16 @@ export function PrivateAccountShell({
     <WorkflowShell
       contentWidth={contentWidth}
       {...(surface ? { surface } : {})}
+      compactLayout={compactLayout}
       header={
         <WorkflowHeader
           contentWidth={contentWidth}
-          eyebrow="SeLIAR · Área privada"
+          eyebrow={eyebrow}
           title={title}
           description={description}
+          titleAction={titleAction}
           compactLogo
+          hideDesktopTitle={compactLayout}
           accountInteractionHandlers={headerHandlers}
           accountSlot={
             <Button
@@ -163,16 +174,6 @@ export function PrivateAccountShell({
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {isAdministrator(session.roles) && (
-                      <>
-                        <Button asChild variant="outline" className="min-h-11">
-                          <Link to="/admin-usuarios">Administrar cuentas</Link>
-                        </Button>
-                        <Button asChild variant="outline" className="min-h-11">
-                          <Link to="/coordinacion-efa">Coordinación EFA</Link>
-                        </Button>
-                      </>
-                    )}
                     <div className="flex flex-wrap items-center gap-2">
                       {logoutError && (
                         <p role="alert" className="max-w-56 text-xs text-destructive">

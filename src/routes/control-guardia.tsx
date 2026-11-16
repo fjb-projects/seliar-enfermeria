@@ -1,9 +1,20 @@
 ﻿import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, ImagePlus, Loader2, Send, TriangleAlert, X } from "lucide-react";
+import { CheckCircle2, ImagePlus, Loader2, Send, Trash2, TriangleAlert, X } from "lucide-react";
 import { toast } from "sonner";
 import { Toaster } from "@/components/ui/sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { BadgeFlotanteProgreso } from "@/components/BadgeFlotanteProgreso";
 import { InventarioGrid } from "@/components/InventarioGrid";
 import { SeccionDesplegable, type EstadoSeccion } from "@/components/SeccionDesplegable";
@@ -152,7 +163,17 @@ function ControlGuardia() {
   const [hidratado, setHidratado] = useState(false);
   const [correosRecientes, setCorreosRecientes] = useState<string[]>([]);
   const [adjuntos, setAdjuntos] = useState<File[]>([]);
+  const [descarteAbierto, setDescarteAbierto] = useState(false);
   const enviar = useServerFn(enviarRegistro);
+  const hayDatos = Object.values(datos).some((valor) =>
+    typeof valor === "string"
+      ? valor.length > 0
+      : Object.values(valor).some(
+          (entrada) =>
+            (typeof entrada === "string" || Array.isArray(entrada)) && entrada.length > 0,
+        ),
+  );
+  const tieneBorrador = hayDatos || emailRequested || adjuntos.length > 0;
 
   useEffect(() => {
     try {
@@ -190,8 +211,12 @@ function ControlGuardia() {
 
   useEffect(() => {
     if (!hidratado || enviado) return;
+    if (!hayDatos && !emailRequested) {
+      localStorage.removeItem(STORAGE_KEY);
+      return;
+    }
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ datos, emailRequested }));
-  }, [datos, emailRequested, hidratado, enviado]);
+  }, [datos, emailRequested, hidratado, enviado, hayDatos]);
 
   useEffect(() => {
     const correo = datos.guardia.email.trim().toLowerCase();
@@ -388,13 +413,23 @@ function ControlGuardia() {
   };
 
   const nuevoRegistro = () => {
+    if (enviando) return;
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      toast.error("No se pudo descartar el borrador", {
+        description: "El formulario se conserva. Intenta nuevamente antes de comenzar otro pase.",
+      });
+      return;
+    }
     setDatos(estadoInicial);
     setAbiertas([0]);
     setIntentoEnvio(false);
     setEnviado(null);
     setEmailNoEnviado(false);
     setEmailRequested(false);
-    localStorage.removeItem(STORAGE_KEY);
+    setAdjuntos([]);
+    setDescarteAbierto(false);
     window.scrollTo({ top: 0 });
   };
 
@@ -466,6 +501,54 @@ function ControlGuardia() {
           eyebrow="Pase de guardia"
           description="Registrá cada control durante el turno. El avance se guarda automáticamente en este dispositivo hasta completar y enviar el pase."
         />
+
+        <AlertDialog
+          open={descarteAbierto}
+          onOpenChange={(abierto) => {
+            if (!enviando) setDescarteAbierto(abierto);
+          }}
+        >
+          {hidratado && tieneBorrador && (
+            <div className="mt-3 flex sm:justify-end">
+              <AlertDialogTrigger asChild>
+                <button
+                  type="button"
+                  disabled={enviando}
+                  className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md px-3 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+                >
+                  <Trash2 className="size-4" aria-hidden />
+                  Descartar borrador
+                </button>
+              </AlertDialogTrigger>
+            </div>
+          )}
+          <AlertDialogContent className="w-[calc(100%-2rem)] max-w-md rounded-md">
+            <AlertDialogHeader>
+              <AlertDialogTitle>¿Descartar el borrador actual?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Se borrarán los datos, las selecciones y las anotaciones del formulario guardadas en
+                este dispositivo. También se quitarán las fotos adjuntas. El formulario quedará
+                vacío para comenzar un nuevo pase de guardia. No se eliminarán registros ya
+                enviados. Esta acción no se puede deshacer.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={enviando} className="min-h-11 bg-background">
+                Cancelar
+              </AlertDialogCancel>
+              <AlertDialogAction
+                disabled={enviando}
+                onClick={(evento) => {
+                  evento.preventDefault();
+                  nuevoRegistro();
+                }}
+                className="min-h-11 bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                Descartar borrador
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         <div className="mt-6 space-y-3">
           <SeccionDesplegable {...propsSeccion(0)}>

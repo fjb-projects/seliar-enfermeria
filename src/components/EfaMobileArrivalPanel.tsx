@@ -12,7 +12,7 @@ import {
 } from "@/lib/efa-mobile-arrivals.functions";
 import type { MobileArrivalRole } from "@/lib/efa-mobile-arrivals.server";
 import { sortGuardMobileBases } from "@/lib/efa-guard-mobile-workspace";
-import { formatTimeMinutes, hygienePeriodStatus } from "@/lib/efa-labels";
+import { formatDateTimeMinutes, formatTimeMinutes, hygienePeriodStatus } from "@/lib/efa-labels";
 import { EfaMobileHygienePanel, type MobileHygieneView } from "@/components/EfaMobileHygienePanel";
 
 export type MobileArrivalView = {
@@ -221,7 +221,13 @@ export const mobileArrivalEditClasses = {
 } as const;
 
 function formatArrivalTime(value: string) {
-  return new Date(value).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
+  return formatTimeMinutes(value);
+}
+
+function formatArrivalDateTime(value: string) {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "—";
+  return `${formatDateTimeMinutes(value)}:${String(date.getUTCSeconds()).padStart(2, "0")}`;
 }
 
 function toLocalDateTimeValue(value: string) {
@@ -566,7 +572,7 @@ export function EfaMobileArrivalPanel({
     return (
       <time
         dateTime={arrival.arrivedAt}
-        aria-label={`Ingreso registrado el ${new Date(arrival.arrivedAt).toLocaleString("es-AR")}`}
+        aria-label={`Ingreso registrado el ${formatArrivalDateTime(arrival.arrivedAt)}`}
         className="font-display text-lg leading-none font-semibold tabular-nums"
       >
         {formatArrivalTime(arrival.arrivedAt)}
@@ -921,9 +927,7 @@ export function EfaMobileArrivalPanel({
             {historicalArrivals.map((arrival) => (
               <li key={arrival.id}>
                 {arrival.baseNameSnapshot} · {roleLabel(arrival.role)} ·{" "}
-                <time dateTime={arrival.arrivedAt}>
-                  {new Date(arrival.arrivedAt).toLocaleString()}
-                </time>
+                <time dateTime={arrival.arrivedAt}>{formatArrivalDateTime(arrival.arrivedAt)}</time>
                 <span className="ml-2 text-xs text-muted-foreground">Solo lectura</span>
               </li>
             ))}

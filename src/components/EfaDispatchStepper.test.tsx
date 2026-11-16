@@ -29,6 +29,7 @@ import {
   shouldCreateDispatchDraftOnNext,
 } from "./EfaDispatchStepper";
 import { FollowUpOpenButton } from "./EfaDispatchFollowUpModal";
+import { createEfaServiceMetadataStore } from "@/lib/efa-service-metadata";
 import { emptyDispatchForm, type DispatchForm } from "@/lib/efa-dispatches.client";
 import { createSaveSnapshot, shouldAutosave, type AutosaveStatus } from "@/lib/efa-autosave";
 
@@ -61,20 +62,41 @@ vi.mock("@/lib/efa-institutions.functions", () => ({
 }));
 
 describe("EfaDispatchStepper", () => {
-  it("keeps all dispatch steps available behind compact current-step navigation", () => {
+  it("preserves the editor defaults with an optional route metadata store", () => {
+    const props = {
+      episodeId: "episode-1",
+      episodeLabel: "Turno 1",
+      currentUserId: "owner-1",
+      canWrite: true,
+      episodeCanEdit: true,
+    };
+    expect(
+      renderToStaticMarkup(
+        <EfaDispatchStepper
+          {...props}
+          serviceMetadata={createEfaServiceMetadataStore("owner-1")}
+        />,
+      ),
+    ).toBe(renderToStaticMarkup(<EfaDispatchStepper {...props} />));
+  });
+  it("keeps all dispatch steps one click away in a rail that names only the current step", () => {
     const html = renderToStaticMarkup(
       <DispatchStepNavigation step={4} onStepChange={() => undefined} />,
     );
 
     expect(html).toContain("Paso 5 de 10: Llegada a destino");
-    expect(html).toContain("Ver pasos");
+    expect(html).toContain('aria-label="Pasos del despacho"');
+    expect(html).not.toContain("Ver pasos");
+    // Only the current step spells its name; the others are numbered buttons.
+    expect(html).toContain("5. Llegada a destino");
+    expect(html).not.toContain("4. Sale de escena");
     expect(html).toContain('tabindex="-1"');
     expect(html.match(/aria-label="Ir al paso/g)).toHaveLength(10);
     expect(html.match(/aria-current="step"/g)).toHaveLength(1);
     expect(html).toContain('aria-label="Ir al paso 5: Llegada a destino" aria-current="step"');
   });
 
-  it("renders an optional action in the same row as the step indicator and Ver pasos", () => {
+  it("renders an optional action in the same row, after the step rail", () => {
     const html = renderToStaticMarkup(
       <DispatchStepNavigation
         step={0}
@@ -87,7 +109,9 @@ describe("EfaDispatchStepper", () => {
     expect(html.indexOf("Paso 1 de 10")).toBeLessThan(
       html.indexOf("Comunicaciones de seguimiento"),
     );
-    expect(html.indexOf("Comunicaciones de seguimiento")).toBeLessThan(html.indexOf("Ver pasos"));
+    expect(html.indexOf("Pasos del despacho")).toBeLessThan(
+      html.indexOf("Comunicaciones de seguimiento"),
+    );
     const without = renderToStaticMarkup(
       <DispatchStepNavigation step={0} onStepChange={() => undefined} />,
     );
@@ -114,8 +138,9 @@ describe("EfaDispatchStepper", () => {
     expect(html.match(/>Completado</g)).toHaveLength(4);
     expect(html.match(/>Actual</g)).toHaveLength(1);
     expect(html).toContain('aria-label="Ir al paso 1: Despacho (completado)"');
-    // The "Paso N de 10" indicator uses the strong primary color.
-    expect(html).toMatch(/<p[^>]*bg-primary[^>]*>Paso 5 de 10: Llegada a destino/);
+    // "Paso N de 10" is announced to screen readers only; the clickable rail carries the visual state.
+    expect(html).toMatch(/<p[^>]*sr-only[^>]*>Paso 5 de 10: Llegada a destino/);
+    expect(html).not.toMatch(/<p[^>]*bg-primary[^>]*>Paso 5 de 10/);
     // Completed steps use soft green, pending steps stay neutral.
     expect(html).toMatch(/data-step-state="complete"[^>]*bg-emerald-50/);
     expect(html).toMatch(/data-step-state="pending"[^>]*bg-background/);

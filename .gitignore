@@ -16,7 +16,7 @@ dist-ssr
 .nitro
 .vercel/
 *.local
-
+.atl/
 # Wrangler / Cloudflare
 .wrangler/
 .netlify/
@@ -57,3 +57,4 @@ scripts/bootstrap-admin.test.mjs
 *.njsproj
 *.sln
 *.sw?
+ docs/*

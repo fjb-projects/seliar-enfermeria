@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
@@ -677,6 +677,24 @@ function ObservedStaffingPanel({
   );
 }
 
+function mergeArrivalSnapshots(
+  current: Record<string, MobileArrivalView[]>,
+  incoming: Record<string, MobileArrivalView[]>,
+) {
+  const merged = { ...current };
+  for (const [guardId, arrivals] of Object.entries(incoming)) {
+    const records = new Map((current[guardId] ?? []).map((arrival) => [arrival.id, arrival]));
+    for (const arrival of arrivals) {
+      const previous = records.get(arrival.id);
+      if (!previous || arrival.version >= previous.version) records.set(arrival.id, arrival);
+    }
+    // Listings include versioned deletion records. An omitted row is not a deletion and
+    // may belong to a write confirmed after this snapshot started loading.
+    merged[guardId] = [...records.values()];
+  }
+  return merged;
+}
+
 export function EfaGuardPanel({
   initialGuards,
   activeBases,
@@ -724,6 +742,11 @@ export function EfaGuardPanel({
   const [guardConductRevision, setGuardConductRevision] = useState(0);
   const [endingGuardTarget, setEndingGuardTarget] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (initialArrivals) {
+      setArrivalsByGuard((current) => mergeArrivalSnapshots(current, initialArrivals));
+    }
+  }, [initialArrivals]);
   function refreshGuardTimeline(guardId: string) {
     void queryClient.invalidateQueries({
       queryKey: efaGuardTimelineQueryKey(currentUserId, guardId),
@@ -752,11 +775,14 @@ export function EfaGuardPanel({
         StaffingView[]
       >,
     );
-    setArrivalsByGuard(
-      Object.fromEntries(guardEntries.map(({ id, arrivals }) => [id, arrivals])) as Record<
-        string,
-        MobileArrivalView[]
-      >,
+    setArrivalsByGuard((current) =>
+      mergeArrivalSnapshots(
+        current,
+        Object.fromEntries(guardEntries.map(({ id, arrivals }) => [id, arrivals])) as Record<
+          string,
+          MobileArrivalView[]
+        >,
+      ),
     );
     setHygieneByGuard(
       Object.fromEntries(guardEntries.map(({ id, hygiene }) => [id, hygiene])) as Record<
@@ -771,6 +797,10 @@ export function EfaGuardPanel({
       ...current,
       [guardId]: [...(current[guardId] ?? []).filter((item) => item.id !== period.id), period],
     }));
+  }
+
+  function confirmArrival(guardId: string, arrival: MobileArrivalView) {
+    setArrivalsByGuard((current) => mergeArrivalSnapshots(current, { [guardId]: [arrival] }));
   }
 
   async function runAction(action: () => Promise<unknown>, success: string): Promise<boolean> {
@@ -799,11 +829,25 @@ export function EfaGuardPanel({
   activeGuardRef.current = openOwnGuard;
   const serverFunctionsRef = useRef({ updateBases, listGuards, listArrivals });
   serverFunctionsRef.current = { updateBases, listGuards, listArrivals };
-  const activeWorkspace = useMemo(() => {
-    if (!openOwnGuard) return null;
-    const guardId = openOwnGuard.id;
+  const [activeWorkspace, setActiveWorkspace] = useState<ReturnType<
+    typeof createEfaGuardMobileWorkspace<GuardBase, GuardView, MobileArrivalView>
+  > | null>(null);
+  const [workspaceSnapshot, setWorkspaceSnapshot] = useState<{
+    guardId: string;
+    snapshot: EfaGuardMobileWorkspaceSnapshot<GuardView, GuardBase>;
+  } | null>(null);
+
+  useEffect(() => {
+    const guard = activeGuardRef.current;
+    if (!guard) {
+      setActiveWorkspace(null);
+      setWorkspaceSnapshot(null);
+      return;
+    }
+    const guardId = guard.id;
+    // Each effect setup owns a fresh coordinator, including StrictMode's replay.
     const workspace = createEfaGuardMobileWorkspace<GuardBase, GuardView, MobileArrivalView>({
-      initialGuard: openOwnGuard,
+      initialGuard: guard,
       writeMembership: (input) =>
         serverFunctionsRef.current.updateBases({ data: input }) as Promise<GuardView>,
       readGuard: async (id) => {
@@ -828,31 +872,19 @@ export function EfaGuardPanel({
         );
       },
       onArrivalsConfirmed: (id, nextArrivals) => {
-        setArrivalsByGuard((current) => ({ ...current, [id]: nextArrivals }));
+        setArrivalsByGuard((current) => mergeArrivalSnapshots(current, { [id]: nextArrivals }));
       },
     });
-    return workspace;
-  }, [openOwnGuard?.id, currentUserId, canWrite, queryClient]);
-  const [workspaceSnapshot, setWorkspaceSnapshot] = useState<{
-    guardId: string;
-    snapshot: EfaGuardMobileWorkspaceSnapshot<GuardView, GuardBase>;
-  } | null>(null);
-
-  useEffect(() => {
-    if (!activeWorkspace || !openOwnGuard) {
-      setWorkspaceSnapshot(null);
-      return;
-    }
-    const guardId = openOwnGuard.id;
+    setActiveWorkspace(workspace);
     const updateSnapshot = () =>
-      setWorkspaceSnapshot({ guardId, snapshot: activeWorkspace.getSnapshot() });
+      setWorkspaceSnapshot({ guardId, snapshot: workspace.getSnapshot() });
     updateSnapshot();
-    const unsubscribe = activeWorkspace.subscribe(updateSnapshot);
+    const unsubscribe = workspace.subscribe(updateSnapshot);
     return () => {
       unsubscribe();
-      activeWorkspace.dispose();
+      workspace.dispose();
     };
-  }, [activeWorkspace, openOwnGuard?.id]);
+  }, [openOwnGuard?.id, currentUserId, canWrite, queryClient]);
 
   const activeWorkspaceState =
     workspaceSnapshot && workspaceSnapshot.guardId === openOwnGuard?.id
@@ -1049,17 +1081,7 @@ export function EfaGuardPanel({
                     hygienePeriods={hygieneByGuard[openOwnGuard.id] ?? []}
                     onHygieneChange={(period) => upsertHygiene(openOwnGuard.id, period)}
                     canWrite={canWrite}
-                    onArrivalsChange={(arrival) =>
-                      setArrivalsByGuard((current) => ({
-                        ...current,
-                        [openOwnGuard.id]: [
-                          ...(current[openOwnGuard.id] ?? []).filter(
-                            (item) => item.id !== arrival.id,
-                          ),
-                          arrival,
-                        ],
-                      }))
-                    }
+                    onArrivalsChange={(arrival) => confirmArrival(openOwnGuard.id, arrival)}
                   />
                 </div>
               </section>
@@ -1218,15 +1240,7 @@ export function EfaGuardPanel({
                         hygienePeriods={hygieneByGuard[guard.id] ?? []}
                         onHygieneChange={(period) => upsertHygiene(guard.id, period)}
                         canWrite={canWrite && guard.ownerUserId === currentUserId && !guard.endedAt}
-                        onArrivalsChange={(arrival) =>
-                          setArrivalsByGuard((current) => ({
-                            ...current,
-                            [guard.id]: [
-                              ...(current[guard.id] ?? []).filter((item) => item.id !== arrival.id),
-                              arrival,
-                            ],
-                          }))
-                        }
+                        onArrivalsChange={(arrival) => confirmArrival(guard.id, arrival)}
                       />
                     )}
                     <ObservedStaffingPanel

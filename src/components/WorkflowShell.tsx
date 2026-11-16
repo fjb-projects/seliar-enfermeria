@@ -12,9 +12,10 @@ const contentWidths: Record<WorkflowContentWidth, string> = {
 /**
  * "gradient" paints the workflow gradient behind the whole page. "calm" keeps it on phones only:
  * from `md` the page is the plain theme background, with a decorative blurred logo behind the
- * content and the gradient left to the area's own sidebar.
+ * content and the gradient left to the area's own sidebar. "neutral" uses the plain theme
+ * background at every breakpoint without decorative artwork.
  */
-export type WorkflowSurface = "gradient" | "calm";
+export type WorkflowSurface = "gradient" | "calm" | "neutral" | "santafe-focus";
 
 const mainMotion =
   "min-h-screen pb-24 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-300 motion-reduce:animate-none md:pb-0";
@@ -24,6 +25,7 @@ type WorkflowShellProps = {
   contentWidth?: WorkflowContentWidth;
   header: ReactNode;
   surface?: WorkflowSurface;
+  compactLayout?: boolean;
 };
 
 /**
@@ -57,15 +59,22 @@ export function WorkflowShell({
   contentWidth = "wide",
   header,
   surface = "gradient",
+  compactLayout = false,
 }: WorkflowShellProps) {
   const calm = surface === "calm";
+  const background =
+    surface === "neutral" || surface === "santafe-focus"
+      ? `${surface === "neutral" ? "bg-background" : "bg-santafe-focus"} text-foreground [&_button.bg-indigo-400]:bg-background [&_a.bg-indigo-400]:bg-background [&_button.bg-indigo-400]:shadow-none [&_a.bg-indigo-400]:shadow-none`
+      : calm
+        ? "workflow-background-mobile-only relative"
+        : "workflow-background";
   return (
-    <main
-      className={`${calm ? "workflow-background-mobile-only relative" : "workflow-background"} ${mainMotion}`}
-    >
+    <main className={`${background} ${mainMotion}${compactLayout ? " md:min-h-0" : ""}`}>
       {calm && <CalmBackdrop />}
       {header}
-      <div className={`mx-auto w-full ${contentWidths[contentWidth]} px-4 pt-4 sm:px-6 sm:pt-6`}>
+      <div
+        className={`mx-auto w-full ${compactLayout ? "max-w-none px-0 pt-0" : `${contentWidths[contentWidth]} px-4 pt-4 sm:px-6 sm:pt-6`}`}
+      >
         {children}
       </div>
     </main>

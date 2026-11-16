@@ -10,6 +10,8 @@ import {
   observationEffectiveContextKind,
   observationFormDefaults,
   observationFrozenOperationMatches,
+  groupObservationCatalog,
+  observationDraftDirty,
   observationSelectionFitsLock,
   observationShowsContextPickers,
   observationFeedbackNeedsGlobalFallback,
@@ -347,5 +349,62 @@ describe("EfaObservationPanel", () => {
       "Registrar es opcional; la ausencia de registros no evalúa a ninguna persona.",
     );
     expect(html).not.toContain("Guardar observación");
+  });
+
+  describe("groupObservationCatalog", () => {
+    const items = [
+      { key: "a", group: "phone" as const },
+      { key: "b", group: "radio" as const },
+      { key: "c", group: "phone" as const },
+    ];
+
+    it("follows the given group order, keeps item order and drops empty groups", () => {
+      expect(
+        groupObservationCatalog(items, ["radio", "record", "phone"] as const).map((entry) => [
+          entry.group,
+          entry.items.map((item) => item.key),
+        ]),
+      ).toEqual([
+        ["radio", ["b"]],
+        ["phone", ["a", "c"]],
+      ]);
+    });
+
+    it("returns nothing for an empty catalog", () => {
+      expect(groupObservationCatalog([], ["phone"] as const)).toEqual([]);
+    });
+  });
+
+  describe("observationDraftDirty", () => {
+    const conduct = {
+      catalogItemKey: "",
+      classification: "adequate" as const,
+      otherDescription: "",
+      comment: "",
+      observedAt: "",
+    };
+    const participation = { level: "" as const, comment: "", observedAt: "" };
+
+    it("is false for untouched drafts, so switching context discards nothing", () => {
+      expect(observationDraftDirty(conduct, participation)).toBe(false);
+      expect(
+        observationDraftDirty({ ...conduct, comment: "   ", otherDescription: " " }, participation),
+      ).toBe(false);
+    });
+
+    it("is true as soon as the conduct or participation draft holds something", () => {
+      expect(observationDraftDirty({ ...conduct, catalogItemKey: "k" }, participation)).toBe(true);
+      expect(observationDraftDirty({ ...conduct, comment: "x" }, participation)).toBe(true);
+      expect(
+        observationDraftDirty({ ...conduct, observedAt: "2026-01-01T10:00" }, participation),
+      ).toBe(true);
+      expect(
+        observationDraftDirty({ ...conduct, classification: "needs_improvement" }, participation),
+      ).toBe(true);
+      expect(observationDraftDirty(conduct, { ...participation, comment: "x" })).toBe(true);
+      expect(
+        observationDraftDirty(conduct, { ...participation, observedAt: "2026-01-01T10:00" }),
+      ).toBe(true);
+    });
   });
 });

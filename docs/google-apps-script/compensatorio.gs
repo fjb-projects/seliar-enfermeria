@@ -252,3 +252,127 @@ function jsonResponse(body) {
     ContentService.MimeType.JSON,
   );
 }
+
+/**
+ * Run manually from the Apps Script editor under the authorized Form owner.
+ * This is not a web endpoint. It reads responses and creates one private JSON file;
+ * it does not modify the Form, submit responses, send mail, or import anything.
+ */
+function exportCompensatorioResponsesToJson() {
+  const form = FormApp.openById(FORM_ID);
+  const responses = form.getResponses().map(compensatorioExportResponse_);
+  const exportedAt = new Date().toISOString();
+  const payload = {
+    schemaVersion: 1,
+    exportedAt,
+    source: {
+      kind: "google-forms",
+      formId: FORM_ID,
+      scriptTimeZone: Session.getScriptTimeZone(),
+    },
+    responseCount: responses.length,
+    responses,
+  };
+  const content = JSON.stringify(payload, null, 2);
+  if (Utilities.newBlob(content, "application/json").getBytes().length > 10000000) {
+    throw new Error(
+      "Export exceeds 10 MB. No file was created; a reviewed batch export is required.",
+    );
+  }
+
+  const fileName = `compensatorio-responses-${exportedAt.replace(/[:.]/g, "-")}.json`;
+  // Create an empty file first: no response data is written until sharing is checked.
+  const file = DriveApp.createFile(fileName, "", "application/json");
+  try {
+    file.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE);
+    if (file.getSharingAccess() !== DriveApp.Access.PRIVATE) {
+      throw new Error("Private sharing could not be verified.");
+    }
+    file.setContent(content);
+    const summary = {
+      fileId: file.getId(),
+      fileUrl: file.getUrl(),
+      responseCount: responses.length,
+      recordsWithIssues: responses.filter(
+        (response) =>
+          response.missingFields.length ||
+          response.duplicateFields.length ||
+          response.unmappedItemIds.length,
+      ).length,
+    };
+    // Only operator metadata is logged, never names, emails, answers, or secrets.
+    console.log(JSON.stringify(summary));
+    return summary;
+  } catch (error) {
+    try {
+      file.setTrashed(true);
+    } catch (cleanupError) {
+      throw new Error(
+        "Export failed. Could not discard the new file; inspect and discard it manually in Drive.",
+      );
+    }
+    throw new Error(
+      "Export failed. The new file was moved to trash; no Form responses were changed.",
+    );
+  }
+}
+
+function compensatorioExportResponse_(response) {
+  const responseId = response.getId();
+  if (typeof responseId !== "string" || !responseId.trim()) {
+    throw new Error("A response is missing its submitted response ID. No export was created.");
+  }
+  const timestamp = response.getTimestamp();
+  if (
+    Object.prototype.toString.call(timestamp) !== "[object Date]" ||
+    !isFinite(timestamp.getTime())
+  ) {
+    throw new Error("A response has an invalid submission timestamp. No export was created.");
+  }
+
+  const fields = Object.keys(ITEM_IDS);
+  const answers = [];
+  const unmappedItemIds = [];
+  response.getItemResponses().forEach((itemResponse) => {
+    const item = itemResponse.getItem();
+    const itemId = String(item.getId());
+    const field =
+      fields.find((key) => String(ITEM_IDS[key]) === itemId) ||
+      (item.getTitle().trim().toLowerCase() === EMAIL_ITEM_TITLE.toLowerCase()
+        ? "requesterEmail"
+        : null);
+    if (!field) {
+      // Unknown questions need mapping review; do not export unrelated personal data.
+      unmappedItemIds.push(itemId);
+      return;
+    }
+    answers.push({
+      field,
+      itemId,
+      itemType: String(item.getType()),
+      value: compensatorioExportValue_(itemResponse.getResponse()),
+    });
+  });
+
+  return {
+    responseId,
+    submittedAt: timestamp.toISOString(),
+    answers,
+    missingFields: fields.filter((field) => !answers.some((answer) => answer.field === field)),
+    duplicateFields: fields.filter(
+      (field) => answers.filter((answer) => answer.field === field).length > 1,
+    ),
+    unmappedItemIds,
+  };
+}
+
+function compensatorioExportValue_(value) {
+  if (value == null || typeof value === "string" || typeof value === "boolean")
+    return value == null ? null : value;
+  if (typeof value === "number" && isFinite(value)) return value;
+  if (Array.isArray(value)) return value.map(compensatorioExportValue_);
+  if (Object.prototype.toString.call(value) === "[object Date]" && isFinite(value.getTime())) {
+    return { kind: "date", iso: value.toISOString() };
+  }
+  throw new Error("An answer has an unsupported value type. No export was created.");
+}

@@ -2,7 +2,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { WorkflowShell } from "./WorkflowShell";
 
-const render = (contentWidth?: "narrow" | "wide" | "full", surface?: "gradient" | "calm") =>
+const render = (
+  contentWidth?: "narrow" | "wide" | "full",
+  surface?: "gradient" | "calm" | "neutral" | "santafe-focus",
+) =>
   renderToStaticMarkup(
     <WorkflowShell
       header={<header>Cabecera</header>}
@@ -14,6 +17,22 @@ const render = (contentWidth?: "narrow" | "wide" | "full", surface?: "gradient" 
   );
 
 describe("workflow shell", () => {
+  it("offers a neutral working surface at every breakpoint without changing existing defaults", () => {
+    const html = render("wide", "neutral");
+    expect(html).toContain('<main class="bg-background text-foreground');
+    expect(html).not.toContain("workflow-background");
+    expect(html).not.toContain("mix-blend-multiply");
+    expect(html).toContain("Cabecera");
+    expect(render()).toContain("workflow-background");
+  });
+
+  it("opts into the Santa Fe focus background without changing the neutral surface", () => {
+    expect(render("wide", "santafe-focus")).toContain(
+      '<main class="bg-santafe-focus text-foreground',
+    );
+    expect(render("wide", "neutral")).toContain('<main class="bg-background text-foreground');
+  });
+
   it("keeps the wide centered column by default", () => {
     expect(render()).toContain(
       '<div class="mx-auto w-full max-w-5xl px-4 pt-4 sm:px-6 sm:pt-6"><p>Contenido</p></div>',
@@ -48,5 +67,15 @@ describe("workflow shell", () => {
     expect(html).toContain("mix-blend-multiply");
     expect(html.indexOf("<img")).toBeLessThan(html.indexOf("<header>"));
     expect(html).toContain("Contenido");
+  });
+
+  it("supports a full-bleed content wrapper only when explicitly requested", () => {
+    const compact = renderToStaticMarkup(
+      <WorkflowShell header={<header>Cabecera</header>} compactLayout>
+        <p>Contenido</p>
+      </WorkflowShell>,
+    );
+    expect(compact).toContain('<div class="mx-auto w-full max-w-none px-0 pt-0">');
+    expect(render()).toContain('class="mx-auto w-full max-w-5xl px-4 pt-4 sm:px-6 sm:pt-6"');
   });
 });

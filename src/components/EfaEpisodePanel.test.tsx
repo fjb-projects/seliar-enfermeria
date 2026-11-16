@@ -1,4 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server";
+import { readFileSync } from "node:fs";
 import type { ComponentProps } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { createSaveSnapshot, shouldAutosave } from "@/lib/efa-autosave";
@@ -11,6 +12,7 @@ import {
   episodeEditorPendingStatus,
   episodeFieldsEditable,
   episodeFormDirty,
+  selectActiveSelectorEpisodes,
   episodeFormTitle,
   episodeSaveStatus,
   mergeConfirmedEpisode,
@@ -116,6 +118,69 @@ const episode: EpisodeView = {
 };
 
 describe("EfaEpisodePanel", () => {
+  it("keeps nested neutral surfaces legible inside the dark glass without overriding form fields", () => {
+    const css = readFileSync("src/styles.css", "utf8");
+    expect(css).toContain(
+      '.card-focus :is(.bg-background, .bg-card, .bg-muted, [class~="bg-muted/50"], [class~="bg-muted/30"]):not(input, textarea, select)',
+    );
+    expect(css).toContain("background-color: rgb(12 15 40 / .92)");
+    expect(css).toContain(".card-focus .text-foreground { color: #f2f3ff; }");
+  });
+
+  it("uses the requested glass surfaces without changing the guard navigation", () => {
+    const html = renderToStaticMarkup(
+      <EfaEpisodePanel
+        initialEpisodes={[]}
+        initialNotices={[]}
+        openOwnGuard={{ id: "guard-1", startedAt: "2026-10-06T09:00:00Z", endedAt: null }}
+        currentUserId="owner"
+        canWrite
+        isAdmin={false}
+      />,
+    );
+    expect(html.match(/\bcard-focus\b/g)?.length).toBeGreaterThanOrEqual(3);
+    // The way back to the guard now lives in the account navigation, not in a banner.
+    expect(html).not.toContain("Volver a mi guardia EFA");
+    expect(html).toContain("Nuevo servicio");
+    expect(html).toContain("Servicios de esta guardia");
+  });
+
+  it("offers one actionable no-guard state without repeating empty service sections", () => {
+    const html = renderToStaticMarkup(
+      <EfaEpisodePanel
+        initialEpisodes={[]}
+        initialNotices={[]}
+        openOwnGuard={null}
+        currentUserId="owner"
+        canWrite
+        isAdmin={false}
+      />,
+    );
+    expect(html).toContain("No hay una guardia abierta");
+    expect(html).toContain("Ir a mi guardia EFA");
+    expect(html.match(/href="\/guardia-efa"/g)).toHaveLength(1);
+    expect(html).not.toContain("Para registrar un servicio, abre primero");
+    expect(html).not.toContain("No hay una guardia EFA abierta para mostrar servicios");
+    expect(html).not.toContain("Servicios de esta guardia");
+  });
+
+  it("keeps the guard scope and persistence notes out of the page flow", () => {
+    const html = renderToStaticMarkup(
+      <EfaEpisodePanel
+        initialEpisodes={[]}
+        initialNotices={[]}
+        openOwnGuard={{ id: "guard-1", startedAt: "2026-10-06T09:00:00Z", endedAt: null }}
+        currentUserId="owner"
+        canWrite
+        isAdmin={false}
+      />,
+    );
+    // They are read on demand from the info control in the title row (see EfaGuardInfo).
+    expect(html).not.toContain("Guardia propia abierta desde");
+    expect(html).not.toContain("IndexedDB");
+    expect(html).not.toContain("Guardado y privacidad");
+  });
+
   it("reserves a pending submit while the helper chunk loads and sends only one operation", async () => {
     const gate = createEpisodeSubmissionGate();
     let resolveHelpers!: (value: {
@@ -228,8 +293,8 @@ describe("EfaEpisodePanel", () => {
     expect(html).toContain("Activo");
     expect(html).toContain("Solo lectura");
     expect(html).toContain("Servicios de esta guardia");
-    expect(html).toMatch(/Guardia abierta[\s\S]*?06:00[\s\S]*?solo servicios de esta guardia/);
-    expect(html.match(/solo servicios de esta guardia/g)).toHaveLength(1);
+    expect(html).not.toContain("Guardia propia abierta desde");
+    expect(html).not.toContain("Solo se muestran servicios de la guardia abierta");
     expect(html).not.toContain("Historial de episodios");
     expect(html).toContain("Abrir área");
     expect(html).not.toContain("Guardar borrador");
@@ -272,9 +337,6 @@ describe("EfaEpisodePanel", () => {
     );
 
     expect(html).toContain("Preparando el almacenamiento local");
-    expect(html).toContain(
-      "Las operaciones enviadas, incluida la dirección, quedan guardadas en este dispositivo.",
-    );
     expect(html).toContain("Nuevo servicio");
     expect(html).not.toContain("Nuevo episodio");
     expect(html).toMatch(/id="episode-event-at"[^>]*disabled=""/);
@@ -313,51 +375,7 @@ describe("EfaEpisodePanel", () => {
     expect(render(null, true)).not.toContain("Registrar conducta sin servicio");
   });
 
-  it("drops the notice card and leads with a compact open-guard status line", () => {
-    const html = renderToStaticMarkup(
-      <EfaEpisodePanel
-        initialEpisodes={[]}
-        initialNotices={[]}
-        openOwnGuard={{ id: "guard-1", startedAt: "2026-10-06T17:05:00.000Z", endedAt: null }}
-        currentUserId="owner"
-        canWrite={true}
-        isAdmin={false}
-      />,
-    );
-
-    expect(html).not.toMatch(/>Servicios de la guardia</);
-    expect(html.match(/Servicios de (la|esta) guardia/g)).toEqual(["Servicios de esta guardia"]);
-    expect(html).not.toContain("Volver a mi guardia EFA");
-    expect(html).not.toContain("Información sobre la lista y los datos no enviados");
-    expect(html).not.toContain("Guardia propia abierta desde");
-    // Dismissible intro notice stays until it is closed.
-    expect(html).toContain('aria-label="Información sobre los servicios y el guardado"');
-    // 24 h Buenos Aires start time, in the live style of /guardia-efa.
-    expect(html).toMatch(/Guardia abierta[\s\S]*?14:05[\s\S]*?solo servicios de esta guardia/);
-    expect(html).not.toMatch(/0?2:05\s*(p\.|PM)/);
-    expect(html).toMatch(/bg-\[var\(--brand-orange\)\][^"]*motion-safe:animate-pulse/);
-    expect(html.indexOf("Guardia abierta")).toBeLessThan(html.indexOf("Servicios de esta guardia"));
-  });
-
-  it("states that nothing is listed without an open own guard", () => {
-    const html = renderToStaticMarkup(
-      <EfaEpisodePanel
-        initialEpisodes={[episode]}
-        initialNotices={[]}
-        openOwnGuard={null}
-        currentUserId="owner"
-        canWrite={true}
-        isAdmin={false}
-      />,
-    );
-
-    expect(html).toContain("Sin guardia abierta: no hay servicios para mostrar.");
-    expect(html).not.toContain("Guardia abierta");
-    expect(html).not.toContain("animate-pulse");
-    expect(html).not.toContain("Abrir área");
-  });
-
-  it("moves the local storage privacy note below the service list in plain language", () => {
+  it("keeps the local storage privacy note in plain language", () => {
     const html = renderToStaticMarkup(
       <EfaEpisodePanel
         initialEpisodes={[episode]}
@@ -372,7 +390,6 @@ describe("EfaEpisodePanel", () => {
       "Las operaciones enviadas, incluida la dirección, quedan guardadas en este dispositivo.",
     );
 
-    expect(note).toBeGreaterThan(html.indexOf("Servicios de esta guardia"));
     expect(note).toBeGreaterThan(html.indexOf("Avisos de corrección"));
     expect(html).not.toContain("IndexedDB");
     expect(html).toMatch(
@@ -402,24 +419,20 @@ describe("EfaEpisodePanel", () => {
     expect(html).not.toContain("Volver a mi guardia EFA");
     expect(html).not.toContain("Historial de episodios");
     expect(html).not.toContain("Área de trabajo abierta");
-    expect(html).toMatch(/<button(?=[^>]*bg-sky-50)[^>]*>[\s\S]*?Abrir área[\s\S]*?<\/button>/);
     expect(html).toMatch(
-      /<button(?=[^>]*bg-slate-100)[^>]*>[\s\S]*?Cerrar servicio[\s\S]*?<\/button>/,
+      /<button[^>]*aria-label="Abrir área de trabajo de [^"]+"[^>]*>[\s\S]*?Abrir área[\s\S]*?<\/button>/,
     );
-    const compactSummary = html.match(/<article[\s\S]*?<details/)?.[0] ?? "";
+    expect(html).toMatch(/<button[^>]*>[\s\S]*?Cerrar servicio[\s\S]*?<\/button>/);
+    const compactSummary = html.match(/<article[\s\S]*?<\/article>/)?.[0] ?? "";
     expect(compactSummary).toContain("Activo");
     expect(compactSummary).toContain("Servicio");
     expect(compactSummary).toContain("Hecho 6/10/2026, 06:30:00");
+    // Record details and secondary actions live in the menu next to "Cerrar servicio".
+    expect(compactSummary).toContain('aria-label="Más acciones y detalles del servicio"');
     expect(compactSummary).not.toContain("Capturado");
     expect(compactSummary).not.toContain("Ver historial");
     expect(compactSummary).not.toContain("Editar");
-    const details = html.match(
-      /<details[^>]*>[\s\S]*?<summary[^>]*>[\s\S]*?Ver detalles[\s\S]*?<\/summary>([\s\S]*?)<\/details>/,
-    )?.[1];
-    expect(details).toBeDefined();
-    expect(details).toContain("Ver historial");
-    expect(details).toContain("Editar");
-    expect(details).toContain("versión 1");
+    expect(html).not.toContain("Ver detalles");
     expect(html).not.toContain("foreign");
     expect(html.indexOf("Activo")).toBeLessThan(html.indexOf("Cerrado"));
     expect(html).toContain("Hecho 6/10/2026, 06:30:00");
@@ -498,7 +511,7 @@ describe("EfaEpisodePanel", () => {
       />,
     );
 
-    expect(html).toContain("Ver historial");
+    expect(html).toContain('aria-label="Más acciones y detalles del servicio"');
     expect(html).not.toContain("Resumen del servicio");
     expect(html).not.toContain("Historial y versiones");
     expect(html).not.toContain("Antes");
@@ -527,14 +540,45 @@ describe("EfaEpisodePanel", () => {
       />,
     );
     expect(html).toContain("Anulado · Cerrado");
-    const compactSummary = html.match(/<article[\s\S]*?<details/)?.[0] ?? "";
-    expect(compactSummary).not.toContain("Reactivar episodio");
-    const details = html.match(
-      /<details[^>]*>[\s\S]*?<summary[^>]*>[\s\S]*?Ver detalles[\s\S]*?<\/summary>([\s\S]*?)<\/details>/,
-    )?.[1];
-    expect(details).toContain("Reactivar episodio");
-    expect(details).toContain("Capturado");
+    const article = html.match(/<article[\s\S]*?<\/article>/)?.[0] ?? "";
+    expect(article).toContain('aria-label="Más acciones y detalles del servicio"');
+    expect(article).not.toContain("Reactivar episodio");
     expect(html).not.toContain("Editar episodio");
+  });
+});
+
+describe("active service selector integration", () => {
+  it("filters only the rail without removing closed/cancelled guard history", () => {
+    const records = [
+      {
+        id: "active",
+        originGuardId: "guard",
+        state: "draft" as const,
+        eventAt: "2026-11-13T10:00:00Z",
+      },
+      {
+        id: "closed",
+        originGuardId: "guard",
+        state: "closed" as const,
+        eventAt: "2026-11-13T10:00:00Z",
+      },
+      {
+        id: "cancelled",
+        originGuardId: "guard",
+        state: "draft" as const,
+        cancelledAt: "2026-11-13T11:00:00Z",
+        eventAt: "2026-11-13T10:00:00Z",
+      },
+      {
+        id: "foreign",
+        originGuardId: "other",
+        state: "draft" as const,
+        eventAt: "2026-11-13T10:00:00Z",
+      },
+    ];
+    expect(selectActiveSelectorEpisodes(records, "guard").map((row) => row.id)).toEqual(["active"]);
+    expect(records).toHaveLength(4);
+    expect(selectActiveSelectorEpisodes(records, null)).toEqual([]);
   });
 });
 

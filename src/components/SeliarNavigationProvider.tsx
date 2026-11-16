@@ -127,6 +127,8 @@ export function SeliarNavigationProvider({ children }: { children: ReactNode }) 
           "/guardia-efa",
           "/episodios-efa",
           "/coordinacion-efa",
+          "/coordinacion",
+          "/coordinacion/compensatorios",
         ].includes(pathname)
       ) {
         const returnTo = safePrivateReturnPath(pathname);

@@ -19,6 +19,7 @@ import {
   communicationFinalizeConfirmation,
   shouldContinueToDispatches,
   EfaCommunicationStepper,
+  EfaCommunicationPanel,
   resolveCommunicationRestore,
   communicationAutosaveConditions,
   shouldCreateDraftOnNext,
@@ -31,11 +32,29 @@ import {
   communicationHeldStatus,
   type CommunicationFormValue,
 } from "./EfaCommunicationStepper";
+import { createEfaServiceMetadataStore } from "@/lib/efa-service-metadata";
 import { EfaAutosaveStatus } from "./EfaAutosaveStatus";
 import { createSaveSnapshot, shouldAutosave } from "@/lib/efa-autosave";
 import type { CommunicationQueueEntry } from "@/lib/efa-communications.queue";
 
 describe("EfaCommunicationStepper", () => {
+  it("preserves the editor defaults with an optional route metadata store", () => {
+    const props = {
+      episodeId: "episode-1",
+      episodeLabel: "Turno 1",
+      currentUserId: "owner-1",
+      canWrite: true,
+      episodeCanEdit: true,
+    };
+    expect(
+      renderToStaticMarkup(
+        <EfaCommunicationPanel
+          {...props}
+          serviceMetadata={createEfaServiceMetadataStore("owner-1")}
+        />,
+      ),
+    ).toBe(renderToStaticMarkup(<EfaCommunicationPanel {...props} />));
+  });
   it("keeps unresolved and optional fields neutral until they are observed or explicitly reviewed", () => {
     expect(
       communicationStepResolution({
@@ -208,11 +227,11 @@ describe("EfaCommunicationStepper", () => {
     expect(html).toContain("Paso anterior");
     expect(html).not.toContain("Siguiente");
     expect(html).not.toContain('disabled=""');
-    expect(html).toContain("border-input");
-    expect(html).not.toContain("bg-indigo");
+    expect(html).toContain("border-white/25");
+    expect(html).not.toContain("bg-[#a9b2ff]");
   });
 
-  it("uses the same neutral outline for previous and next on middle steps", () => {
+  it("keeps previous neutral and gives next its own color on middle steps", () => {
     const html = renderToStaticMarkup(
       <EfaCommunicationStepper
         step={2}
@@ -224,11 +243,11 @@ describe("EfaCommunicationStepper", () => {
     );
     const buttons = html.match(/<button[^>]*aria-label="(Paso anterior|Siguiente paso)"[^>]*>/g);
     expect(buttons).toHaveLength(2);
-    expect(buttons?.every((tag) => tag.includes("border-input"))).toBe(true);
-    expect(buttons?.some((tag) => tag.includes("bg-primary") || tag.includes("bg-indigo"))).toBe(
-      false,
-    );
-    expect(buttons?.every((tag) => tag.includes("bg-background"))).toBe(true);
+    const previous = buttons?.find((tag) => tag.includes("Paso anterior"));
+    const next = buttons?.find((tag) => tag.includes("Siguiente paso"));
+    expect(previous).toContain("border-white/25");
+    expect(previous).not.toContain("bg-[#a9b2ff]");
+    expect(next).toContain("bg-[#a9b2ff]");
   });
 
   it("summarizes the review with the call type and human dates in Buenos Aires time", () => {
@@ -382,9 +401,9 @@ describe("EfaCommunicationStepper", () => {
       expect(html).toContain("Finalizar llamada");
       expect(html).toContain("Finalizar y pasar a Despachos");
       expect(html).not.toContain("Guardar llamada");
-      expect(html).toContain("bg-slate-");
-      expect(html).toContain("bg-emerald-");
-      expect(html).toContain("bg-orange-");
+      expect(html).toContain("bg-[var(--brand-orange)]");
+      expect(html).toContain("bg-[#7fe3d6]/15");
+      expect(html).toContain("bg-[#a9b2ff]");
       expect(html).toContain("min-h-11");
       expect(html).toContain("flex-col");
       expect(html.indexOf("Guardar borrador")).toBeLessThan(html.indexOf("Finalizar llamada"));

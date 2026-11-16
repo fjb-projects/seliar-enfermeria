@@ -1,8 +1,16 @@
 import { sql } from "drizzle-orm";
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
+import type {
+  StaffAuditRecord,
+  StaffAuditState,
+  StaffRecord,
+} from "../lib/compensatory-bank.server";
+import type { CompensatoryJsonValue } from "../lib/compensatory-lifecycle.server";
 import {
   boolean,
   check,
   foreignKey,
+  index,
   integer,
   jsonb,
   pgEnum,
@@ -10,8 +18,8 @@ import {
   primaryKey,
   text,
   timestamp as timestampColumn,
-  unique,
   uniqueIndex,
+  unique,
   uuid,
 } from "drizzle-orm/pg-core";
 
@@ -429,6 +437,546 @@ export const efaMobileArrivalAudit = pgTable(
     check(
       "efa_mobile_arrival_audit_state_valid",
       sql`jsonb_typeof(${table.afterState}) = 'object' and (${table.beforeState} is null or jsonb_typeof(${table.beforeState}) = 'object') and (${table.afterState} - 'arrivedAt' - 'deletedAt') = '{}'::jsonb and (${table.beforeState} is null or (${table.beforeState} - 'arrivedAt' - 'deletedAt') = '{}'::jsonb)`,
+    ),
+  ],
+);
+
+export const compensatoryStaff = pgTable(
+  "compensatory_staff",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    dni: text("dni").notNull(),
+    name: text("name").notNull(),
+    email: text("email"),
+    registrationNumber: text("registration_number"),
+    employmentStatus: text("employment_status"),
+    jobRole: text("job_role"),
+    region: text("region"),
+    contactPhone: text("contact_phone"),
+    workplace: text("workplace"),
+    operationalStatus: text("operational_status"),
+    operationalRole: text("operational_role"),
+    isActive: boolean("is_active").notNull().default(true),
+    monthlyLimitMinutes: integer("monthly_limit_minutes").notNull().default(1440),
+    version: integer("version").notNull().default(1),
+    balanceMinutes: integer("balance_minutes").notNull().default(0),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => [
+    unique("compensatory_staff_dni_unique").on(table.dni),
+    check("compensatory_staff_dni_canonical", sql`${table.dni} ~ '^[0-9]{7,8}$'`),
+    check(
+      "compensatory_staff_name_valid",
+      sql`char_length(btrim(${table.name})) between 1 and 160`,
+    ),
+    check("compensatory_staff_monthly_limit_positive", sql`${table.monthlyLimitMinutes} > 0`),
+    check("compensatory_staff_version_positive", sql`${table.version} > 0`),
+    check("compensatory_staff_balance_nonnegative", sql`${table.balanceMinutes} >= 0`),
+  ],
+);
+
+export const compensatoryRequest = pgTable(
+  "compensatory_request",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    clientOperationId: uuid("client_operation_id").notNull(),
+    staffId: uuid("staff_id")
+      .notNull()
+      .references(() => compensatoryStaff.id, { onDelete: "restrict" }),
+    createdByUserId: text("created_by_user_id").references(() => user.id, { onDelete: "restrict" }),
+    submittedAt: text("submitted_at").notNull(),
+    requesterName: text("requester_name").notNull(),
+    requesterMobile: text("requester_mobile").notNull(),
+    compensatoryDate: text("compensatory_date").notNull(),
+    hours: text("hours").notNull(),
+    requesterEmail: text("requester_email"),
+    clientPayloadHash: text("client_payload_hash"),
+    requesterEmailVerifiedAt: timestampColumn("requester_email_verified_at"),
+    phase: text("phase").notNull().default("unclassified"),
+    submissionSource: text("submission_source").notNull().default("admin"),
+    version: integer("version").notNull().default(1),
+    requestedDate: text("requested_date"),
+    requestedMinutes: integer("requested_minutes"),
+    classifiedAt: timestamp("classified_at"),
+    classifiedByUserId: text("classified_by_user_id").references(() => user.id, {
+      onDelete: "restrict",
+    }),
+    decisionAt: timestamp("decision_at"),
+    decisionByUserId: text("decision_by_user_id").references(() => user.id, {
+      onDelete: "restrict",
+    }),
+    decisionReason: text("decision_reason"),
+    cancelledAt: timestamp("cancelled_at"),
+    cancellationByUserId: text("cancellation_by_user_id").references(() => user.id, {
+      onDelete: "restrict",
+    }),
+    cancellationReason: text("cancellation_reason"),
+    consumedAt: timestamp("consumed_at"),
+    consumptionLedgerId: uuid("consumption_ledger_id"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    unique("compensatory_request_operation_unique").on(
+      table.createdByUserId,
+      table.clientOperationId,
+    ),
+    uniqueIndex("compensatory_request_public_operation_unique")
+      .on(table.clientOperationId)
+      .where(sql`${table.submissionSource} = 'public'`),
+    check(
+      "compensatory_request_public_provenance_valid",
+      sql`(${table.submissionSource} = 'admin' and ${table.createdByUserId} is not null) or (${table.submissionSource} = 'public' and ${table.createdByUserId} is null and ${table.requesterEmail} is not null)`,
+    ),
+    check(
+      "compensatory_request_source_allowed",
+      sql`${table.submissionSource} in ('admin','public')`,
+    ),
+    check(
+      "compensatory_request_submitted_at_valid",
+      sql`char_length(btrim(${table.submittedAt})) between 1 and 500`,
+    ),
+    check(
+      "compensatory_request_requester_name_valid",
+      sql`char_length(btrim(${table.requesterName})) between 1 and 300`,
+    ),
+    check(
+      "compensatory_request_requester_mobile_valid",
+      sql`char_length(btrim(${table.requesterMobile})) between 1 and 300`,
+    ),
+    check(
+      "compensatory_request_date_valid",
+      sql`char_length(btrim(${table.compensatoryDate})) between 1 and 300`,
+    ),
+    check(
+      "compensatory_request_hours_valid",
+      sql`char_length(btrim(${table.hours})) between 1 and 100`,
+    ),
+    check(
+      "compensatory_request_phase_allowed",
+      sql`${table.phase} in ('unclassified','pending','approved','rejected','cancelled','consumed')`,
+    ),
+    check("compensatory_request_version_positive", sql`${table.version} > 0`),
+    check(
+      "compensatory_request_classification_pair",
+      sql`(${table.requestedDate} is null and ${table.requestedMinutes} is null and ${table.classifiedAt} is null and ${table.classifiedByUserId} is null) or (${table.requestedDate} ~ '^\\d{4}-\\d{2}-\\d{2}$' and ${table.requestedMinutes} > 0 and ${table.classifiedAt} is not null and ${table.classifiedByUserId} is not null) or (${table.submissionSource} = 'public' and ${table.requestedDate} ~ '^\\d{4}-\\d{2}-\\d{2}$' and ${table.requestedMinutes} > 0 and ${table.classifiedAt} is null and ${table.classifiedByUserId} is null)`,
+    ),
+    check(
+      "compensatory_request_consumed_pair",
+      sql`(${table.phase} = 'consumed') = (${table.consumedAt} is not null and ${table.consumptionLedgerId} is not null)`,
+    ),
+    index("compensatory_request_effective_due_idx")
+      .on(table.requestedDate, table.createdAt)
+      .where(sql`${table.phase} = 'approved'`),
+  ],
+);
+
+export const compensatoryRequestAudit = pgTable(
+  "compensatory_request_audit",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    requestId: uuid("request_id")
+      .notNull()
+      .references(() => compensatoryRequest.id, { onDelete: "restrict" }),
+    actorUserId: text("actor_user_id").references(() => user.id, { onDelete: "restrict" }),
+    actorName: text("actor_name").notNull(),
+    actorKind: text("actor_kind").notNull(),
+    action: text("action").notNull(),
+    occurredAt: timestamp("occurred_at").notNull().defaultNow(),
+    reason: text("reason").notNull(),
+    versionBefore: integer("version_before").notNull(),
+    versionAfter: integer("version_after").notNull(),
+    detail: jsonb("detail").$type<{ [key: string]: CompensatoryJsonValue }>().notNull().default({}),
+  },
+  (table) => [
+    check(
+      "compensatory_request_audit_actor_kind",
+      sql`(${table.actorKind} = 'admin' and ${table.actorUserId} is not null) or (${table.actorKind} = 'system' and ${table.actorUserId} is null)`,
+    ),
+    check(
+      "compensatory_request_audit_action_allowed",
+      sql`${table.action} in ('classified','approved','rejected','cancelled','consumed')`,
+    ),
+    check(
+      "compensatory_request_audit_phase_transition",
+      sql`${table.versionAfter} = ${table.versionBefore} + 1`,
+    ),
+    check(
+      "compensatory_request_audit_reason_valid",
+      sql`char_length(btrim(${table.reason})) between 1 and 1000`,
+    ),
+    unique("compensatory_request_audit_request_version_unique").on(
+      table.requestId,
+      table.versionAfter,
+    ),
+  ],
+);
+
+export const compensatoryDecisionNotification = pgTable(
+  "compensatory_decision_notification",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    requestId: uuid("request_id")
+      .notNull()
+      .references(() => compensatoryRequest.id, { onDelete: "restrict" }),
+    decisionVersion: integer("decision_version").notNull(),
+    decision: text("decision").notNull(),
+    recipientKind: text("recipient_kind").notNull(),
+    recipient: text("recipient"),
+    status: text("status").notNull(),
+    reason: text("reason").notNull(),
+    subject: text("subject").notNull(),
+    text: text("text").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    reviewedByUserId: text("reviewed_by_user_id").references(() => user.id, { onDelete: "restrict" }),
+    reviewedAt: timestamp("reviewed_at"),
+    idempotencyKey: text("idempotency_key"),
+    providerId: text("provider_id"),
+    lastAttemptAt: timestamp("last_attempt_at"),
+  },
+  (table) => [
+    check("compensatory_decision_notification_version_positive", sql`${table.decisionVersion} > 1`),
+    check(
+      "compensatory_decision_notification_decision_allowed",
+      sql`${table.decision} in ('approved','rejected')`,
+    ),
+    check(
+      "compensatory_decision_notification_recipient_kind_allowed",
+      sql`${table.recipientKind} in ('requester','admin')`,
+    ),
+    check(
+      "compensatory_decision_notification_status_allowed",
+      sql`${table.status} in ('pending_review','pending_recipient','pending_configuration','sending','uncertain','failed','accepted','delivered')`,
+    ),
+    check(
+      "compensatory_decision_notification_recipient_state_consistent",
+      sql`(${table.recipient} is null and ${table.status} = 'pending_recipient') or (${table.recipient} is not null and ${table.status} <> 'pending_recipient')`,
+    ),
+    check(
+      "compensatory_decision_notification_reason_valid",
+      sql`char_length(btrim(${table.reason})) between 1 and 1000`,
+    ),
+    unique("compensatory_decision_notification_request_decision_recipient_unique").on(
+      table.requestId,
+      table.decisionVersion,
+      table.recipientKind,
+    ),
+    index("compensatory_decision_notification_review_idx")
+      .on(table.status, table.createdAt),
+  ],
+);
+
+export const compensatoryDecisionNotificationAttempt = pgTable(
+  "compensatory_decision_notification_attempt",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    notificationId: uuid("notification_id").notNull().references(() => compensatoryDecisionNotification.id, { onDelete: "restrict" }),
+    actorUserId: text("actor_user_id").notNull().references(() => user.id, { onDelete: "restrict" }),
+    clientOperationId: uuid("client_operation_id").notNull(),
+    payloadHash: text("payload_hash").notNull(),
+    recipient: text("recipient").notNull(),
+    status: text("status").notNull(),
+    requestedAt: timestamp("requested_at").notNull().defaultNow(),
+    completedAt: timestamp("completed_at"),
+    providerId: text("provider_id"),
+  },
+  (table) => [
+    unique("compensatory_decision_notification_attempt_actor_operation_unique").on(table.actorUserId, table.clientOperationId),
+    check("compensatory_decision_notification_attempt_hash_valid", sql`${table.payloadHash} ~ '^[0-9a-f]{64}$'`),
+    check("compensatory_decision_notification_attempt_status_allowed", sql`${table.status} in ('sending','pending_configuration','failed','uncertain','accepted','delivered')`),
+    index("compensatory_decision_notification_attempt_notification_idx").on(table.notificationId, table.requestedAt),
+  ],
+);
+
+export const compensatoryCoverage = pgTable(
+  "compensatory_coverage",
+  {
+    requestId: uuid("request_id")
+      .primaryKey()
+      .references(() => compensatoryRequest.id, { onDelete: "restrict" }),
+    version: integer("version").notNull().default(0),
+    plannedStart: timestamp("planned_start"),
+    plannedEnd: timestamp("planned_end"),
+    status: text("status").notNull().default("pending"),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => [
+    check("compensatory_coverage_version_nonnegative", sql`${table.version} >= 0`),
+    check("compensatory_coverage_status_allowed", sql`${table.status} in ('pending','partial','confirmed')`),
+    check("compensatory_coverage_plan_pair", sql`(${table.plannedStart} is null and ${table.plannedEnd} is null and ${table.version} = 0) or (${table.plannedStart} is not null and ${table.plannedEnd} is not null and ${table.plannedEnd} > ${table.plannedStart})`),
+  ],
+);
+
+export const compensatoryCoverageAssignment = pgTable(
+  "compensatory_coverage_assignment",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    requestId: uuid("request_id").notNull().references(() => compensatoryCoverage.requestId, { onDelete: "cascade" }),
+    staffId: uuid("staff_id").notNull().references(() => compensatoryStaff.id, { onDelete: "restrict" }),
+    staffName: text("staff_name").notNull(),
+    start: timestamp("start").notNull(),
+    end: timestamp("end").notNull(),
+    confirmed: boolean("confirmed").notNull().default(false),
+    verificationMethod: text("verification_method"),
+  },
+  (table) => [
+    check("compensatory_coverage_assignment_interval", sql`${table.end} > ${table.start}`),
+    check("compensatory_coverage_assignment_verification", sql`not ${table.confirmed} or (${table.verificationMethod} is not null and char_length(btrim(${table.verificationMethod})) between 1 and 500)`),
+    index("compensatory_coverage_assignment_staff_interval_idx").on(table.staffId, table.start, table.end),
+    index("compensatory_coverage_assignment_request_interval_idx").on(table.requestId, table.start, table.end),
+  ],
+);
+
+export const compensatoryCoverageAudit = pgTable(
+  "compensatory_coverage_audit",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    requestId: uuid("request_id").notNull().references(() => compensatoryCoverage.requestId, { onDelete: "restrict" }),
+    version: integer("version").notNull(),
+    actorUserId: text("actor_user_id").notNull().references(() => user.id, { onDelete: "restrict" }),
+    actorName: text("actor_name").notNull(),
+    reason: text("reason").notNull(),
+    occurredAt: timestamp("occurred_at").notNull().defaultNow(),
+    before: jsonb("before").$type<{ [key: string]: CompensatoryJsonValue }>().notNull(),
+    after: jsonb("after").$type<{ [key: string]: CompensatoryJsonValue }>().notNull(),
+  },
+  (table) => [
+    unique("compensatory_coverage_audit_request_version_unique").on(table.requestId, table.version),
+    check("compensatory_coverage_audit_version_positive", sql`${table.version} > 0`),
+    check("compensatory_coverage_audit_reason_valid", sql`char_length(btrim(${table.reason})) between 1 and 1000`),
+  ],
+);
+
+export const compensatoryCoverageOperation = pgTable(
+  "compensatory_coverage_operation",
+  {
+    actorUserId: text("actor_user_id").notNull().references(() => user.id, { onDelete: "restrict" }),
+    requestId: uuid("request_id").notNull().references(() => compensatoryRequest.id, { onDelete: "restrict" }),
+    requestOperationId: uuid("request_operation_id").notNull(),
+    payloadHash: text("payload_hash").notNull(),
+    resultVersion: integer("result_version").notNull(),
+    result: jsonb("result").$type<{ [key: string]: CompensatoryJsonValue }>().notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.actorUserId, table.requestId, table.requestOperationId], name: "compensatory_coverage_operation_pk" }),
+    check("compensatory_coverage_operation_hash_valid", sql`${table.payloadHash} ~ '^[0-9a-f]{64}$'`),
+  ],
+);
+
+export const compensatoryLedger = pgTable(
+  "compensatory_ledger",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    staffId: uuid("staff_id")
+      .notNull()
+      .references(() => compensatoryStaff.id, { onDelete: "restrict" }),
+    kind: text("kind").notNull(),
+    minutes: integer("minutes").notNull(),
+    effectiveDate: text("effective_date").notNull(),
+    reason: text("reason").notNull(),
+    actorUserId: text("actor_user_id").references(() => user.id, { onDelete: "restrict" }),
+    actorName: text("actor_name").notNull(),
+    actorKind: text("actor_kind").notNull().default("admin"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    balanceBeforeMinutes: integer("balance_before_minutes").notNull(),
+    balanceAfterMinutes: integer("balance_after_minutes").notNull(),
+    reversesEntryId: uuid("reverses_entry_id").references(
+      (): AnyPgColumn => compensatoryLedger.id,
+      { onDelete: "restrict" },
+    ),
+    requestId: uuid("request_id").references(() => compensatoryRequest.id, {
+      onDelete: "restrict",
+    }),
+    compensatoryPeriodId: uuid("compensatory_period_id").references(
+      (): AnyPgColumn => compensatoryPeriod.id,
+      { onDelete: "restrict" },
+    ),
+    periodEffect: text("period_effect"),
+  },
+  (table) => [
+    check(
+      "compensatory_ledger_kind_allowed",
+      sql`${table.kind} in ('opening','credit','debit','reversal','request_consumption')`,
+    ),
+    check("compensatory_ledger_minutes_nonzero", sql`${table.minutes} <> 0`),
+    check("compensatory_ledger_date_valid", sql`${table.effectiveDate} ~ '^\\d{4}-\\d{2}-\\d{2}$'`),
+    check(
+      "compensatory_ledger_reason_valid",
+      sql`char_length(btrim(${table.reason})) between 1 and 1000`,
+    ),
+    check(
+      "compensatory_ledger_balance_nonnegative",
+      sql`${table.balanceBeforeMinutes} >= 0 and ${table.balanceAfterMinutes} >= 0`,
+    ),
+    check(
+      "compensatory_ledger_balance_delta",
+      sql`${table.balanceAfterMinutes} = ${table.balanceBeforeMinutes} + ${table.minutes}`,
+    ),
+    check(
+      "compensatory_ledger_kind_sign",
+      sql`(${table.kind} in ('opening','credit') and ${table.minutes} > 0 and ${table.reversesEntryId} is null and ${table.requestId} is null) or (${table.kind} = 'debit' and ${table.minutes} < 0 and ${table.reversesEntryId} is null and ${table.requestId} is null) or (${table.kind} = 'reversal' and ${table.reversesEntryId} is not null and ${table.requestId} is null) or (${table.kind} = 'request_consumption' and ${table.minutes} < 0 and ${table.requestId} is not null and ${table.reversesEntryId} is null)`,
+    ),
+    check(
+      "compensatory_ledger_actor_kind",
+      sql`(${table.actorKind} = 'admin' and ${table.actorUserId} is not null) or (${table.actorKind} = 'system' and ${table.actorUserId} is null)`,
+    ),
+    check(
+      "compensatory_ledger_period_effect_shape",
+      sql`(${table.compensatoryPeriodId} is null and ${table.periodEffect} is null) or (${table.compensatoryPeriodId} is not null and ${table.periodEffect} in ('record', 'reversal'))`,
+    ),
+    uniqueIndex("compensatory_ledger_reversal_once_unique")
+      .on(table.reversesEntryId)
+      .where(sql`${table.reversesEntryId} is not null`),
+    uniqueIndex("compensatory_ledger_opening_once_unique")
+      .on(table.staffId)
+      .where(sql`${table.kind} = 'opening'`),
+    uniqueIndex("compensatory_ledger_request_consumption_once_unique")
+      .on(table.requestId)
+      .where(sql`${table.requestId} is not null`),
+    uniqueIndex("compensatory_ledger_period_effect_unique")
+      .on(table.compensatoryPeriodId, table.periodEffect)
+      .where(sql`${table.compensatoryPeriodId} is not null`),
+  ],
+);
+
+export const compensatoryStaffAudit = pgTable(
+  "compensatory_staff_audit",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    staffId: uuid("staff_id")
+      .notNull()
+      .references(() => compensatoryStaff.id, { onDelete: "restrict" }),
+    actorUserId: text("actor_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    actorName: text("actor_name").notNull(),
+    operationId: uuid("operation_id").notNull(),
+    action: text("action").notNull(),
+    versionBefore: integer("version_before"),
+    versionAfter: integer("version_after").notNull(),
+    occurredAt: timestamp("occurred_at").notNull().defaultNow(),
+    reason: text("reason").notNull(),
+    beforeState: jsonb("before_state").$type<StaffAuditState | null>(),
+    afterState: jsonb("after_state").$type<StaffAuditState>().notNull(),
+  },
+  (table) => [
+    unique("compensatory_staff_audit_operation_unique").on(table.actorUserId, table.operationId),
+    unique("compensatory_staff_audit_version_unique").on(table.staffId, table.versionAfter),
+    check("compensatory_staff_audit_action_allowed", sql`${table.action} in ('created','updated')`),
+    check(
+      "compensatory_staff_audit_version_transition",
+      sql`(${table.versionBefore} is null and ${table.versionAfter} = 1) or (${table.versionBefore} > 0 and ${table.versionAfter} = ${table.versionBefore} + 1)`,
+    ),
+    check(
+      "compensatory_staff_audit_states_objects",
+      sql`jsonb_typeof(${table.afterState}) = 'object' and (${table.beforeState} is null or jsonb_typeof(${table.beforeState}) = 'object')`,
+    ),
+    check(
+      "compensatory_staff_audit_reason_valid",
+      sql`char_length(btrim(${table.reason})) between 1 and 1000`,
+    ),
+  ],
+);
+
+export const compensatoryStaffDeletionAudit = pgTable(
+  "compensatory_staff_deletion_audit",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    staffId: uuid("staff_id").notNull(),
+    staffSnapshot: jsonb("staff_snapshot").$type<StaffRecord>().notNull(),
+    priorAudits: jsonb("prior_audits").$type<StaffAuditRecord[]>().notNull(),
+    actorUserId: text("actor_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    actorName: text("actor_name").notNull(),
+    operationId: uuid("operation_id").notNull(),
+    occurredAt: timestamp("occurred_at").notNull().defaultNow(),
+    reason: text("reason").notNull(),
+  },
+  (table) => [
+    unique("compensatory_staff_deletion_operation_unique").on(table.actorUserId, table.operationId),
+    check(
+      "compensatory_staff_deletion_snapshot_valid",
+      sql`jsonb_typeof(${table.staffSnapshot}) = 'object' and jsonb_typeof(${table.priorAudits}) = 'array'`,
+    ),
+    check(
+      "compensatory_staff_deletion_reason_valid",
+      sql`char_length(btrim(${table.reason})) between 1 and 1000`,
+    ),
+  ],
+);
+
+export const compensatoryOperation = pgTable(
+  "compensatory_operation",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    actorUserId: text("actor_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    clientOperationId: uuid("client_operation_id").notNull(),
+    action: text("action").notNull(),
+    payloadHash: text("payload_hash").notNull(),
+    resultId: uuid("result_id").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    unique("compensatory_operation_actor_key_unique").on(
+      table.actorUserId,
+      table.clientOperationId,
+    ),
+    check("compensatory_operation_hash_sha256", sql`${table.payloadHash} ~ '^[0-9a-f]{64}$'`),
+  ],
+);
+
+export const compensatoryPeriod = pgTable(
+  "compensatory_period",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    staffId: uuid("staff_id")
+      .notNull()
+      .references(() => compensatoryStaff.id, { onDelete: "restrict" }),
+    year: integer("year").notNull(),
+    month: integer("month"),
+    periodKey: text("period_key").notNull(),
+    generatedMinutes: integer("generated_minutes"),
+    externalTakenMinutes: integer("external_taken_minutes"),
+    annualNetMinutes: integer("annual_net_minutes"),
+    effectiveDate: text("effective_date").notNull(),
+    reason: text("reason").notNull(),
+    actorUserId: text("actor_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    actorName: text("actor_name").notNull(),
+    operationId: uuid("operation_id").notNull(),
+    revision: integer("revision").notNull().default(1),
+    status: text("status").notNull().default("active"),
+    reversedAt: timestamp("reversed_at"),
+    reversedByUserId: text("reversed_by_user_id").references(() => user.id, { onDelete: "restrict" }),
+    reversedByName: text("reversed_by_name"),
+    reversalOperationId: uuid("reversal_operation_id"),
+    reversalReason: text("reversal_reason"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("compensatory_period_active_unique")
+      .on(table.staffId, table.year, table.periodKey)
+      .where(sql`${table.status} = 'active'`),
+    unique("compensatory_period_revision_unique").on(table.staffId, table.year, table.periodKey, table.revision),
+    unique("compensatory_period_operation_unique").on(table.actorUserId, table.operationId),
+    unique("compensatory_period_reversal_operation_unique").on(table.reversedByUserId, table.reversalOperationId),
+    check("compensatory_period_year_valid", sql`${table.year} between 2000 and 9999`),
+    check(
+      "compensatory_period_period_shape",
+      sql`(${table.month} is null and ${table.year} in (2024, 2025) and ${table.periodKey} = 'annual' and ${table.generatedMinutes} is null and ${table.externalTakenMinutes} is null and ${table.annualNetMinutes} is not null and ${table.annualNetMinutes} >= 0) or (${table.month} between 1 and 12 and ${table.periodKey} = lpad(${table.month}::text, 2, '0') and ${table.generatedMinutes} is not null and ${table.generatedMinutes} >= 0 and ${table.externalTakenMinutes} is not null and ${table.externalTakenMinutes} >= 0 and ${table.annualNetMinutes} is null)`,
+    ),
+    check("compensatory_period_reason_valid", sql`char_length(btrim(${table.reason})) between 1 and 1000`),
+    check("compensatory_period_date_valid", sql`${table.effectiveDate} ~ '^\\d{4}-\\d{2}-\\d{2}$'`),
+    check("compensatory_period_revision_positive", sql`${table.revision} > 0`),
+    check("compensatory_period_status_allowed", sql`${table.status} in ('active', 'reversed')`),
+    check(
+      "compensatory_period_status_shape",
+      sql`(${table.status} = 'active' and ${table.reversedAt} is null and ${table.reversedByUserId} is null and ${table.reversedByName} is null and ${table.reversalOperationId} is null and ${table.reversalReason} is null) or (${table.status} = 'reversed' and ${table.reversedAt} is not null and ${table.reversedByUserId} is not null and ${table.reversedByName} is not null and ${table.reversalOperationId} is not null and ${table.reversalReason} is not null)`,
     ),
   ],
 );

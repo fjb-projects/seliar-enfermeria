@@ -63,6 +63,64 @@ it never mutates the production Form settings per request. Refresh
 response is saved before the MailApp copy is sent; if email delivery fails, the
 saved request still succeeds and the browser shows a warning.
 
+### Manual private JSON export
+
+`exportCompensatorioResponsesToJson()` is a **manual operator action intended for
+the Apps Script editor**, not a new `doGet` or `doPost` endpoint. Preparing this code does not deploy it or
+authorize access to production responses.
+
+1. Obtain authorization for the specific Form, executing account, and export.
+2. Save the updated `compensatorio.gs` in its existing Apps Script project. Do not
+   run setup helpers, change the Form, or replace the existing web-app deployment
+   merely to export responses.
+3. Select **exportCompensatorioResponsesToJson** in the editor and run it manually.
+   Review the requested Forms and Drive permissions before authorizing execution.
+   Apps Script may detect the additional Drive scope from the saved source; verify
+   authorization/deployment effects with the owner before changing production code.
+4. The function creates a **new empty JSON file in the executing user's My Drive**,
+   makes it private, checks sharing, and only then writes response data. It logs
+   a private file URL, response count, and count of records needing mapping review.
+5. Download the JSON privately. Do not make the file public, commit it, paste its
+   contents into logs, or treat possession of its URL as permission to share it.
+
+Every run creates a new snapshot; it does not edit/delete responses, send mail,
+approve requests, change balances, or import into the application database.
+`doGet` remains a health check and `doPost` retains its existing submission behavior.
+
+The version-1 JSON contains `schemaVersion`, `exportedAt`, `source` (Form ID and
+script timezone), `responseCount`, and `responses`. Each record contains:
+
+- `responseId` and UTC `submittedAt`, to preserve source identity and submission time;
+- `answers`: entries with `field`, original `itemId`, `itemType`, and `value` for
+  name, explicit email, mobile, requested date, and hours;
+- `missingFields`, `duplicateFields`, and `unmappedItemIds`, for import reconciliation.
+
+Answer strings remain unchanged: `12,5` is not rounded, and an ambiguous date
+such as `10/11/2026` is not guessed. Native Date values, if returned, are encoded
+as `{ "kind": "date", "iso": "..." }`; arrays retain their structure. The future
+importer must validate values and timezone semantics, not assume all records are valid.
+Blank legacy values and duplicate mapped answers are retained. Unknown question
+values are excluded to minimize data exposure; their item IDs are reported for
+mapping review. The explicit email question is resolved by its known ID or title,
+not by respondent-email metadata. No edit-response links or secrets are exported.
+
+Missing response identity, invalid timestamps, unsupported value types, or a
+snapshot over 10 MB stop the export before file creation; no rows are silently
+truncated. A larger dataset requires a separately reviewed batch exporter.
+If sharing or writing fails, only the newly created file is moved to trash. If
+cleanup also fails, the function reports that manual inspection is required.
+Do not trust or share an incomplete file. Original Form responses remain intact.
+
+This is a snapshot, not continuous synchronization. The later importer must
+deduplicate by source Form + response ID, reconcile mapping issues, and apply the
+agreed historical/pending cutoff without inferring approval or debiting hours.
+
+Local verification uses simulated Google services and fictitious data:
+
+```sh
+npm test -- src/lib/compensatorio-export.test.ts
+```
+
 ## Ingreso
 
 This flow uses a separate Apps Script project and Form. No deployment URL, Form ID, or

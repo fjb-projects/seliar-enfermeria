@@ -24,12 +24,11 @@ describe("EfaEpisodeWorkspace", () => {
       </EfaEpisodeWorkspace>,
     );
 
-    expect(html).toContain("Atención del 6 de octubre");
+    // The "Área de trabajo" row (title + collapse toggle) is commented out for now, so the
+    // service label and the collapse control are not rendered until it returns.
     expect(html).toContain('aria-label="Secciones del servicio"');
     expect(html).toContain('role="tablist"');
-    expect(html).toContain('aria-label="Área de trabajo del servicio Atención del 6 de octubre"');
-    expect(html).toContain('aria-label="Contraer área de trabajo"');
-    expect(html).toMatch(/aria-controls="efa-workspace-content-[^"]+"/);
+    expect(html).not.toContain("Contraer área de trabajo");
     expect(html).toContain('role="tab"');
     expect(html).toContain('aria-selected="true"');
     expect(html.match(/aria-selected="true"/g)).toHaveLength(1);
@@ -69,10 +68,6 @@ describe("EfaEpisodeWorkspace", () => {
     const contentIds = ids.filter((id) => id.startsWith("efa-workspace-content-"));
     const panelIds = ids.filter((id) => id.startsWith("efa-workspace-panel-"));
     const tabIds = ids.filter((id) => id.startsWith("efa-workspace-tab-"));
-    const controlledContentIds = Array.from(
-      html.matchAll(/aria-controls="(efa-workspace-content-[^"]+)"/g),
-      (match) => match[1]!,
-    );
     const tabPanelControls = Array.from(
       html.matchAll(/aria-controls="(efa-workspace-panel-[^"]+)"/g),
       (match) => match[1]!,
@@ -86,7 +81,6 @@ describe("EfaEpisodeWorkspace", () => {
     expect(new Set(contentIds).size).toBe(2);
     expect(new Set(panelIds).size).toBe(2);
     expect(new Set(tabIds).size).toBe(8);
-    expect(new Set(controlledContentIds)).toEqual(new Set(contentIds));
     expect(new Set(tabPanelControls)).toEqual(new Set(panelIds));
     expect(labelledTabs.every((id) => tabIds.includes(id))).toBe(true);
     expect(panelIds.map((id) => tabPanelControls.filter((ref) => ref === id).length)).toEqual([

@@ -5,6 +5,7 @@ import {
   ChevronDown,
   ChevronUp,
   ClipboardClock,
+  ClipboardList,
   ClockPlus,
   Home,
   LogIn,
@@ -13,6 +14,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { EfaPanelSummary } from "@/components/EfaPanelHome";
 import { getEfaPanelQuickActions, type EfaPanelQuickAction } from "@/lib/efa-panel-quick-actions";
 import { useSeliarNavigation } from "@/components/SeliarNavigationProvider";
 import {
@@ -29,7 +31,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { isAdministrator } from "@/lib/private-ui";
+import { isAdministrator, safePrivateReturnPath } from "@/lib/private-ui";
+
+// /login requires `returnTo`; the login page falls back to this same destination when it is missing.
+const LOGIN_SEARCH = { returnTo: safePrivateReturnPath(undefined) };
 
 const NAV_REVEAL_EDGE_PX = 96;
 const NAV_TOP_THRESHOLD_PX = 8;
@@ -50,7 +55,8 @@ type NavigationPath =
   | "/guardia-efa"
   | "/episodios-efa"
   | "/coordinacion-efa"
-  | "/admin-usuarios";
+  | "/admin-usuarios"
+  | "/coordinacion";
 
 type NavigationItem = { to: NavigationPath; label: string; icon: LucideIcon };
 
@@ -115,30 +121,68 @@ function quickActionItem(action: EfaPanelQuickAction): NavigationItem {
   return { to: action.to, label: action.navLabel, icon: action.icon };
 }
 
+function isNavigationItemActive(pathname: string, destination: NavigationPath) {
+  if (destination === "/coordinacion") {
+    return (
+      pathname === destination ||
+      pathname.startsWith("/coordinacion/") ||
+      pathname === "/admin-usuarios" ||
+      pathname === "/coordinacion-efa"
+    );
+  }
+  return pathname === destination;
+}
+
 export function SeliarMobileNav() {
   const { pathname } = useLocation();
   const navigation = useSeliarNavigation();
   const navRef = useRef<HTMLElement | null>(null);
+  const desktopNavRef = useRef<HTMLElement | null>(null);
+  const lastSummaryRef = useRef<{ userId: string; summary: EfaPanelSummary } | null>(null);
   const groupButtonRefs = useRef<Partial<Record<NavigationGroupId, HTMLButtonElement | null>>>({});
   const visibilityRef = useRef(true);
   const [isVisible, setIsVisible] = useState(true);
   const [openGroup, setOpenGroup] = useState<NavigationGroupId | null>(null);
   const isAuthenticated = navigation.sessionStatus === "authenticated";
   const authenticatedSession = isAuthenticated ? navigation.session : null;
+  const isAdmin = !!authenticatedSession && isAdministrator(authenticatedSession.roles);
   const homeTo: NavigationPath = isAuthenticated ? "/panel" : "/";
+  // The provider hides a stale summary while it revalidates. Keep the last good one for the same
+  // user so the links do not swap to the fallback set when the user scrolls back up.
+  const summaryUserId = authenticatedSession?.user.id ?? null;
+  if (navigation.summary && summaryUserId) {
+    lastSummaryRef.current = { userId: summaryUserId, summary: navigation.summary };
+  }
+  const navSummary =
+    navigation.summary ??
+    (!navigation.summaryError && lastSummaryRef.current?.userId === summaryUserId
+      ? lastSummaryRef.current?.summary
+      : undefined);
   const privateItems = useMemo(() => {
-    if (navigation.summary) {
-      const uniqueItems = new Map<NavigationPath, NavigationItem>();
-      for (const action of getEfaPanelQuickActions(navigation.summary)) {
-        if (!uniqueItems.has(action.to)) uniqueItems.set(action.to, quickActionItem(action));
+    if (!isAuthenticated) return [];
+    const uniqueItems = new Map<NavigationPath, NavigationItem>();
+    if (navSummary) {
+      for (const action of getEfaPanelQuickActions(navSummary)) {
+        if (action.id === "manage-accounts" || action.id === "coordinate-guards") continue;
+        const item = quickActionItem(action);
+        if (!uniqueItems.has(item.to)) uniqueItems.set(item.to, item);
       }
-      return [...uniqueItems.values()];
+    } else {
+      uniqueItems.set("/guardia-efa", {
+        to: "/guardia-efa",
+        label: "Mi guardia",
+        icon: ClipboardClock,
+      });
     }
-    if (isAuthenticated) {
-      return [{ to: "/guardia-efa" as const, label: "Mi guardia", icon: ClipboardClock }];
+    if (isAdmin) {
+      uniqueItems.set("/coordinacion", {
+        to: "/coordinacion",
+        label: "Coordinación",
+        icon: ClipboardList,
+      });
     }
-    return [];
-  }, [isAuthenticated, navigation.summary]);
+    return [...uniqueItems.values()];
+  }, [isAuthenticated, isAdmin, navSummary]);
 
   const setVisibility = useCallback((visible: boolean) => {
     if (visibilityRef.current === visible) return;
@@ -150,7 +194,8 @@ export function SeliarMobileNav() {
 
   useEffect(() => {
     const lastScrollY = { current: window.scrollY };
-    const nav = navRef.current;
+    const navs = [navRef.current, desktopNavRef.current];
+    const focusInNav = (node: Node | null) => navs.some((nav) => nav?.contains(node));
     const handleScroll = () => {
       const currentScrollY = window.scrollY;
       const scrollDelta = currentScrollY - lastScrollY.current;
@@ -159,7 +204,7 @@ export function SeliarMobileNav() {
         reveal();
         return;
       }
-      if (nav?.contains(document.activeElement)) return;
+      if (focusInNav(document.activeElement)) return;
       if (scrollDelta <= -NAV_REVEAL_SCROLL_PX) reveal();
       else if (scrollDelta >= NAV_HIDE_SCROLL_PX && currentScrollY > NAV_HIDE_AFTER_SCROLL_PX)
         setVisibility(false);
@@ -173,7 +218,7 @@ export function SeliarMobileNav() {
       if (touch) revealNearBottomEdge(touch.clientY);
     };
     const handleFocusIn = (event: FocusEvent) => {
-      if (nav?.contains(event.target as Node)) reveal();
+      if (focusInNav(event.target as Node)) reveal();
     };
     window.addEventListener("scroll", handleScroll, { passive: true });
     window.addEventListener("pointermove", handlePointerMove, { passive: true });
@@ -186,6 +231,28 @@ export function SeliarMobileNav() {
       window.removeEventListener("focusin", handleFocusIn);
     };
   }, [reveal, setVisibility]);
+
+  useEffect(() => {
+    // Sticky areas under the desktop bar (for example section tabs) read this offset so they never
+    // slide beneath it; it is 0 while the bar is hidden or on phones, where this bar is not shown.
+    const nav = desktopNavRef.current;
+    if (!nav) return;
+    const root = document.documentElement;
+    const updateOffset = () => {
+      const shown = isVisible && getComputedStyle(nav).display !== "none";
+      root.style.setProperty(
+        "--seliar-nav-offset",
+        shown ? `${nav.getBoundingClientRect().height}px` : "0px",
+      );
+    };
+    updateOffset();
+    const observer = new ResizeObserver(updateOffset);
+    observer.observe(nav);
+    return () => {
+      observer.disconnect();
+      root.style.removeProperty("--seliar-nav-offset");
+    };
+  }, [isVisible]);
 
   useEffect(() => {
     reveal();
@@ -212,7 +279,14 @@ export function SeliarMobileNav() {
   }, [openGroup]);
 
   const groups = isAuthenticated
-    ? [{ id: "private" as const, label: "Área privada", icon: ClipboardClock, items: privateItems }]
+    ? [
+        {
+          id: "private" as const,
+          label: "Área privada",
+          icon: ClipboardClock,
+          items: privateItems.filter(({ to }) => to !== "/coordinacion"),
+        },
+      ]
     : navigation.sessionStatus === "anonymous"
       ? navigationGroups
       : [];
@@ -227,8 +301,9 @@ export function SeliarMobileNav() {
   return (
     <>
       <nav
+        ref={desktopNavRef}
         aria-label="Navegación principal"
-        className="relative z-40 hidden border-b bg-card/95 shadow-sm backdrop-blur md:block"
+        className={`sticky top-0 z-40 hidden border-b bg-card/95 shadow-sm backdrop-blur transition-transform duration-200 motion-reduce:transition-none md:block ${isVisible ? "translate-y-0" : "-translate-y-full"}`}
       >
         <div className="mx-auto grid max-w-7xl grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-4 py-1.5 xl:grid-cols-[auto_minmax(0,1fr)_auto]">
           <Link
@@ -270,8 +345,8 @@ export function SeliarMobileNav() {
                 <Link
                   key={item.to + item.label}
                   to={item.to}
-                  aria-current={pathname === item.to ? "page" : undefined}
-                  className={`flex min-h-11 items-center gap-1.5 rounded-lg px-2 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${pathname === item.to ? "bg-secondary text-secondary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+                  aria-current={isNavigationItemActive(pathname, item.to) ? "page" : undefined}
+                  className={`flex min-h-11 items-center gap-1.5 rounded-lg px-2 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${isNavigationItemActive(pathname, item.to) ? "bg-secondary text-secondary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
                 >
                   <item.icon className="size-4" aria-hidden="true" />
                   {item.label}
@@ -311,6 +386,7 @@ export function SeliarMobileNav() {
           {navigation.sessionStatus === "anonymous" && (
             <Link
               to="/login"
+              search={LOGIN_SEARCH}
               aria-current={pathname === "/login" ? "page" : undefined}
               className="col-start-2 row-start-1 flex min-h-11 items-center gap-1.5 rounded-lg px-3 text-sm font-semibold text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring xl:col-start-3 xl:row-start-auto"
             >
@@ -405,7 +481,7 @@ export function SeliarMobileNav() {
           <>
             {isAuthenticated && <EfaQuickGuardEndStrip controller={navigation.quickGuardEnd} />}
             <div
-              className={`mx-auto grid max-w-lg ${isAuthenticated ? "grid-cols-3" : "grid-cols-4"} gap-1 px-2 pb-[max(env(safe-area-inset-bottom),0.25rem)] pt-1`}
+              className={`mx-auto grid max-w-lg ${isAuthenticated && !isAdmin ? "grid-cols-3" : "grid-cols-4"} gap-1 px-2 pb-[max(env(safe-area-inset-bottom),0.25rem)] pt-1`}
             >
               <Link
                 to={homeTo}
@@ -415,6 +491,18 @@ export function SeliarMobileNav() {
                 <Home className="size-5" aria-hidden="true" />
                 <span>Inicio</span>
               </Link>
+              {isAdmin && (
+                <Link
+                  to="/coordinacion"
+                  aria-current={
+                    isNavigationItemActive(pathname, "/coordinacion") ? "page" : undefined
+                  }
+                  className={`flex min-h-14 flex-col items-center justify-center gap-0.5 rounded-lg px-2 text-xs font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${isNavigationItemActive(pathname, "/coordinacion") ? "bg-secondary text-secondary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+                >
+                  <ClipboardList className="size-5" aria-hidden="true" />
+                  <span>Coordinación</span>
+                </Link>
+              )}
               {groups.map(({ id, label, icon: Icon, items }) => {
                 const activeRoute = items.find(({ to }) => pathname === to);
                 const isOpen = openGroup === id;
@@ -459,6 +547,7 @@ export function SeliarMobileNav() {
               {navigation.sessionStatus === "anonymous" && (
                 <Link
                   to="/login"
+                  search={LOGIN_SEARCH}
                   aria-current={pathname === "/login" ? "page" : undefined}
                   className={`flex min-h-14 flex-col items-center justify-center gap-0.5 rounded-lg px-2 text-xs font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${pathname === "/login" ? "bg-secondary text-secondary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
                 >

@@ -1,9 +1,12 @@
-import { Pool } from "@neondatabase/serverless";
-import { drizzle } from "drizzle-orm/neon-serverless";
+import { Pool as NeonPool } from "@neondatabase/serverless";
+import { drizzle as neonDrizzle, type NeonDatabase } from "drizzle-orm/neon-serverless";
+import { drizzle as pgDrizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
+import pg from "pg";
 import * as schema from "./schema";
 
-let pool: Pool | undefined;
-let database: ReturnType<typeof drizzle> | undefined;
+type Database = NeonDatabase<typeof schema> | NodePgDatabase<typeof schema>;
+
+let database: Database | undefined;
 
 export function getDatabase() {
   const connectionString = process.env["DATABASE_URL"]?.trim();
@@ -11,7 +14,13 @@ export function getDatabase() {
     throw new Error("Database is not configured. Set DATABASE_URL before using database services.");
   }
 
-  if (!pool) pool = new Pool({ connectionString });
-  if (!database) database = drizzle(pool, { schema });
+  if (!database) {
+    const hostname = new URL(connectionString).hostname.toLowerCase();
+    // Ordinary local PostgreSQL has no Neon WebSocket proxy.
+    const isLoopback = ["localhost", "127.0.0.1", "[::1]"].includes(hostname);
+    database = isLoopback
+      ? pgDrizzle(new pg.Pool({ connectionString }), { schema })
+      : neonDrizzle(new NeonPool({ connectionString }), { schema });
+  }
   return database;
 }

@@ -1,0 +1,7 @@
+ALTER TABLE "compensatory_request" ALTER COLUMN "created_by_user_id" DROP NOT NULL;--> statement-breakpoint
+ALTER TABLE "compensatory_request" ADD COLUMN "requester_email" text;--> statement-breakpoint
+ALTER TABLE "compensatory_request" ADD COLUMN "requester_email_verified_at" timestamp;--> statement-breakpoint
+ALTER TABLE "compensatory_request" ADD COLUMN "submission_source" text DEFAULT 'admin' NOT NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX "compensatory_request_public_operation_unique" ON "compensatory_request" USING btree ("client_operation_id") WHERE "compensatory_request"."submission_source" = 'public';--> statement-breakpoint
+ALTER TABLE "compensatory_request" ADD CONSTRAINT "compensatory_request_public_provenance_valid" CHECK (("compensatory_request"."submission_source" = 'admin' and "compensatory_request"."created_by_user_id" is not null) or ("compensatory_request"."submission_source" = 'public' and "compensatory_request"."created_by_user_id" is null and "compensatory_request"."requester_email" is not null));--> statement-breakpoint
+ALTER TABLE "compensatory_request" ADD CONSTRAINT "compensatory_request_source_allowed" CHECK ("compensatory_request"."submission_source" in ('admin','public'));

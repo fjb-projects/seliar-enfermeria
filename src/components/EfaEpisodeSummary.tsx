@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import {
   Ambulance,
   ClipboardList,
@@ -209,6 +209,8 @@ function PriorityBadge({ priority }: { priority: string | null | undefined }) {
   );
 }
 
+const PlainSummaryContext = createContext(false);
+
 type Tone = {
   card: string;
   icon: string;
@@ -263,6 +265,24 @@ function SummarySection({
   children: ReactNode;
 }) {
   const styles = tones[tone] as Tone;
+  const plain = useContext(PlainSummaryContext);
+  if (plain) {
+    return (
+      <section
+        role="region"
+        aria-labelledby={id}
+        className="min-w-0 space-y-3 border-t border-border pt-4"
+      >
+        <div className="flex items-center gap-2">
+          <Icon aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+          <h4 id={id} className="min-w-0 break-words font-semibold leading-5">
+            {title}
+          </h4>
+        </div>
+        <div className="space-y-2 text-sm">{children}</div>
+      </section>
+    );
+  }
   return (
     <Card
       role="region"
@@ -504,11 +524,15 @@ function ConductsSection({ id, state }: { id: string; state: EpisodeSummaryState
 
 function TimelineEntry({ item }: { item: EpisodeTimelineItem }) {
   const Icon = timelineIcons[item.kind];
+  const plain = useContext(PlainSummaryContext);
   return (
     <li className="flex min-w-0 gap-2">
       <span
         aria-hidden="true"
-        className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
+        className={cn(
+          "mt-0.5 flex size-6 shrink-0 items-center justify-center text-muted-foreground",
+          !plain && "rounded-full bg-muted",
+        )}
       >
         <Icon className="size-3.5" />
       </span>
@@ -578,44 +602,51 @@ export function EfaEpisodeSummaryView({
   episode,
   state,
   onRetry,
+  presentation = "default",
 }: {
   episode: SummaryEpisode;
   state: EpisodeSummaryState;
   onRetry?: () => void;
+  presentation?: "default" | "plain";
 }) {
   return (
-    <div
-      className="min-w-0 space-y-3"
-      role="group"
-      aria-label="Resumen del servicio"
-      aria-busy={state.status === "loading"}
-    >
-      <p className="rounded-md bg-muted p-3 text-sm font-medium" data-testid="episode-final-state">
-        {episodeFinalStateLine(episode)}
-      </p>
-      {state.status === "error" && (
-        <div
-          role="alert"
-          className="flex flex-wrap items-center gap-2 rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-950 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-100"
+    <PlainSummaryContext.Provider value={presentation === "plain"}>
+      <div
+        className="min-w-0 space-y-3"
+        role="group"
+        aria-label="Resumen del servicio"
+        aria-busy={state.status === "loading"}
+      >
+        <p
+          className="rounded-md bg-muted p-3 text-sm font-medium"
+          data-testid="episode-final-state"
         >
-          <span>No se pudo cargar el resumen.</span>
-          {onRetry && (
-            <Button type="button" variant="outline" className="min-h-11 px-3" onClick={onRetry}>
-              Reintentar
-            </Button>
-          )}
-        </div>
-      )}
-      <ServiceSection episode={episode} />
-      <CommunicationsSection id={`summary-calls-${episode.id}`} state={state} />
-      <DispatchesSection id={`summary-dispatches-${episode.id}`} state={state} />
-      <PoliceSection id={`summary-police-${episode.id}`} state={state} />
-      <ConductsSection id={`summary-conducts-${episode.id}`} state={state} />
-      <TimelineSection id={`summary-timeline-${episode.id}`} episode={episode} state={state} />
-      <p className="text-xs text-muted-foreground">
-        Puede haber cambios sin sincronizar que todavía no aparecen en este resumen.
-      </p>
-    </div>
+          {episodeFinalStateLine(episode)}
+        </p>
+        {state.status === "error" && (
+          <div
+            role="alert"
+            className="flex flex-wrap items-center gap-2 rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-950 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-100"
+          >
+            <span>No se pudo cargar el resumen.</span>
+            {onRetry && (
+              <Button type="button" variant="outline" className="min-h-11 px-3" onClick={onRetry}>
+                Reintentar
+              </Button>
+            )}
+          </div>
+        )}
+        <ServiceSection episode={episode} />
+        <CommunicationsSection id={`summary-calls-${episode.id}`} state={state} />
+        <DispatchesSection id={`summary-dispatches-${episode.id}`} state={state} />
+        <PoliceSection id={`summary-police-${episode.id}`} state={state} />
+        <ConductsSection id={`summary-conducts-${episode.id}`} state={state} />
+        <TimelineSection id={`summary-timeline-${episode.id}`} episode={episode} state={state} />
+        <p className="text-xs text-muted-foreground">
+          Puede haber cambios sin sincronizar que todavía no aparecen en este resumen.
+        </p>
+      </div>
+    </PlainSummaryContext.Provider>
   );
 }
 
@@ -624,7 +655,13 @@ export function EfaEpisodeSummaryView({
  * per-episode lists once on mount and keeps them in component state (no shared cache, so nothing
  * survives a sign-out or an account switch).
  */
-export function EfaEpisodeSummary({ episode }: { episode: SummaryEpisode }) {
+export function EfaEpisodeSummary({
+  episode,
+  presentation = "default",
+}: {
+  episode: SummaryEpisode;
+  presentation?: "default" | "plain";
+}) {
   const listCommunications = useServerFn(listEfaCommunicationsForEpisode);
   const listDispatches = useServerFn(listEfaDispatchesForEpisode);
   const listCoordinations = useServerFn(listEfaPoliceCoordinationsForEpisode);
@@ -677,5 +714,12 @@ export function EfaEpisodeSummary({ episode }: { episode: SummaryEpisode }) {
     setAttempt((value) => value + 1);
   }, []);
 
-  return <EfaEpisodeSummaryView episode={episode} state={state} onRetry={retry} />;
+  return (
+    <EfaEpisodeSummaryView
+      episode={episode}
+      state={state}
+      onRetry={retry}
+      presentation={presentation}
+    />
+  );
 }
