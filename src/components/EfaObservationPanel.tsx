@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClientOnlyFn, useServerFn } from "@tanstack/react-start";
+import { Check, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { ctaClasses } from "@/lib/cta-classes";
 import {
   createEfaObservation,
   getEfaObservation,
@@ -147,6 +149,48 @@ const emptyParticipationForm = (): ParticipationForm => ({
   comment: "",
   observedAt: "",
 });
+/** True when a draft holds anything that changing the context would silently discard. */
+// eslint-disable-next-line react-refresh/only-export-components -- Pure helper exported for deterministic tests.
+export function observationDraftDirty(
+  conduct: Pick<
+    ObservationForm,
+    "catalogItemKey" | "classification" | "otherDescription" | "comment" | "observedAt"
+  >,
+  participation: ParticipationForm,
+) {
+  return Boolean(
+    conduct.catalogItemKey ||
+    conduct.otherDescription.trim() ||
+    conduct.comment.trim() ||
+    conduct.observedAt ||
+    conduct.classification !== "adequate" ||
+    participation.level ||
+    participation.comment.trim() ||
+    participation.observedAt,
+  );
+}
+/** Groups catalog items in a fixed group order, dropping empty groups (one <optgroup> each). */
+// eslint-disable-next-line react-refresh/only-export-components -- Pure helper exported for deterministic tests.
+export function groupObservationCatalog<G extends string, T extends { group: G }>(
+  items: readonly T[],
+  order: readonly G[],
+) {
+  return order
+    .map((group) => ({ group, items: items.filter((item) => item.group === group) }))
+    .filter((entry) => entry.items.length > 0);
+}
+const classificationOptions = [
+  {
+    value: "adequate",
+    label: "Adecuada",
+    tone: "border-emerald-300/60 bg-emerald-300/20 text-emerald-100",
+  },
+  {
+    value: "needs_improvement",
+    label: "A mejorar",
+    tone: "border-amber-300/60 bg-amber-300/20 text-amber-100",
+  },
+] as const;
 const isParticipationRecord = (record: Pick<ObservationView, "recordKind">) =>
   record.recordKind === "participation";
 const isParticipationEntry = (entry: ObservationQueueEntry) =>
@@ -182,6 +226,11 @@ const groupForContext: Record<ContextKind, ObservationCatalogItem["group"]> = {
   coordination: "coordination",
   police_event: "coordination",
 };
+const chipClassName =
+  "inline-flex min-h-11 max-w-full items-center rounded-lg border border-white/15 px-3 text-left text-sm hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60";
+const chipActiveClassName = "bg-white/15 ring-1 ring-inset ring-white/30";
+const segmentClassName =
+  "inline-flex min-h-11 w-full items-center justify-center whitespace-nowrap rounded-lg border border-white/15 px-2.5 text-sm hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60";
 const contextLabels: Record<ContextKind, string> = observationContextLabels;
 const groupLabels: Record<ObservationCatalogItem["group"], string> = observationGroupLabels;
 const observationDate = (value: string | null) =>
@@ -505,7 +554,7 @@ export function EfaObservationPanel({
   const [contextEpisodeId, setContextEpisodeId] = useState(root.episodeId ?? "");
   const [leafId, setLeafId] = useState("");
   const [coordinationId, setCoordinationId] = useState("");
-  const [groupFilter, setGroupFilter] = useState<ObservationCatalogItem["group"] | "all">("all");
+  const [optionalOpen, setOptionalOpen] = useState(false);
   const [form, setForm] = useState<ObservationForm>(emptyForm);
   const [editing, setEditing] = useState<ObservationView | null>(null);
   const [participationForm, setParticipationForm] = useState<ParticipationForm>(
@@ -808,8 +857,9 @@ export function EfaObservationPanel({
       return item.contextType === "coordination" && item.coordinationId === leafId;
     return item.policeEventId === leafId;
   });
-  const availableCatalog = catalog.filter(
-    (item) => groupFilter === "all" || item.group === groupFilter,
+  const groupedCatalog = groupObservationCatalog(
+    catalog,
+    Object.keys(groupLabels) as ObservationCatalogItem["group"][],
   );
 
   const loadHistory = async (observationId: string) => {
@@ -880,6 +930,7 @@ export function EfaObservationPanel({
     }
     setEditing(item);
     setForm(observationFormFromRecord(item));
+    setOptionalOpen(Boolean(item.comment || item.observedAt));
     setHistoryFor("");
     setMessage("");
   }
@@ -942,6 +993,7 @@ export function EfaObservationPanel({
 
   function resetAfterConfirmedCreate() {
     setEditing(null);
+    setOptionalOpen(false);
     setForm({ ...emptyForm(), otherGroup: groupForContext[contextType] });
   }
 
@@ -1933,67 +1985,56 @@ export function EfaObservationPanel({
     const clickedAt = captureObservationNow();
     setForm((current) => ({ ...current, observedAt: localDateTimeValue(clickedAt) }));
   };
-  const selectedEpisode = episodes.find((item) => String(item["id"]) === contextEpisodeId);
-  const selectedEpisodeId = selectedEpisode ? String(selectedEpisode["id"]) : contextEpisodeId;
-  const selectedEpisodeLabel = selectedEpisode
-    ? String(selectedEpisode["motive"] ?? selectedEpisode["address"] ?? selectedEpisode["id"])
-    : contextEpisodeId;
-  const selectedCommunication = communications.find((item) => item["id"] === leafId);
-  const selectedDispatch = dispatches.find((item) => item["id"] === leafId);
-  const selectedCoordination = coordinations.find((item) => item["id"] === coordinationId);
-  const selectedPoliceEvent = events.find((item) => item["id"] === leafId);
-  const participationContextLabel =
-    contextType === "guard"
-      ? title
-      : contextType === "episode"
-        ? `Servicio · ${selectedEpisodeLabel || "Episodio seleccionado"}`
-        : contextType === "communication"
-          ? selectedCommunication
-            ? [
-                selectedCommunication["direction"] === "incoming"
-                  ? "Llamada entrante"
-                  : selectedCommunication["direction"] === "outgoing"
-                    ? "Llamada saliente"
-                    : "Llamada",
-                linkedOptionDate(selectedCommunication["startedAt"]) ??
-                  linkedOptionDate(selectedCommunication["createdAt"]),
-              ]
-                .filter(Boolean)
-                .join(" · ")
-            : "Llamada seleccionada"
-          : contextType === "dispatch"
-            ? selectedDispatch
-              ? dispatchLabelFor(selectedDispatch)
-              : "Despacho seleccionado"
-            : contextType === "coordination"
-              ? selectedCoordination
-                ? coordinationLabelFor(selectedCoordination)
-                : "Apoyo policial seleccionado"
-              : selectedPoliceEvent
-                ? `Evento policial · ${String(selectedPoliceEvent["kind"] ?? "registro")}`
-                : "Evento policial seleccionado";
+  const draftDirty = observationDraftDirty(form, participationForm);
+  const contextLocked =
+    busy || Boolean(pendingOperationId) || Boolean(editing) || Boolean(participationEditing);
+  const contextTypeOptions: Array<{ value: ContextKind; label: string; short?: string }> = [
+    ...(root.episodeId ? [] : [{ value: "guard" as const, label: "Guardia" }]),
+    { value: "episode", label: "Episodio" },
+    { value: "communication", label: "Llamada" },
+    { value: "dispatch", label: "Despacho" },
+    { value: "coordination", label: "Apoyo policial", short: "Apoyo" },
+    { value: "police_event", label: "Evento policial", short: "Evento" },
+  ];
+  const discardDraft = () => {
+    setForm({ ...emptyForm(), otherGroup: groupForContext[contextType] });
+    clearParticipationDraft();
+  };
   const contextTypeSelector = activeEpisodeId ? (
-    <div className="grid min-w-0 gap-1">
-      <Label
-        htmlFor={`observation-context-${root.guardId}`}
-        className="text-xs font-normal text-muted-foreground"
-      >
-        Tipo de contexto
-      </Label>
-      <select
-        id={`observation-context-${root.guardId}`}
-        className="h-11 min-h-11 w-full min-w-0 max-w-full rounded-md border bg-background px-3"
-        value={contextType}
-        disabled={busy || Boolean(pendingOperationId) || Boolean(editing) || Boolean(participationEditing)}
-        onChange={(event) => handleContextType(event.target.value as ContextKind)}
-      >
-        {!root.episodeId && <option value="guard">Guardia</option>}
-        <option value="episode">Episodio</option>
-        <option value="communication">Llamada</option>
-        <option value="dispatch">Despacho</option>
-        <option value="coordination">Apoyo policial</option>
-        <option value="police_event">Evento policial</option>
-      </select>
+    <div className="grid min-w-0 gap-1" role="group" aria-label="Tipo de contexto">
+      <ul className="flex min-w-0 gap-1 overflow-x-auto">
+        {contextTypeOptions.map((option) => (
+          <li key={option.value} className="min-w-fit flex-1">
+            <button
+              type="button"
+              aria-pressed={contextType === option.value}
+              aria-label={option.label}
+              title={option.label}
+              disabled={contextLocked || draftDirty}
+              className={`${segmentClassName} ${contextType === option.value ? chipActiveClassName : ""}`}
+              onClick={() => handleContextType(option.value)}
+            >
+              {option.short ?? option.label}
+            </button>
+          </li>
+        ))}
+      </ul>
+      {draftDirty && !editing && !participationEditing && (
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <p className="text-[13px] text-muted-foreground">
+            Hay un borrador sin guardar: guardalo o descartalo para cambiar de contexto.
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            className={ctaClasses.ghost}
+            disabled={busy || Boolean(pendingOperationId)}
+            onClick={discardDraft}
+          >
+            Descartar borrador
+          </Button>
+        </div>
+      )}
     </div>
   ) : null;
   const contextControls = (
@@ -2007,7 +2048,7 @@ export function EfaObservationPanel({
             id={`observation-episode-${root.guardId}`}
             className="min-h-11 w-full min-w-0 max-w-full rounded-md border bg-background px-3"
             value={contextEpisodeId}
-            disabled={busy || Boolean(pendingOperationId) || Boolean(editing) || Boolean(participationEditing)}
+            disabled={contextLocked || draftDirty}
             onChange={(event) => selectEpisode(event.target.value)}
           >
             <option value="">Solo guardia</option>
@@ -2018,11 +2059,6 @@ export function EfaObservationPanel({
               </option>
             ))}
           </select>
-          {contextEpisodeId && (
-            <p className="break-words text-sm text-muted-foreground">
-              Servicio seleccionado: {selectedEpisodeLabel} · ID {selectedEpisodeId}
-            </p>
-          )}
         </div>
       )}
       {contextType === "communication" && (
@@ -2031,7 +2067,7 @@ export function EfaObservationPanel({
           label="Llamada"
           value={leafId}
           rows={communications}
-          disabled={Boolean(editing || participationEditing || pendingOperationId)}
+          disabled={Boolean(editing || participationEditing || pendingOperationId) || draftDirty}
           onChange={(id) => {
             clearParticipationDraft();
             setLeafId(id);
@@ -2062,7 +2098,7 @@ export function EfaObservationPanel({
           label="Despacho"
           value={leafId}
           rows={dispatches}
-          disabled={Boolean(editing || participationEditing || pendingOperationId)}
+          disabled={Boolean(editing || participationEditing || pendingOperationId) || draftDirty}
           onChange={(id) => {
             clearParticipationDraft();
             setLeafId(id);
@@ -2076,7 +2112,7 @@ export function EfaObservationPanel({
           label="Apoyo policial"
           value={coordinationId}
           rows={coordinations}
-          disabled={Boolean(editing || participationEditing || pendingOperationId)}
+          disabled={Boolean(editing || participationEditing || pendingOperationId) || draftDirty}
           onChange={(id) => {
             clearParticipationDraft();
             setCoordinationId(id);
@@ -2091,7 +2127,7 @@ export function EfaObservationPanel({
           label="Evento policial"
           value={leafId}
           rows={events}
-          disabled={Boolean(editing || participationEditing || pendingOperationId)}
+          disabled={Boolean(editing || participationEditing || pendingOperationId) || draftDirty}
           onChange={(id) => {
             clearParticipationDraft();
             setLeafId(id);
@@ -2121,7 +2157,7 @@ export function EfaObservationPanel({
 
   return (
     <Card className={compact ? "min-w-0 border-0 bg-transparent p-0 shadow-none" : undefined}>
-      <CardHeader className={compact ? "space-y-2 p-0 pb-1" : undefined}>
+      <CardHeader className={compact ? "space-y-1 p-0 pb-1" : undefined}>
         <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
           <CardTitle>{title}</CardTitle>
           {!effectiveCanWrite && (
@@ -2130,8 +2166,8 @@ export function EfaObservationPanel({
             </span>
           )}
         </div>
-        <p className="text-sm text-muted-foreground">
-          Registro opcional y anónimo; no evalúa personas.
+        <p className="text-[13px] text-muted-foreground">
+          Registrar es opcional; la ausencia de registros no evalúa a ninguna persona.
         </p>
       </CardHeader>
       <CardContent className={compact ? "min-w-0 space-y-3 p-0" : "space-y-4"}>
@@ -2152,43 +2188,33 @@ export function EfaObservationPanel({
         {!loading && (
           <>
             <section className={compact ? "min-w-0 space-y-2" : "space-y-3 rounded-md border p-3"}>
-              <div
-                className={
-                  activeEpisodeId && canRenderObservationForm
-                    ? "grid min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-end gap-2 max-[280px]:grid-cols-1"
-                    : "flex min-w-0 flex-wrap items-center justify-between gap-2"
-                }
-              >
-                <h3
-                  className={
-                    canRenderObservationForm
-                      ? "min-w-0 text-base font-semibold leading-snug"
-                      : "min-w-0 font-medium"
-                  }
-                >
-                  {canRenderObservationForm
-                    ? editing
-                      ? `Corregir observación · v${editing.version}`
-                      : "Agregar una observación"
-                    : "Contexto de observación"}
-                </h3>
-                {contextTypeSelector}
-                {canRenderObservationForm && editing && canCreateHere && (
-                  <Button
-                    type="button"
-                    variant="outline"
+              {(editing || !canRenderObservationForm) && (
+                <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+                  <h3
                     className={
-                      activeEpisodeId && canRenderObservationForm
-                        ? "col-span-2 min-h-11 w-fit max-w-full max-[280px]:col-span-1"
-                        : "min-h-11"
+                      canRenderObservationForm
+                        ? "min-w-0 text-base font-semibold leading-snug"
+                        : "min-w-0 font-medium"
                     }
-                    disabled={busy || Boolean(pendingOperationId)}
-                    onClick={startNewObservation}
                   >
-                    Nueva observación
-                  </Button>
-                )}
-              </div>
+                    {editing
+                      ? `Corregir observación · v${editing.version}`
+                      : "Contexto de observación"}
+                  </h3>
+                  {canRenderObservationForm && editing && canCreateHere && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className={ctaClasses.indigo}
+                      disabled={busy || Boolean(pendingOperationId)}
+                      onClick={startNewObservation}
+                    >
+                      Nueva observación
+                    </Button>
+                  )}
+                </div>
+              )}
+              {contextTypeSelector}
               <div className="min-w-0 space-y-3">{contextControls}</div>
             </section>
 
@@ -2196,68 +2222,79 @@ export function EfaObservationPanel({
               <section
                 className={compact ? "min-w-0 space-y-2" : "space-y-3 rounded-md border p-3"}
               >
-                <div className="space-y-2">
-                  <Label htmlFor={`observation-item-${root.guardId}`}>Conducta concreta</Label>
-                  <select
-                    id={`observation-item-${root.guardId}`}
-                    className="min-h-11 w-full min-w-0 max-w-full rounded-md border bg-background px-3 text-sm"
-                    value={form.catalogItemKey}
-                    disabled={!canChangeForm || !validContext}
-                    onChange={(event) =>
-                      setForm((current) => ({
-                        ...current,
-                        catalogItemKey: event.target.value,
-                        otherGroup: groupForContext[contextType],
-                      }))
-                    }
-                  >
-                    <option value="">Selecciona una conducta observada</option>
-                    {availableCatalog.map((item) => (
-                      <option key={item.key} value={item.key}>
-                        {item.label} · {groupLabels[item.group]}
-                      </option>
-                    ))}
-                    <option value="other">Otra conducta</option>
-                  </select>
-                </div>
-                <details className="min-w-0 border-t pt-1">
-                  <summary className="flex min-h-11 cursor-pointer items-center text-sm font-normal text-muted-foreground">
-                    {groupFilter === "all"
-                      ? "Filtrar catálogo por grupo (opcional)"
-                      : `Grupo del catálogo · ${groupLabels[groupFilter]}`}
-                  </summary>
-                  <div className="space-y-2 pb-3">
-                    <Label htmlFor={`observation-group-${root.guardId}`}>
-                      Grupo del catálogo (filtro opcional)
+                <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
+                  <div className="min-w-0 sm:flex-1">
+                    <Label htmlFor={`observation-item-${root.guardId}`} className="sr-only">
+                      Conducta concreta
                     </Label>
                     <select
-                      id={`observation-group-${root.guardId}`}
-                      className="min-h-11 w-full min-w-0 max-w-full rounded-md border bg-background px-3"
-                      value={groupFilter}
-                      disabled={!canChangeForm}
+                      id={`observation-item-${root.guardId}`}
+                      className="min-h-11 w-full min-w-0 max-w-full rounded-md border bg-background px-3 text-sm"
+                      value={form.catalogItemKey}
+                      disabled={!canChangeForm || !validContext}
                       onChange={(event) =>
-                        setGroupFilter(
-                          event.target.value as ObservationCatalogItem["group"] | "all",
-                        )
+                        setForm((current) => ({
+                          ...current,
+                          catalogItemKey: event.target.value,
+                          otherGroup: groupForContext[contextType],
+                        }))
                       }
                     >
-                      <option value="all">Todos los grupos</option>
-                      {Object.entries(groupLabels).map(([key, label]) => (
-                        <option key={key} value={key}>
-                          {label}
-                        </option>
+                      <option value="">Selecciona una conducta observada</option>
+                      {groupedCatalog.map((entry) => (
+                        <optgroup key={entry.group} label={groupLabels[entry.group]}>
+                          {entry.items.map((item) => (
+                            <option key={item.key} value={item.key}>
+                              {item.label}
+                            </option>
+                          ))}
+                        </optgroup>
                       ))}
+                      <option value="other">Otra conducta</option>
                     </select>
                   </div>
-                </details>
+                  <fieldset className="min-w-0 sm:w-72 sm:shrink-0" disabled={!canChangeForm}>
+                    <legend className="sr-only">Clasificación requerida</legend>
+                    <div className="grid grid-cols-2 gap-1">
+                      {classificationOptions.map((option) => {
+                        const checked = form.classification === option.value;
+                        return (
+                          <label
+                            key={option.value}
+                            className={`flex min-h-11 min-w-0 cursor-pointer items-center justify-center gap-1.5 rounded-lg border px-3 text-sm font-medium has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-60 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[#a9b2ff] ${checked ? option.tone : "border-white/15 hover:bg-white/10"}`}
+                          >
+                            <input
+                              type="radio"
+                              className="sr-only"
+                              name={`observation-class-${root.guardId}`}
+                              checked={checked}
+                              onChange={() =>
+                                setForm((current) => ({
+                                  ...current,
+                                  classification: option.value,
+                                }))
+                              }
+                            />
+                            {checked && <Check aria-hidden="true" className="size-4 shrink-0" />}
+                            <span className="min-w-0 break-words">{option.label}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </fieldset>
+                </div>
                 {isOther && (
-                  <>
-                    <div className="space-y-2">
-                      <Label htmlFor={`observation-other-${root.guardId}`}>
+                  <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_14rem]">
+                    <div className="min-w-0 space-y-1">
+                      <Label
+                        htmlFor={`observation-other-${root.guardId}`}
+                        className="text-xs font-normal text-muted-foreground"
+                      >
                         Descripción local de la conducta
                       </Label>
                       <Textarea
                         id={`observation-other-${root.guardId}`}
+                        rows={2}
                         value={form.otherDescription}
                         maxLength={1000}
                         disabled={!canChangeForm}
@@ -2269,8 +2306,11 @@ export function EfaObservationPanel({
                         }
                       />
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor={`observation-other-group-${root.guardId}`}>
+                    <div className="min-w-0 space-y-1">
+                      <Label
+                        htmlFor={`observation-other-group-${root.guardId}`}
+                        className="text-xs font-normal text-muted-foreground"
+                      >
                         Grupo de esta observación
                       </Label>
                       <select
@@ -2292,48 +2332,18 @@ export function EfaObservationPanel({
                         ))}
                       </select>
                     </div>
-                  </>
-                )}
-                <fieldset className="min-w-0 space-y-2" disabled={!canChangeForm}>
-                  <legend className="text-sm font-medium">Clasificación requerida</legend>
-                  <div className="grid min-w-0 grid-cols-2 gap-2">
-                    <label className="flex min-h-11 min-w-0 items-center gap-2 rounded-md border px-2 text-sm">
-                      <input
-                        type="radio"
-                        name={`observation-class-${root.guardId}`}
-                        checked={form.classification === "adequate"}
-                        onChange={() =>
-                          setForm((current) => ({ ...current, classification: "adequate" }))
-                        }
-                      />
-                      <span className="min-w-0 break-words">Adecuada</span>
-                    </label>
-                    <label className="flex min-h-11 min-w-0 items-center gap-2 rounded-md border px-2 text-sm">
-                      <input
-                        type="radio"
-                        name={`observation-class-${root.guardId}`}
-                        checked={form.classification === "needs_improvement"}
-                        onChange={() =>
-                          setForm((current) => ({
-                            ...current,
-                            classification: "needs_improvement",
-                          }))
-                        }
-                      />
-                      <span className="min-w-0 break-words">A mejorar</span>
-                    </label>
                   </div>
-                </fieldset>
-                <details className="min-w-0 border-t pt-1">
-                  <summary className="flex min-h-11 cursor-pointer items-center text-sm font-normal text-muted-foreground">
-                    Hora y comentario opcionales
-                  </summary>
-                  <div className="space-y-3 pb-3">
-                    <div className="space-y-2">
-                      <Label htmlFor={`observation-time-${root.guardId}`}>
-                        Hora real observada (opcional)
+                )}
+                {optionalOpen && (
+                  <div className="grid min-w-0 gap-2 sm:grid-cols-2">
+                    <div className="min-w-0 space-y-1">
+                      <Label
+                        htmlFor={`observation-time-${root.guardId}`}
+                        className="text-xs font-normal text-muted-foreground"
+                      >
+                        Hora real observada
                       </Label>
-                      <div className="grid min-w-0 grid-cols-1 items-end gap-2 min-[380px]:grid-cols-[minmax(0,1fr)_auto]">
+                      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
                         <Input
                           id={`observation-time-${root.guardId}`}
                           className="h-11 min-h-11 min-w-0 w-full"
@@ -2348,20 +2358,25 @@ export function EfaObservationPanel({
                         <Button
                           type="button"
                           variant="outline"
-                          className="min-h-11"
+                          className={ctaClasses.indigo}
                           disabled={!canChangeForm}
                           onClick={quickObservedAt}
                         >
+                          <Clock aria-hidden="true" className="size-4" />
                           Ahora
                         </Button>
                       </div>
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor={`observation-comment-${root.guardId}`}>
-                        Comentario breve (opcional)
+                    <div className="min-w-0 space-y-1">
+                      <Label
+                        htmlFor={`observation-comment-${root.guardId}`}
+                        className="text-xs font-normal text-muted-foreground"
+                      >
+                        Comentario breve
                       </Label>
                       <Textarea
                         id={`observation-comment-${root.guardId}`}
+                        rows={2}
                         className="min-w-0 max-w-full"
                         value={form.comment}
                         maxLength={1000}
@@ -2372,26 +2387,40 @@ export function EfaObservationPanel({
                       />
                     </div>
                   </div>
-                </details>
-                {compact && visibleObservations.length === 0 && (
-                  <p className="text-sm text-muted-foreground">
-                    Aún no hay registros en este contexto.
-                  </p>
                 )}
-                <Button
-                  type="button"
-                  className="min-h-11 w-fit max-w-full"
-                  disabled={
-                    !canSubmit ||
-                    !queueReady ||
-                    !queueAvailable ||
-                    busy ||
-                    Boolean(pendingOperationId)
-                  }
-                  onClick={saveObservation}
-                >
-                  {editing ? "Guardar corrección" : "Guardar observación"}
-                </Button>
+                <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 sm:grid-cols-[auto_auto] sm:justify-between">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className={`${ctaClasses.ghost} relative`}
+                    aria-label="Hora y comentario"
+                    aria-expanded={optionalOpen}
+                    onClick={() => setOptionalOpen((open) => !open)}
+                  >
+                    <Clock aria-hidden="true" className="size-4" />
+                    <span className="max-[420px]:sr-only">Hora y comentario</span>
+                    {!optionalOpen && (form.comment.trim() || form.observedAt) && (
+                      <span
+                        aria-hidden="true"
+                        className="absolute right-1.5 top-1.5 size-2 rounded-full bg-[var(--brand-orange)]"
+                      />
+                    )}
+                  </Button>
+                  <Button
+                    type="button"
+                    className={`${ctaClasses.save} min-w-0`}
+                    disabled={
+                      !canSubmit ||
+                      !queueReady ||
+                      !queueAvailable ||
+                      busy ||
+                      Boolean(pendingOperationId)
+                    }
+                    onClick={saveObservation}
+                  >
+                    {editing ? "Guardar corrección" : "Guardar observación"}
+                  </Button>
+                </div>
                 {compact && error && errorSurface.area === "submit" && (
                   <p role="alert" className="text-sm text-destructive" aria-live="assertive">
                     {error}
@@ -2407,127 +2436,123 @@ export function EfaObservationPanel({
 
             {canRenderParticipationForm && (
               <section
-                className={
-                  compact
-                    ? "min-w-0 space-y-3 border-t pt-3"
-                    : "min-w-0 space-y-3 rounded-md border p-3"
-                }
+                className={compact ? "min-w-0 border-t pt-1" : "min-w-0 rounded-md border p-3"}
                 aria-labelledby={`participation-title-${root.guardId}`}
               >
-                <div className="min-w-0 space-y-1">
-                  <h3
-                    id={`participation-title-${root.guardId}`}
-                    className="text-sm font-semibold"
-                  >
-                    Participación del evaluador <span className="font-normal text-muted-foreground">· opcional</span>
-                  </h3>
-                  <p className="break-words text-sm text-muted-foreground">
-                    Contexto: {participationContextLabel}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Registro opcional y anónimo; no evalúa personas.
-                  </p>
-                </div>
-                <div className="min-w-0 space-y-2">
-                  <Label htmlFor={`participation-level-${root.guardId}`}>Nivel registrado</Label>
-                  <select
-                    id={`participation-level-${root.guardId}`}
-                    className="h-11 min-h-11 w-full min-w-0 max-w-full rounded-md border bg-background px-3"
-                    value={participationForm.level}
-                    disabled={!canChangeParticipation || !validContext}
-                    onChange={(event) =>
-                      setParticipationForm((current) => ({
-                        ...current,
-                        level: event.target.value as EvaluatorParticipationLevel | "",
-                      }))
-                    }
-                  >
-                    <option value="">Selecciona un nivel</option>
-                    {evaluatorParticipationLevels.map((level) => (
-                      <option key={level} value={level}>
-                        {evaluatorParticipationLevelLabels[level]}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <details className="min-w-0 border-t pt-1">
-                  <summary className="flex min-h-11 cursor-pointer items-center text-sm font-normal text-muted-foreground">
-                    Hora y comentario opcionales
+                <details open={participationEditing ? true : undefined} className="min-w-0">
+                  <summary className="flex min-h-11 cursor-pointer items-center text-sm font-semibold">
+                    <span id={`participation-title-${root.guardId}`}>
+                      Participación del evaluador{" "}
+                      <span className="font-normal text-muted-foreground">· opcional</span>
+                    </span>
                   </summary>
-                  <div className="space-y-3 pb-2">
-                    <div className="min-w-0 space-y-2">
-                      <Label htmlFor={`participation-time-${root.guardId}`}>
-                        Hora real (opcional)
+                  <div className="min-w-0 space-y-2 pt-1">
+                    <div className="min-w-0">
+                      <Label htmlFor={`participation-level-${root.guardId}`} className="sr-only">
+                        Nivel registrado
                       </Label>
-                      <Input
-                        id={`participation-time-${root.guardId}`}
-                        className="h-11 min-h-11 min-w-0 w-full"
-                        type="datetime-local"
-                        step="0.001"
-                        value={participationForm.observedAt}
+                      <select
+                        id={`participation-level-${root.guardId}`}
+                        className="h-11 min-h-11 w-full min-w-0 max-w-full rounded-md border bg-background px-3"
+                        value={participationForm.level}
                         disabled={!canChangeParticipation || !validContext}
                         onChange={(event) =>
                           setParticipationForm((current) => ({
                             ...current,
-                            observedAt: event.target.value,
+                            level: event.target.value as EvaluatorParticipationLevel | "",
                           }))
                         }
-                      />
+                      >
+                        <option value="">Selecciona un nivel</option>
+                        {evaluatorParticipationLevels.map((level) => (
+                          <option key={level} value={level}>
+                            {evaluatorParticipationLevelLabels[level]}
+                          </option>
+                        ))}
+                      </select>
                     </div>
-                    <div className="min-w-0 space-y-2">
-                      <Label htmlFor={`participation-comment-${root.guardId}`}>
-                        Comentario breve (opcional)
-                      </Label>
-                      <Textarea
-                        id={`participation-comment-${root.guardId}`}
-                        className="min-w-0 max-w-full"
-                        value={participationForm.comment}
-                        maxLength={1000}
-                        disabled={!canChangeParticipation || !validContext}
-                        onChange={(event) =>
-                          setParticipationForm((current) => ({
-                            ...current,
-                            comment: event.target.value,
-                          }))
-                        }
-                      />
+                    <div className="grid min-w-0 gap-2 sm:grid-cols-2">
+                      <div className="min-w-0 space-y-1">
+                        <Label
+                          htmlFor={`participation-time-${root.guardId}`}
+                          className="text-xs font-normal text-muted-foreground"
+                        >
+                          Hora real (opcional)
+                        </Label>
+                        <Input
+                          id={`participation-time-${root.guardId}`}
+                          className="h-11 min-h-11 min-w-0 w-full"
+                          type="datetime-local"
+                          step="0.001"
+                          value={participationForm.observedAt}
+                          disabled={!canChangeParticipation || !validContext}
+                          onChange={(event) =>
+                            setParticipationForm((current) => ({
+                              ...current,
+                              observedAt: event.target.value,
+                            }))
+                          }
+                        />
+                      </div>
+                      <div className="min-w-0 space-y-1">
+                        <Label
+                          htmlFor={`participation-comment-${root.guardId}`}
+                          className="text-xs font-normal text-muted-foreground"
+                        >
+                          Comentario breve (opcional)
+                        </Label>
+                        <Textarea
+                          id={`participation-comment-${root.guardId}`}
+                          rows={2}
+                          className="min-w-0 max-w-full"
+                          value={participationForm.comment}
+                          maxLength={1000}
+                          disabled={!canChangeParticipation || !validContext}
+                          onChange={(event) =>
+                            setParticipationForm((current) => ({
+                              ...current,
+                              comment: event.target.value,
+                            }))
+                          }
+                        />
+                      </div>
+                    </div>
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                      <Button
+                        type="button"
+                        className={`${ctaClasses.save} w-fit max-w-full`}
+                        disabled={!canSubmitParticipation}
+                        onClick={saveParticipation}
+                      >
+                        {participationEditing ? "Guardar corrección" : "Guardar participación"}
+                      </Button>
+                      {participationEditing && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className={`${ctaClasses.ghost} w-fit max-w-full`}
+                          disabled={busy || Boolean(pendingOperationId)}
+                          onClick={() => {
+                            setParticipationEditing(null);
+                            setParticipationForm(emptyParticipationForm());
+                          }}
+                        >
+                          Cancelar corrección
+                        </Button>
+                      )}
+                      {participationError && (
+                        <p role="alert" className="w-full text-sm text-destructive" aria-live="assertive">
+                          {participationError}
+                        </p>
+                      )}
+                      {participationMessage && (
+                        <p role="status" className="w-full text-sm text-muted-foreground" aria-live="polite">
+                          {participationMessage}
+                        </p>
+                      )}
                     </div>
                   </div>
                 </details>
-                <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  <Button
-                    type="button"
-                    className="min-h-11 w-fit max-w-full"
-                    disabled={!canSubmitParticipation}
-                    onClick={saveParticipation}
-                  >
-                    {participationEditing ? "Guardar corrección" : "Guardar participación"}
-                  </Button>
-                  {participationEditing && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="min-h-11 w-fit max-w-full"
-                      disabled={busy || Boolean(pendingOperationId)}
-                      onClick={() => {
-                        setParticipationEditing(null);
-                        setParticipationForm(emptyParticipationForm());
-                      }}
-                    >
-                      Cancelar corrección
-                    </Button>
-                  )}
-                  {participationError && (
-                    <p role="alert" className="w-full text-sm text-destructive" aria-live="assertive">
-                      {participationError}
-                    </p>
-                  )}
-                  {participationMessage && (
-                    <p role="status" className="w-full text-sm text-muted-foreground" aria-live="polite">
-                      {participationMessage}
-                    </p>
-                  )}
-                </div>
               </section>
             )}
 
@@ -2571,14 +2596,14 @@ export function EfaObservationPanel({
                   </div>
                 </div>
                 <p className="text-sm">
-                  Elegí explícitamente qué conservar. La opción local crea una nueva operación
-                  contra la versión actual; no cambia el pendiente automáticamente.
+                  Elegí qué versión conservar. La opción local crea una nueva operación contra la
+                  versión actual.
                 </p>
                 <div className="flex flex-wrap gap-2">
                   <Button
                     type="button"
                     variant="outline"
-                    className="min-h-11"
+                    className={ctaClasses.ghost}
                     disabled={busy}
                     onClick={() => void resolveConflict("server")}
                   >
@@ -2586,7 +2611,8 @@ export function EfaObservationPanel({
                   </Button>
                   <Button
                     type="button"
-                    className="min-h-11"
+                    variant="outline"
+                    className={ctaClasses.indigo}
                     disabled={busy || !effectiveCanWrite || !conflictRemote.canEdit}
                     onClick={() => void resolveConflict("keep")}
                   >
@@ -2613,7 +2639,8 @@ export function EfaObservationPanel({
                 )}
                 <Button
                   type="button"
-                  className="min-h-11"
+                  variant="outline"
+                  className={ctaClasses.indigo}
                   disabled={busy || !queueAvailable}
                   onClick={() => void retryUnpersisted()}
                 >
@@ -2665,7 +2692,7 @@ export function EfaObservationPanel({
                       <Button
                         type="button"
                         variant="outline"
-                        className="min-h-11"
+                        className={ctaClasses.ghost}
                         disabled={busy || Boolean(pendingOperationId)}
                         onClick={() => restoreEntry(entry)}
                       >
@@ -2673,7 +2700,8 @@ export function EfaObservationPanel({
                       </Button>
                       <Button
                         type="button"
-                        className="min-h-11"
+                        variant="outline"
+                        className={ctaClasses.indigo}
                         disabled={
                           !observationQueueEntryCanContinue({
                             actorUserId: entry.actorUserId,
@@ -2775,7 +2803,7 @@ export function EfaObservationPanel({
                       <Button
                         type="button"
                         variant="outline"
-                        className="min-h-11"
+                        className={ctaClasses.ghost}
                         disabled={busy}
                         onClick={() => void loadHistory(item.id)}
                       >
@@ -2784,8 +2812,8 @@ export function EfaObservationPanel({
                       {effectiveCanWrite && item.canEdit && (
                         <Button
                           type="button"
-                          variant="secondary"
-                          className="min-h-11"
+                          variant="outline"
+                          className={ctaClasses.indigo}
                           disabled={busy || Boolean(pendingOperationId)}
                           onClick={() =>
                             isParticipationRecord(item)
@@ -2829,45 +2857,44 @@ export function EfaObservationPanel({
               ))}
             </section>
 
-            <section
-              className={
-                compact ? "min-w-0 space-y-2 border-t pt-3" : "space-y-2 rounded-md border p-4"
-              }
-            >
-              <h3 className="font-medium">Avisos de corrección</h3>
-              {notices.length === 0 && (
-                <p className="text-sm text-muted-foreground">No tienes avisos pendientes.</p>
-              )}
-              {notices.map((notice) => (
-                <div
-                  key={notice.id}
-                  className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <p className="text-sm">
-                    Un administrador corrigió una observación · {observationDate(notice.createdAt)}
-                  </p>
-                  {!notice.readAt && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="min-h-11"
-                      disabled={busy}
-                      onClick={() => void markNotice(notice.id)}
-                    >
-                      Marcar leído
-                    </Button>
-                  )}
-                  {compact &&
-                    error &&
-                    errorSurface.area === "notice" &&
-                    errorSurface.id === notice.id && (
-                      <p role="alert" className="text-sm text-destructive" aria-live="assertive">
-                        {error}
-                      </p>
+            {notices.length > 0 && (
+              <section
+                className={
+                  compact ? "min-w-0 space-y-2 border-t pt-3" : "space-y-2 rounded-md border p-4"
+                }
+              >
+                <h3 className="font-medium">Avisos de corrección</h3>
+                {notices.map((notice) => (
+                  <div
+                    key={notice.id}
+                    className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <p className="text-sm">
+                      Un administrador corrigió una observación · {observationDate(notice.createdAt)}
+                    </p>
+                    {!notice.readAt && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className={ctaClasses.ghost}
+                        disabled={busy}
+                        onClick={() => void markNotice(notice.id)}
+                      >
+                        Marcar leído
+                      </Button>
                     )}
-                </div>
-              ))}
-            </section>
+                    {compact &&
+                      error &&
+                      errorSurface.area === "notice" &&
+                      errorSurface.id === notice.id && (
+                        <p role="alert" className="text-sm text-destructive" aria-live="assertive">
+                          {error}
+                        </p>
+                      )}
+                  </div>
+                ))}
+              </section>
+            )}
             {compact ? (
               <details className="text-xs text-muted-foreground">
                 <summary className="min-h-11 cursor-pointer py-2 font-medium">
@@ -2911,22 +2938,33 @@ function ContextSelect({
   renderLabel: (item: Record<string, unknown>) => string;
 }) {
   return (
-    <div className="space-y-2">
-      <Label htmlFor={id}>{label}</Label>
-      <select
-        id={id}
-        className="min-h-11 w-full min-w-0 max-w-full rounded-md border bg-background px-3"
-        value={value}
-        disabled={disabled}
-        onChange={(event) => onChange(event.target.value)}
-      >
-        <option value="">Selecciona un registro existente</option>
-        {rows.map((item) => (
-          <option key={String(item["id"])} value={String(item["id"])}>
-            {renderLabel(item)}
-          </option>
-        ))}
-      </select>
+    <div className="grid min-w-0 gap-1" role="group" aria-labelledby={`${id}-label`}>
+      <span id={`${id}-label`} className="text-xs font-normal text-muted-foreground">
+        {label}
+      </span>
+      {rows.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No hay registros para elegir.</p>
+      ) : (
+        <ul id={id} className="flex min-w-0 flex-wrap gap-2">
+          {rows.map((item) => {
+            const itemId = String(item["id"]);
+            const active = value === itemId;
+            return (
+              <li key={itemId} className="min-w-0 max-w-full">
+                <button
+                  type="button"
+                  aria-pressed={active}
+                  disabled={disabled}
+                  className={`${chipClassName} ${active ? chipActiveClassName : ""}`}
+                  onClick={() => onChange(active ? "" : itemId)}
+                >
+                  <span className="min-w-0 break-words">{renderLabel(item)}</span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
 }

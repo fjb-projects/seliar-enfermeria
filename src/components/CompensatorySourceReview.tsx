@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { StaffDirectoryFields } from "@/components/StaffDirectoryFields";
 import { CompensatoryAgentInput } from "@/components/CompensatoryAgentInput";
+import { filterCompensatoryImport } from "@/lib/compensatory-source-import";
 import {
   directoryKeys,
   parseCompensatoryJson,
@@ -144,9 +145,18 @@ export function CompensatorySourceReview({
   onCopyRequesterEmail?: (staffId: string, email: string, responseId: string) => Promise<void>;
 }) {
   const [rosterRows, setRosterRows] = useState<RosterSourceRow[]>([]);
-  const [requests, setRequests] = useState<ReviewRequest[]>([]);
+  const [requestSource, setRequestSource] = useState<ReturnType<
+    typeof parseCompensatoryJson
+  > | null>(null);
+  const [onlyFuture, setOnlyFuture] = useState(true);
+  const { requests, warnings: requestWarnings } = useMemo(
+    () =>
+      requestSource
+        ? filterCompensatoryImport(requestSource, new Date(), onlyFuture)
+        : { requests: [], warnings: [] },
+    [requestSource, onlyFuture],
+  );
   const [rosterWarnings, setRosterWarnings] = useState<string[]>([]);
-  const [requestWarnings, setRequestWarnings] = useState<string[]>([]);
   const [confirmed, setConfirmed] = useState<Record<string, Confirmation>>({});
   const [selectedRows, setSelectedRows] = useState<Record<string, string>>({});
   const [filter, setFilter] = useState<Filter>("all");
@@ -246,8 +256,7 @@ export function CompensatorySourceReview({
       setRosterRows([]);
       setRosterWarnings([]);
     } else {
-      setRequests([]);
-      setRequestWarnings([]);
+      setRequestSource(null);
     }
     if (!file) return;
     if (file.size > maxFileBytes) {
@@ -264,9 +273,7 @@ export function CompensatorySourceReview({
         setRosterRows(parsed.rows);
         setRosterWarnings(parsed.warnings);
       } else {
-        const parsed = parseCompensatoryJson(text);
-        setRequests(parsed.requests);
-        setRequestWarnings(parsed.warnings);
+        setRequestSource(parseCompensatoryJson(text));
       }
     } catch {
       if (sequence === fileReadSequence.current[kind])
@@ -496,6 +503,27 @@ export function CompensatorySourceReview({
               className="min-h-11 w-full rounded-md border p-2 text-sm"
               onChange={(event) => void readFile(event, "requests")}
             />
+            <label
+              className="flex min-h-11 cursor-pointer items-center gap-2 text-sm font-medium"
+              htmlFor="source-future-only"
+            >
+              <input
+                id="source-future-only"
+                type="checkbox"
+                checked={onlyFuture}
+                disabled={sourceBusy}
+                aria-describedby="source-future-help"
+                onChange={(event) => {
+                  setOnlyFuture(event.currentTarget.checked);
+                  setPage(0);
+                }}
+              />
+              Solo fechas futuras
+            </label>
+            <p id="source-future-help" className="text-sm text-muted-foreground">
+              Incluye hoy y fechas futuras, según Buenos Aires. Desactiva para mostrar todas las
+              fechas. Las fechas no válidas quedan señaladas para revisión, sin permitir guardarlas.
+            </p>
           </div>
           {loading && (
             <p role="status" className="sm:col-span-2 text-sm">

@@ -11,7 +11,10 @@ import {
   FollowUpTimeField,
   followUpButtonState,
 } from "@/components/EfaDispatchFollowUpModal";
-import { Check, Circle, CircleDot } from "lucide-react";
+import { Check, Clock, History, Info, MoreHorizontal, Plus } from "lucide-react";
+import { ctaClasses } from "@/lib/cta-classes";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { PriorityMark } from "@/components/EfaServiceSelector";
 import { createClientOnlyFn, useServerFn } from "@tanstack/react-start";
 import { listEfaBases } from "@/lib/efa-bases.functions";
 import { listEfaCommunicationsForEpisode } from "@/lib/efa-communications.functions";
@@ -37,6 +40,7 @@ import {
 import type { DispatchForm, DispatchLifecycleOperation } from "@/lib/efa-dispatches.client";
 import type { DispatchQueueEntry, DispatchQueueStore } from "@/lib/efa-dispatches.queue";
 import type { EfaEpisodeSectionPosition } from "@/lib/efa-episode-position";
+import type { EfaServiceMetadataStore } from "@/lib/efa-service-metadata";
 import {
   dispatchResultOptions,
   dispatchTimeSteps,
@@ -196,28 +200,16 @@ export function dispatchStepState(index: number, currentStep: number): DispatchS
 }
 
 const dispatchStepStyles: Record<DispatchStepState, string> = {
-  current: "border border-primary bg-primary font-semibold text-primary-foreground",
+  current: "border border-white/40 bg-white/15 font-semibold",
   complete:
     "border border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100",
   pending: "border bg-background text-foreground",
-};
-const dispatchStepBarStyles: Record<DispatchStepState, string> = {
-  current: "bg-primary",
-  complete: "bg-emerald-300 dark:bg-emerald-700",
-  pending: "bg-muted",
 };
 const dispatchStepStateText: Record<DispatchStepState, string | null> = {
   current: "Actual",
   complete: "Completado",
   pending: null,
 };
-
-function DispatchStepIcon({ state }: { state: DispatchStepState }) {
-  const className = "size-4 shrink-0";
-  if (state === "complete") return <Check aria-hidden="true" className={className} />;
-  if (state === "current") return <CircleDot aria-hidden="true" className={className} />;
-  return <Circle aria-hidden="true" className={className} />;
-}
 
 export function DispatchStepNavigation({
   step,
@@ -226,16 +218,20 @@ export function DispatchStepNavigation({
 }: {
   step: number;
   onStepChange: (step: number) => void;
-  /** Optional extra control rendered in the same row, next to "Ver pasos". */
+  /** Optional extra control rendered in the same row, after the step rail. */
   action?: ReactNode;
 }) {
   const title = dispatchStepTitles[step] ?? "Paso del despacho";
   const headingRef = useRef<HTMLParagraphElement>(null);
+  const railRef = useRef<HTMLOListElement>(null);
   const previousStepRef = useRef(step);
 
   useEffect(() => {
     if (previousStepRef.current === step) return;
     previousStepRef.current = step;
+    railRef.current
+      ?.querySelector('[aria-current="step"]')
+      ?.scrollIntoView?.({ block: "nearest", inline: "center" });
     const heading = headingRef.current;
     if (!heading) return;
     heading.focus({ preventScroll: true });
@@ -251,51 +247,47 @@ export function DispatchStepNavigation({
         ref={headingRef}
         aria-live="polite"
         tabIndex={-1}
-        className="min-w-0 flex-1 basis-40 scroll-mt-20 rounded bg-primary px-3 py-2 text-sm font-medium text-primary-foreground outline-none"
+        className="sr-only scroll-mt-20 outline-none"
       >
         Paso {step + 1} de {dispatchStepTitles.length}: {title}
       </p>
-      {action}
-      <details className="relative shrink-0">
-        <summary className="flex min-h-11 cursor-pointer items-center rounded border px-3 text-sm font-medium">
-          Ver pasos
-        </summary>
-        <div className="absolute right-0 z-10 grid min-w-52 max-w-[calc(100vw-2rem)] gap-1 rounded border bg-background p-2 shadow-lg">
-          {dispatchStepTitles.map((stepTitle, index) => {
-            const state = dispatchStepState(index, step);
-            const stateText = dispatchStepStateText[state];
-            return (
+      <ol
+        ref={railRef}
+        aria-label="Pasos del despacho"
+        className="flex min-w-0 flex-1 basis-72 gap-1 overflow-x-auto"
+      >
+        {dispatchStepTitles.map((stepTitle, index) => {
+          const state = dispatchStepState(index, step);
+          const stateText = dispatchStepStateText[state];
+          return (
+            <li
+              key={stepTitle}
+              className={state === "current" ? "min-w-0 flex-[4]" : "min-w-0 flex-1"}
+            >
               <button
                 type="button"
-                key={stepTitle}
                 aria-label={`Ir al paso ${index + 1}: ${stepTitle}${state === "complete" ? " (completado)" : ""}`}
                 aria-current={state === "current" ? "step" : undefined}
                 data-step-state={state}
-                className={`flex min-h-11 min-w-0 items-center gap-2 rounded px-3 text-left text-sm ${dispatchStepStyles[state]}`}
-                onClick={(event) => {
-                  onStepChange(index);
-                  const details = event.currentTarget.closest("details");
-                  if (details) details.open = false;
-                }}
+                title={stepTitle}
+                className={`flex min-h-11 w-full min-w-9 items-center justify-center gap-1.5 rounded px-2 text-sm ${dispatchStepStyles[state]}`}
+                onClick={() => onStepChange(index)}
               >
-                <DispatchStepIcon state={state} />
-                <span className="min-w-0 flex-1">
-                  {index + 1}. {stepTitle}
+                {state === "complete" && <Check aria-hidden="true" className="size-4 shrink-0" />}
+                <span className="truncate">
+                  {state === "current"
+                    ? `${index + 1}. ${stepTitle}`
+                    : state === "complete"
+                      ? ""
+                      : index + 1}
                 </span>
-                {stateText && <span className="shrink-0 text-xs">{stateText}</span>}
+                {stateText && <span className="sr-only">{stateText}</span>}
               </button>
-            );
-          })}
-        </div>
-      </details>
-      <div aria-hidden="true" className="flex basis-full gap-1">
-        {dispatchStepTitles.map((stepTitle, index) => (
-          <span
-            key={stepTitle}
-            className={`h-1.5 flex-1 rounded-full ${dispatchStepBarStyles[dispatchStepState(index, step)]}`}
-          />
-        ))}
-      </div>
+            </li>
+          );
+        })}
+      </ol>
+      {action}
     </div>
   );
 }
@@ -472,11 +464,11 @@ export function DispatchFollowUpBlock({
         </p>
         <FollowUpNoteField note={note} onNoteChange={onNoteChange} />
         <FollowUpTimeField at={at} onAtChange={onAtChange} />
-        <button className="min-h-11 rounded border px-4" disabled={busy} onClick={onRegisterNow}>
+        <button className={ctaClasses.indigo} disabled={busy} onClick={onRegisterNow}>
           Registrar novedad · Ahora
         </button>
         <button
-          className="min-h-11 rounded border px-4"
+          className={ctaClasses.ghost}
           disabled={busy || !inputToIso(at)}
           onClick={onRegisterAt}
         >
@@ -559,6 +551,316 @@ export function dispatchStatusChange(
   };
 }
 
+/** One dispatch needs no switcher once it is open; with several, each one is a chip. */
+// eslint-disable-next-line react-refresh/only-export-components -- Pure helper exported for deterministic tests.
+export function shouldShowDispatchSwitcher(rowCount: number, hasSelected: boolean) {
+  return rowCount > 1 || (rowCount === 1 && !hasSelected);
+}
+
+/** Save indicator for the editor row; anything but "Guardado" deserves attention. */
+// eslint-disable-next-line react-refresh/only-export-components -- Pure helper exported for deterministic tests.
+export function dispatchSaveStatus(input: {
+  busy: boolean;
+  queueLocked: boolean;
+  dirty: boolean;
+  hasSelected: boolean;
+}) {
+  if (input.busy) return "Guardando…";
+  if (input.queueLocked) return "Pendiente";
+  if (input.dirty) return "Cambios sin guardar";
+  return input.hasSelected ? "Guardado" : "Sin guardar";
+}
+
+/**
+ * Navigation buttons save pending edits as a draft before moving. Finalized dispatches are
+ * corrections (never auto-saved), and a draft needs a base before it can be stored at all.
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- Pure helper exported for deterministic tests.
+export function shouldSaveDraftBeforeMove(input: {
+  hasPendingEdits: boolean;
+  state: "draft" | "finalized" | "cancelled" | null;
+  editable: boolean;
+  hasBase: boolean;
+}) {
+  return (
+    input.hasPendingEdits &&
+    input.editable &&
+    input.hasBase &&
+    (input.state === null || input.state === "draft")
+  );
+}
+
+const formatDispatchClock = (value: string | Date | null | undefined) => {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (!Number.isFinite(date.getTime())) return null;
+  return new Intl.DateTimeFormat("es-AR", {
+    timeZone: "America/Argentina/Buenos_Aires",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(date);
+};
+
+type DispatchSwitcherRow = {
+  id: string;
+  state: "draft" | "finalized" | "cancelled";
+  priority: string;
+  baseName: string;
+  t0At: string | Date | null;
+  createdAt: string;
+};
+
+/** Tab-like chips to move between the dispatches of a service. Expects rows oldest first. */
+export function DispatchSwitcher({
+  rows,
+  selectedId,
+  disabled,
+  onSelect,
+}: {
+  rows: DispatchSwitcherRow[];
+  selectedId: string | null;
+  disabled: boolean;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <ul className="flex min-w-0 flex-wrap gap-2" aria-label="Despachos registrados">
+      {rows.map((row, index) => {
+        const active = selectedId === row.id;
+        const priority =
+          row.priority === "red" || row.priority === "yellow" || row.priority === "green"
+            ? row.priority
+            : null;
+        const stateLabel =
+          row.state === "cancelled"
+            ? "Anulado"
+            : row.state === "finalized"
+              ? "Finalizado"
+              : "Borrador";
+        return (
+          <li key={row.id}>
+            <button
+              type="button"
+              aria-pressed={active}
+              aria-label={`Despacho ${index + 1}. ${row.baseName}, ${stateLabel}`}
+              disabled={disabled}
+              className={`inline-flex min-h-11 items-center gap-2 rounded-lg border border-white/15 px-3 text-sm hover:bg-white/10 disabled:opacity-60 ${active ? "bg-white/15 ring-1 ring-inset ring-white/30" : ""}`}
+              onClick={() => onSelect(row.id)}
+            >
+              <PriorityMark item={{ priority }} />
+              <span className="font-medium">Despacho {index + 1}</span>
+              <span className="max-w-32 truncate text-[13px] text-muted-foreground">
+                {row.baseName}
+              </span>
+              <span className="t-clock text-[13px] text-muted-foreground">
+                {formatDispatchClock(row.t0At) ?? "sin hora"}
+              </span>
+              {row.state === "finalized" && (
+                <Check aria-hidden="true" className="size-4 text-emerald-300" />
+              )}
+              {row.state === "cancelled" && (
+                <span className="text-[13px] text-destructive">Anulado</span>
+              )}
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/** History toggle and lifecycle action of the open dispatch, out of the main work area. */
+export function DispatchActionsMenu({
+  historyOpen,
+  onToggleHistory,
+  lifecycle,
+}: {
+  historyOpen: boolean;
+  onToggleHistory: () => void;
+  lifecycle: {
+    label: string;
+    destructive: boolean;
+    disabled: boolean;
+    onSelect: () => void;
+  } | null;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label="Más acciones del despacho"
+          className="inline-flex min-h-11 min-w-11 items-center justify-center rounded border px-2 hover:bg-white/10"
+        >
+          <MoreHorizontal aria-hidden="true" className="size-4" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        className="w-[min(16rem,calc(100vw-2rem))] border-white/20 bg-[rgb(12_15_40/.96)] p-2 text-[#f2f3ff]"
+      >
+        <div className="flex flex-col gap-1">
+          <button
+            type="button"
+            className="flex min-h-11 items-center gap-2 rounded px-3 text-left text-sm hover:bg-white/10"
+            onClick={() => {
+              onToggleHistory();
+              setOpen(false);
+            }}
+          >
+            <History aria-hidden="true" className="size-4" />
+            {historyOpen ? "Ocultar historial" : "Ver historial"}
+          </button>
+          {lifecycle && (
+            <button
+              type="button"
+              className={`flex min-h-11 items-center rounded px-3 text-left text-sm hover:bg-white/10 disabled:opacity-60 ${lifecycle.destructive ? "text-destructive" : ""}`}
+              disabled={lifecycle.disabled}
+              onClick={() => {
+                lifecycle.onSelect();
+                setOpen(false);
+              }}
+            >
+              {lifecycle.label}
+            </button>
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/** True from the `lg` breakpoint; the server render and phones keep the one-step-at-a-time layout. */
+function useDesktopLayout() {
+  const [desktop, setDesktop] = useState(false);
+  useEffect(() => {
+    const query = window.matchMedia("(min-width: 1024px)");
+    const update = () => setDesktop(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+  return desktop;
+}
+
+/** Small info control for secondary copy that should not sit in the page flow. */
+function DispatchHelpHint({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label={label}
+          className="relative inline-flex size-6 items-center justify-center rounded-full text-muted-foreground hover:bg-white/10 hover:text-foreground after:absolute after:-inset-3 after:content-['']"
+        >
+          <Info aria-hidden="true" className="size-4" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="w-[min(22rem,calc(100vw-2rem))] border-white/20 bg-[rgb(12_15_40/.96)] p-3 text-sm text-[#f2f3ff]"
+      >
+        {children}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/**
+ * Desktop view of the seven independent time steps (dispatch .. available) as one table: every time
+ * is visible at once, the current step is highlighted, and the step rail keeps working as before.
+ */
+export function DispatchTimeline({
+  form,
+  onChange,
+  onNow,
+  activeStep,
+  after,
+}: {
+  form: DispatchForm;
+  onChange: (form: DispatchForm) => void;
+  onNow: (key: DispatchTimeKey) => void;
+  activeStep: number;
+  /** Extra content rendered right after a given row (for example the destination picker). */
+  after?: Partial<Record<DispatchTimeKey, ReactNode>>;
+}) {
+  return (
+    <ol
+      aria-label="Línea de tiempo del despacho"
+      className="divide-y divide-white/10 rounded border border-white/15"
+    >
+      {timeSteps.map(([key, title], index) => {
+        const statusKey = dispatchStatusKey(key);
+        const observed = form[statusKey] === "observed" && Boolean(form[key]);
+        const current = index === activeStep;
+        return (
+          <li key={key} {...(current ? { "aria-current": "step" as const } : {})}>
+            <div
+              className={`grid min-w-0 items-center gap-2 px-3 py-2 lg:grid-cols-[11rem_minmax(0,17rem)_auto_minmax(0,11rem)] lg:justify-start ${current ? "bg-white/10" : ""}`}
+            >
+              <span className="flex min-w-0 items-center gap-2 text-sm font-medium">
+                {observed ? (
+                  <Check aria-hidden="true" className="size-4 shrink-0 text-emerald-300" />
+                ) : (
+                  <span aria-hidden="true" className="size-2 shrink-0 rounded-full bg-white/30" />
+                )}
+                <span className="truncate">
+                  {index + 1}. {title}
+                </span>
+              </span>
+              <input
+                type="datetime-local"
+                step="0.001"
+                aria-label={`Hora: ${title}`}
+                className="h-11 w-full min-w-0 rounded border px-3"
+                value={form[key]}
+                onChange={(event) => onChange(dispatchTimeChange(form, key, event.target.value))}
+              />
+              <NowButton
+                label={`Usar ahora para ${title.toLowerCase()}`}
+                onClick={() => onNow(key)}
+              />
+              <select
+                aria-label={`Estado: ${title}`}
+                className="h-11 w-full min-w-0 rounded border px-3"
+                value={form[statusKey]}
+                onChange={(event) =>
+                  onChange(
+                    dispatchStatusChange(form, key, event.target.value as DispatchTimeStatus),
+                  )
+                }
+              >
+                {statuses.map((value) => (
+                  <option key={value} value={value}>
+                    {timeStatusLabel(value)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {after?.[key] && <div className="min-w-0 px-3 pb-3">{after[key]}</div>}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+/** Compact "use the current time" action: a soft indigo tint, so orange stays reserved for saving. */
+function NowButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      className={`${ctaClasses.indigo} shrink-0 justify-self-start`}
+      onClick={onClick}
+    >
+      <Clock aria-hidden="true" className="size-4" />
+      Ahora
+    </button>
+  );
+}
+
 /** Time input, "Ahora" button and status select shared by every dispatch time step. */
 export function DispatchTimeFields({
   timeKey,
@@ -577,8 +879,8 @@ export function DispatchTimeFields({
 }) {
   const statusKey = dispatchStatusKey(timeKey);
   return (
-    <>
-      <div className="grid min-w-0 grid-cols-1 items-end gap-2 min-[360px]:grid-cols-[minmax(0,1fr)_auto]">
+    <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(0,18rem)_auto_minmax(0,12rem)] lg:items-end lg:justify-start lg:gap-2">
+      <div className="grid min-w-0 grid-cols-1 items-end gap-2 min-[360px]:grid-cols-[minmax(0,1fr)_auto] lg:contents">
         <label className="min-w-0">
           {timeLabel}
           <input
@@ -589,14 +891,7 @@ export function DispatchTimeFields({
             onChange={(event) => onChange(dispatchTimeChange(form, timeKey, event.target.value))}
           />
         </label>
-        <button
-          type="button"
-          aria-label={`Usar ahora para ${nowLabel}`}
-          className="min-h-11 shrink-0 justify-self-start rounded border px-3 text-sm"
-          onClick={onNow}
-        >
-          Ahora
-        </button>
+        <NowButton label={`Usar ahora para ${nowLabel}`} onClick={onNow} />
       </div>
       <label className="block">
         Estado
@@ -614,7 +909,7 @@ export function DispatchTimeFields({
           ))}
         </select>
       </label>
-    </>
+    </div>
   );
 }
 
@@ -645,19 +940,20 @@ export function DispatchFirstResponseBlock({
   const open = userOpen ?? hasFirstResponseValue({ firstResponseRole: role, firstResponseAt: at });
   return (
     <details
-      className="min-w-0 rounded border px-3"
+      className="min-w-0"
       open={open}
       onToggle={(event) => setUserOpen(event.currentTarget.open)}
     >
-      <summary className="min-h-11 cursor-pointer py-3 font-medium">
+      <summary className="inline-flex min-h-11 cursor-pointer list-none items-center gap-1.5 text-sm font-medium [&::-webkit-details-marker]:hidden">
+        <Plus aria-hidden="true" className="size-4" />
         Primera respuesta (opcional)
       </summary>
-      <div className="min-w-0 space-y-3 pb-3">
-        <label className="block">
+      <div className="min-w-0 space-y-3 pb-3 lg:flex lg:items-end lg:gap-3 lg:space-y-0">
+        <label className="block lg:w-56">
           Primera respuesta (rol anónimo)
           <FirstResponseRoleSelect value={role} onChange={onRoleChange} />
         </label>
-        <div className="grid min-w-0 grid-cols-1 items-end gap-2 min-[360px]:grid-cols-[minmax(0,1fr)_auto]">
+        <div className="grid min-w-0 grid-cols-1 items-end gap-2 min-[360px]:grid-cols-[minmax(0,1fr)_auto] lg:w-80">
           <label className="min-w-0">
             Hora de primera respuesta
             <input
@@ -668,13 +964,7 @@ export function DispatchFirstResponseBlock({
               onChange={(event) => onAtChange(event.target.value)}
             />
           </label>
-          <button
-            type="button"
-            className="min-h-11 shrink-0 rounded border px-3 text-sm"
-            onClick={onNow}
-          >
-            Ahora
-          </button>
+          <NowButton label="Usar ahora para la primera respuesta" onClick={onNow} />
         </div>
       </div>
     </details>
@@ -765,6 +1055,7 @@ export function EfaDispatchStepper({
   episodeCanEdit,
   initialPosition,
   onPositionChange,
+  serviceMetadata,
 }: {
   episodeId: string;
   episodeLabel: string;
@@ -775,6 +1066,7 @@ export function EfaDispatchStepper({
   initialPosition?: EfaEpisodeSectionPosition | null;
   /** Reports the selected dispatch and step after the initial restore. */
   onPositionChange?: (position: EfaEpisodeSectionPosition) => void;
+  serviceMetadata?: EfaServiceMetadataStore | undefined;
 }) {
   const listForEpisode = useServerFn(listEfaDispatchesForEpisode);
   const getHistory = useServerFn(getEfaDispatchHistory);
@@ -811,6 +1103,8 @@ export function EfaDispatchStepper({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [form, setFormState] = useState<DispatchForm>(emptyDispatchForm);
   const [step, setStep] = useState(0);
+  const [historyOpenId, setHistoryOpenId] = useState<string | null>(null);
+  const desktop = useDesktopLayout();
   const [busy, setBusy] = useState(false);
   const [finalizeConfirmationTarget, setFinalizeConfirmationTarget] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
@@ -908,14 +1202,26 @@ export function EfaDispatchStepper({
     setFormState(next);
   };
 
+  function readSavedDispatches(targetEpisode = episodeId) {
+    const load = async () =>
+      (await listForEpisode({ data: targetEpisode })) as unknown as DispatchView[];
+    return serviceMetadata ? serviceMetadata.readDispatches(targetEpisode, load) : load();
+  }
+
+  function readSavedCalls() {
+    const load = () => listCalls({ data: episodeId });
+    return serviceMetadata ? serviceMetadata.readCalls(episodeId, load) : load();
+  }
+
   async function refresh() {
     const targetOwner = currentUserId;
     const targetEpisode = episodeId;
     const selectedAtStart = editorRef.current.selectedId;
     const helpers = await loadClient();
     if (!mounted.current || owner.current !== targetOwner || episodeId !== targetEpisode) return;
-    const result = (await listForEpisode({ data: targetEpisode })) as unknown as DispatchView[];
+    const result = await readSavedDispatches(targetEpisode);
     if (!mounted.current || owner.current !== targetOwner || episodeId !== targetEpisode) return;
+    serviceMetadata?.publishDispatches(targetEpisode, result);
     setRows(result);
     const currentEditor = editorRef.current;
     const targetDispatchId = currentEditor.selectedId;
@@ -966,10 +1272,10 @@ export function EfaDispatchStepper({
     const ticket = currentUserId;
     let active = true;
     void Promise.all([
-      listForEpisode({ data: episodeId }),
+      readSavedDispatches(),
       canWrite ? listBases() : Promise.resolve([]),
       canWrite ? listInstitutions() : Promise.resolve([]),
-      listCalls({ data: episodeId }),
+      readSavedCalls(),
       listNotices(),
       loadQueue(),
     ])
@@ -983,6 +1289,8 @@ export function EfaDispatchStepper({
           queueModule,
         ]) => {
           if (!active || owner.current !== ticket) return;
+          serviceMetadata?.publishDispatches(episodeId, dispatches);
+          serviceMetadata?.publishCalls(episodeId, callRows);
           setRows(dispatches as unknown as DispatchView[]);
           setBases(activeBases as BaseChoice[]);
           setInstitutions(activeInstitutions as EfaInstitutionChoice[]);
@@ -1081,11 +1389,12 @@ export function EfaDispatchStepper({
     };
   }, [selected, selectedId, currentUserId, getDispatch, getHistory]);
 
+  /** Resolves true once the operation is stored locally and handed to the sender. */
   const freeze = async (
     kind: DispatchQueueEntry["kind"],
     payload: DispatchQueueEntry["payload"],
-  ) => {
-    if (!queueStore.current || !queueReady || busyRef.current) return;
+  ): Promise<boolean> => {
+    if (!queueStore.current || !queueReady || busyRef.current) return false;
     busyRef.current = true;
     setBusy(true);
     setError("");
@@ -1119,7 +1428,7 @@ export function EfaDispatchStepper({
       const helpers = await loadClient();
       if (!mounted.current || owner.current !== targetOwner || !canWriteRef.current) {
         setError("La cuenta o el permiso cambió antes de guardar; no se envió la solicitud.");
-        return;
+        return false;
       }
       entry = helpers.makeDispatchQueueEntry({
         ownerUserId: targetOwner,
@@ -1136,11 +1445,13 @@ export function EfaDispatchStepper({
           : [...existing, entry],
       );
       await runEntry(entry, dispatchErrorSurfaceForKind(kind));
+      return true;
     } catch (reason) {
       setStorageRetry(entry);
       setError(
         `No se pudo guardar la solicitud local. Conservamos la operación ${operationId}; reintenta exactamente la misma solicitud cuando se restablezca el almacenamiento.`,
       );
+      return false;
     } finally {
       busyRef.current = false;
       setBusy(false);
@@ -1366,6 +1677,10 @@ export function EfaDispatchStepper({
         const now = editorRef.current;
         const previous = rowsRef.current.find((row) => row.id === mutationDto.id) ?? null;
         const confirmed = helpers.normalizeConfirmedDispatch(mutationDto, previous);
+        serviceMetadata?.upsertDispatch(ticketEpisode, {
+          ...confirmed,
+          baseName: bases.find((base) => base.id === confirmed.baseId)?.name,
+        });
         setRows((existing) => [...existing.filter((row) => row.id !== confirmed.id), confirmed]);
         if (
           submitted &&
@@ -1610,6 +1925,10 @@ export function EfaDispatchStepper({
     setSelectedQueueId(null);
     setConflictSnapshot(null);
     if (snapshot.dispatch) {
+      serviceMetadata?.upsertDispatch(targetEpisode, {
+        ...snapshot.dispatch,
+        baseName: bases.find((base) => base.id === snapshot.dispatch!.baseId)?.name,
+      });
       setRows((current) =>
         current.map((row) => (row.id === snapshot.dispatch!.id ? snapshot.dispatch! : row)),
       );
@@ -1774,8 +2093,9 @@ export function EfaDispatchStepper({
     return () => window.removeEventListener("online", onOnline);
   }, []);
 
-  const save = async () => {
-    if (!editable || busy || !ready || !queueReady || !form.baseId) return;
+  /** Saves `draft` (the current form unless the caller already holds a newer one). */
+  const save = async (draft: DispatchForm = form): Promise<boolean> => {
+    if (!editable || busy || !ready || !queueReady || !draft.baseId) return false;
     const source = selected ?? {
       t0At: null,
       t1At: null,
@@ -1785,46 +2105,45 @@ export function EfaDispatchStepper({
       t5At: null,
       t6At: null,
     };
-    const times = dispatchFormTimes(form, source);
+    const times = dispatchFormTimes(draft, source);
     const preserveLegacyFirstResponseRole =
       selected &&
       !!selected.firstResponseRole &&
       !firstResponseRoleValues.some((role) => role === selected.firstResponseRole) &&
-      form.firstResponseRole === selected.firstResponseRole;
+      draft.firstResponseRole === selected.firstResponseRole;
     const fields = {
-      baseId: form.baseId,
-      institutionId: form.institutionId || null,
-      communicationId: form.communicationId || null,
-      priority: form.priority || null,
+      baseId: draft.baseId,
+      institutionId: draft.institutionId || null,
+      communicationId: draft.communicationId || null,
+      priority: draft.priority || null,
       ...times,
-      t0Status: form.t0Status,
-      t1Status: form.t1Status,
-      t2Status: form.t2Status,
-      t3Status: form.t3Status,
-      t4Status: form.t4Status,
-      t5Status: form.t5Status,
-      t6Status: form.t6Status,
+      t0Status: draft.t0Status,
+      t1Status: draft.t1Status,
+      t2Status: draft.t2Status,
+      t3Status: draft.t3Status,
+      t4Status: draft.t4Status,
+      t5Status: draft.t5Status,
+      t6Status: draft.t6Status,
       ...(!preserveLegacyFirstResponseRole
-        ? { firstResponseRole: form.firstResponseRole || null }
+        ? { firstResponseRole: draft.firstResponseRole || null }
         : {}),
-      firstResponseAt: form.firstResponseAt ? new Date(form.firstResponseAt).toISOString() : null,
-      note: form.note || null,
-      result: form.result || null,
-      resultClarification: form.resultClarification || null,
+      firstResponseAt: draft.firstResponseAt ? new Date(draft.firstResponseAt).toISOString() : null,
+      note: draft.note || null,
+      result: draft.result || null,
+      resultClarification: draft.resultClarification || null,
     };
     if (selected)
-      await freeze("update", {
+      return freeze("update", {
         dispatchId: selected.id,
         expectedVersion: selected.version,
         operationId: crypto.randomUUID(),
         ...fields,
       } as unknown as DispatchQueueEntry["payload"]);
-    else
-      await freeze("create", {
-        clientCreationKey: crypto.randomUUID(),
-        episodeId,
-        ...fields,
-      } as unknown as DispatchQueueEntry["payload"]);
+    return freeze("create", {
+      clientCreationKey: crypto.randomUUID(),
+      episodeId,
+      ...fields,
+    } as unknown as DispatchQueueEntry["payload"]);
   };
 
   const finalize = async (confirmedTargetKey: string) => {
@@ -1901,6 +2220,12 @@ export function EfaDispatchStepper({
       const helpers = await loadClient();
       const current = rowsRef.current.find((row) => row.id === selected.id) ?? null;
       const updated = helpers.normalizeConfirmedDispatch(response.dispatch, current);
+      if (mounted.current && owner.current === currentUserId) {
+        serviceMetadata?.upsertDispatch(episodeId, {
+          ...updated,
+          baseName: bases.find((base) => base.id === updated.baseId)?.name,
+        });
+      }
       setRows((existing) => existing.map((row) => (row.id === updated.id ? updated : row)));
       setMessage(
         action === "cancel" ? "El despacho quedó anulado." : "El despacho quedó reactivado.",
@@ -1916,17 +2241,157 @@ export function EfaDispatchStepper({
     }
   };
 
+  // "Ahora" fills the field and keeps it as a draft right away. When it cannot be saved (no base
+  // yet, finalized record, read-only) the value stays in the form like any other edit.
+  const applyAndSaveDraft = (next: DispatchForm) => {
+    setForm(next);
+    const mustSave = shouldSaveDraftBeforeMove({
+      hasPendingEdits: true,
+      state: selected?.state ?? null,
+      editable,
+      hasBase: Boolean(next.baseId),
+    });
+    if (mustSave) void save(next);
+  };
   const quickTime = (key: keyof DispatchForm) => {
     const time = captureDispatchTime(new Date());
     const statusKey = `${String(key).slice(0, 2)}Status` as keyof DispatchForm;
-    setForm((old) => ({ ...old, [key]: time, [statusKey]: "observed" }));
+    applyAndSaveDraft({ ...form, [key]: time, [statusKey]: "observed" });
   };
   const stepTitle = dispatchStepTitles[step] ?? "Paso del despacho";
+  const startNewDispatch = () => {
+    selectedIdRef.current = null;
+    editorRef.current = { selectedId: null, form: emptyDispatchForm(), dirty: false };
+    setSelectedId(null);
+    setForm(emptyDispatchForm());
+    setStep(0);
+  };
+  const baseNameOf = (baseId: string) =>
+    bases.find((base) => base.id === baseId)?.name ?? "Base histórica";
+  const orderedRows = [...rows].sort((left, right) =>
+    left.createdAt.localeCompare(right.createdAt),
+  );
+  const showDispatchSwitcher = shouldShowDispatchSwitcher(orderedRows.length, selected !== null);
+  const saveStatus = dispatchSaveStatus({
+    busy,
+    queueLocked,
+    dirty,
+    hasSelected: selected !== null,
+  });
+  const canManageLifecycle = Boolean(selected?.canManage && canWrite && episodeCanEdit);
+  const newDispatchDirty = !selected && dispatchFormChanged(form, emptyDispatchForm());
+  // Every navigation button keeps pending edits: a draft is saved first, and the move only
+  // happens if that save was accepted. Finalized records are corrections, never auto-saved.
+  const saveDraftThen = async (move: () => void) => {
+    const mustSave = shouldSaveDraftBeforeMove({
+      hasPendingEdits: selected ? dirty : newDispatchDirty,
+      state: selected?.state ?? null,
+      editable,
+      hasBase: Boolean(form.baseId),
+    });
+    if (mustSave && !(await save())) return;
+    move();
+  };
+  const goToStep = (next: number) => void saveDraftThen(() => setStep(next));
+  const showDispatchToolbar =
+    showDispatchSwitcher || (editable && rows.length > 0) || selected !== null || newDispatchDirty;
+  const linkedCallHelpId = `dispatch-linked-call-help-${episodeId}`;
+  const linkedCallHelp =
+    "La prioridad se copia al crear; cambiar después el vínculo no la modifica. Se permiten borradores parciales y las horas son opcionales.";
+  const baseField = (
+    <label className="block min-w-0">
+      Base / móvil
+      <select
+        className="mt-1 h-11 w-full min-w-0 max-w-full rounded border px-3"
+        value={form.baseId}
+        onChange={(event) => setForm({ ...form, baseId: event.target.value })}
+      >
+        <option value="">Seleccionar</option>
+        {selected && !bases.some((base) => base.id === selected.baseId) && (
+          <option value={selected.baseId}>Base histórica (inactiva)</option>
+        )}
+        {bases.map((base) => (
+          <option key={base.id} value={base.id}>
+            {base.name}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+  const callField = (
+    <div className="min-w-0">
+      <div className="flex items-center gap-1.5">
+        <label htmlFor={`dispatch-linked-call-${episodeId}`}>Llamada vinculada</label>
+        <DispatchHelpHint label="Ayuda sobre la llamada vinculada">
+          {linkedCallHelp}
+        </DispatchHelpHint>
+      </div>
+      <select
+        id={`dispatch-linked-call-${episodeId}`}
+        aria-describedby={linkedCallHelpId}
+        className="mt-1 h-11 w-full min-w-0 max-w-full rounded border px-3"
+        value={form.communicationId}
+        onChange={(event) => {
+          const call = calls.find((item) => item.id === event.target.value);
+          setForm({
+            ...form,
+            communicationId: event.target.value,
+            ...(!selected && call ? { priority: call.priority ?? "" } : {}),
+          });
+        }}
+      >
+        <option value="">Sin llamada</option>
+        {availableDispatchOrigins(calls, selected?.communicationId ?? null).map((call) => (
+          <option key={call.id} value={call.id}>
+            {dispatchCallOptionLabel(call)}
+          </option>
+        ))}
+      </select>
+      <p id={linkedCallHelpId} className="sr-only">
+        {linkedCallHelp}
+      </p>
+      {selectedCall && (
+        <p className="break-words text-sm text-muted-foreground">
+          Llamada seleccionada:{" "}
+          {selectedCall.state === "cancelled"
+            ? "anulada"
+            : selectedCall.state === "finalized"
+              ? "finalizada"
+              : "en curso"}
+          .
+        </p>
+      )}
+    </div>
+  );
+  const firstResponseBlock = (
+    <DispatchFirstResponseBlock
+      key={selected?.id ?? "new"}
+      role={form.firstResponseRole}
+      at={form.firstResponseAt}
+      onRoleChange={(value) => setForm({ ...form, firstResponseRole: value })}
+      onAtChange={(value) => setForm({ ...form, firstResponseAt: value })}
+      onNow={() => applyAndSaveDraft({ ...form, firstResponseAt: captureDispatchTime(new Date()) })}
+    />
+  );
+  const institutionField = (
+    <DispatchInstitutionField
+      institutions={institutions}
+      institutionsLoaded={institutionsLoaded}
+      value={form.institutionId}
+      historicalInstitution={
+        selected?.institutionIsActive === false
+          ? { id: selected.institutionId, name: selected.institutionName ?? null }
+          : null
+      }
+      onChange={(institutionId) => setForm({ ...form, institutionId })}
+      onInstitutionsChanged={setInstitutions}
+    />
+  );
 
   return (
     <div className="min-w-0 space-y-3">
       <section className="min-w-0 space-y-3" aria-label={`Despachos del episodio ${episodeLabel}`}>
-        <h2 className="text-lg font-semibold">Despachos</h2>
+        <h2 className="sr-only">Despachos</h2>
         {!canWrite && <p role="status">Solo lectura: el acceso EFA no está vigente.</p>}
         {!ready && <p role="status">Cargando despachos…</p>}
         {error &&
@@ -1962,89 +2427,107 @@ export function EfaDispatchStepper({
               </button>
             </p>
           ))}
-        <div className="min-w-0 space-y-2">
-          {rows.map((row) => (
-            <button
-              key={row.id}
-              type="button"
-              className="min-h-11 w-full min-w-0 rounded border p-3 text-left"
-              aria-pressed={selectedId === row.id}
-              onClick={() => {
-                selectedIdRef.current = row.id;
-                setSelectedId(row.id);
-                setForm(restoreDispatchForm(row));
-                setStep(0);
-              }}
-            >
-              <span className="font-medium">
-                {bases.find((base) => base.id === row.baseId)?.name ?? "Base histórica"}
-              </span>{" "}
-              ·{" "}
-              {row.state === "cancelled"
-                ? "Anulado"
-                : row.state === "finalized"
-                  ? "Finalizado"
-                  : "Borrador"}{" "}
-              · versión {row.version}
-              {row.t0At && (
-                <span className="block text-sm">Despacho: {formatDispatchDate(row.t0At)}</span>
-              )}
-              <span className="block break-all text-xs text-muted-foreground">ID {row.id}</span>
-              {row.institutionName && (
-                <span className="block text-sm">
-                  Destino: {row.institutionName}
-                  {row.institutionIsActive === false ? " · histórico/inactivo" : ""}
-                </span>
-              )}
-            </button>
-          ))}
-          {rows.length === 0 && (
-            <p className="text-sm text-muted-foreground">
-              Todavía no hay despachos; el formulario permite registrar el primero.
-            </p>
-          )}
-        </div>
-        {selected?.canManage && canWrite && episodeCanEdit && (
-          <details className="min-w-0 border-t pt-2">
-            <summary className="min-h-11 cursor-pointer py-2 font-medium">Más acciones</summary>
-            <div className="flex min-w-0 flex-wrap gap-2" aria-label="Estado del despacho">
-              {selected.state === "cancelled" ? (
-                <button
-                  type="button"
-                  className="min-h-11 rounded border px-4"
-                  disabled={busy || queueLocked}
-                  onClick={() => void transitionLifecycle("reactivate")}
+        {rows.length === 0 && ready && (
+          <p className="sr-only">
+            Todavía no hay despachos; el formulario permite registrar el primero.
+          </p>
+        )}
+        {showDispatchToolbar && (
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            {showDispatchSwitcher && (
+              <DispatchSwitcher
+                rows={orderedRows.map((row) => ({
+                  id: row.id,
+                  state: row.state,
+                  priority: row.priority,
+                  baseName: baseNameOf(row.baseId),
+                  t0At: row.t0At,
+                  createdAt: row.createdAt,
+                }))}
+                selectedId={selectedId}
+                disabled={busy}
+                onSelect={(id) => {
+                  const row = rows.find((candidate) => candidate.id === id);
+                  if (!row || row.id === selectedId) return;
+                  void saveDraftThen(() => {
+                    selectedIdRef.current = row.id;
+                    setSelectedId(row.id);
+                    setForm(restoreDispatchForm(row));
+                    setStep(0);
+                  });
+                }}
+              />
+            )}
+            {editable && rows.length > 0 && (
+              <button
+                type="button"
+                className={ctaClasses.indigo}
+                disabled={queueLocked}
+                onClick={() => void saveDraftThen(startNewDispatch)}
+              >
+                <Plus aria-hidden="true" className="size-4" />
+                Nuevo despacho
+              </button>
+            )}
+            {editable && (selected !== null || newDispatchDirty) && (
+              <div className="flex items-center gap-1 sm:ml-auto">
+                <p
+                  className={`flex items-center gap-1.5 text-[13px] ${saveStatus === "Guardado" ? "text-muted-foreground" : "text-amber-800"}`}
+                  aria-live="polite"
+                  {...(selected ? { title: `Versión ${selected.version}` } : {})}
                 >
-                  Reactivar despacho
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  className="min-h-11 rounded border border-amber-300 px-4"
-                  disabled={busy || queueLocked}
-                  onClick={() => void transitionLifecycle("cancel")}
-                >
-                  Anular despacho
-                </button>
-              )}
-              {selected.state === "cancelled" && selected.cancelledAt && (
-                <p role="status" className="self-center text-sm">
-                  Anulado el {formatDispatchDate(selected.cancelledAt)}; reactiva para editar o
-                  finalizar.
+                  <span className="sr-only">Estado del guardado: </span>
+                  {saveStatus === "Guardado" && <Check aria-hidden="true" className="size-3.5" />}
+                  {saveStatus}
                 </p>
-              )}
-              {error && errorSurface === "lifecycle" && (
-                <p role="alert" className="w-full text-sm text-destructive" aria-live="assertive">
-                  {error}
-                </p>
-              )}
-              {message && messageSurface === "lifecycle" && (
-                <p role="status" className="w-full text-sm" aria-live="polite">
-                  {message}
-                </p>
-              )}
-            </div>
-          </details>
+                {selected && (
+                  <DispatchActionsMenu
+                    historyOpen={historyOpenId === selected.id}
+                    onToggleHistory={() =>
+                      setHistoryOpenId((current) => (current === selected.id ? null : selected.id))
+                    }
+                    lifecycle={
+                      canManageLifecycle
+                        ? selected.state === "cancelled"
+                          ? {
+                              label: "Reactivar despacho",
+                              destructive: false,
+                              disabled: busy || queueLocked,
+                              onSelect: () => void transitionLifecycle("reactivate"),
+                            }
+                          : {
+                              label: "Anular despacho",
+                              destructive: true,
+                              disabled: busy || queueLocked,
+                              onSelect: () => void transitionLifecycle("cancel"),
+                            }
+                        : null
+                    }
+                  />
+                )}
+              </div>
+            )}
+          </div>
+        )}
+        {canManageLifecycle && selected && (
+          <>
+            {selected.state === "cancelled" && selected.cancelledAt && (
+              <p role="status" className="text-sm">
+                Anulado el {formatDispatchDate(selected.cancelledAt)}; reactiva para editar o
+                finalizar.
+              </p>
+            )}
+            {error && errorSurface === "lifecycle" && (
+              <p role="alert" className="text-sm text-destructive" aria-live="assertive">
+                {error}
+              </p>
+            )}
+            {message && messageSurface === "lifecycle" && (
+              <p role="status" className="text-sm" aria-live="polite">
+                {message}
+              </p>
+            )}
+          </>
         )}
         {selected?.state === "cancelled" && (
           <dl
@@ -2068,28 +2551,12 @@ export function EfaDispatchStepper({
             ))}
           </dl>
         )}
-        {editable && (
-          <button
-            type="button"
-            className="min-h-11 rounded border px-4"
-            disabled={queueLocked}
-            onClick={() => {
-              selectedIdRef.current = null;
-              editorRef.current = { selectedId: null, form: emptyDispatchForm(), dirty: false };
-              setSelectedId(null);
-              setForm(emptyDispatchForm());
-              setStep(0);
-            }}
-          >
-            Nuevo despacho independiente
-          </button>
-        )}
-        {selected && (
-          <details className="min-w-0 border-t pt-3">
-            <summary className="min-h-11 cursor-pointer py-2 font-medium">
+        {selected && historyOpenId === selected.id && (
+          <div className="min-w-0 space-y-2 border-t pt-3">
+            <p className="font-medium">
               Historial del despacho · {history.length} cambios, {selected.contactAttempts.length}{" "}
               seguimientos
-            </summary>
+            </p>
             <div className="space-y-2">
               {history.map((item, index) => (
                 <div key={`${item.versionAfter}-${index}`} className="text-sm">
@@ -2133,15 +2600,24 @@ export function EfaDispatchStepper({
                 </p>
               ))}
             </div>
-          </details>
+          </div>
         )}
         {editable && (
           <div className="min-w-0 border-t pb-3 pt-3">
             <DispatchStepNavigation
               step={step}
-              onStepChange={setStep}
+              onStepChange={goToStep}
               action={
-                followUpButton === "hidden" ? null : (
+                followUpButton === "hidden" ? (
+                  // Visible but off until the first save, so the follow-up notes are never "missing".
+                  !selected ? (
+                    <FollowUpOpenButton
+                      disabled
+                      hint="Guardá el borrador para registrar comunicaciones de seguimiento."
+                      onClick={() => undefined}
+                    />
+                  ) : null
+                ) : (
                   <FollowUpOpenButton
                     disabled={followUpButton === "disabled"}
                     onClick={() => {
@@ -2158,26 +2634,26 @@ export function EfaDispatchStepper({
         )}
         {editable && (
           <fieldset disabled={queueLocked} className="min-w-0 space-y-3">
-            {step === 0 && (
+            {desktop && step < dispatchPriorityStep && (
               <div className="space-y-3">
-                <label className="block">
-                  Base / móvil
-                  <select
-                    className="mt-1 h-11 w-full min-w-0 max-w-full rounded border px-3"
-                    value={form.baseId}
-                    onChange={(event) => setForm({ ...form, baseId: event.target.value })}
-                  >
-                    <option value="">Seleccionar</option>
-                    {selected && !bases.some((base) => base.id === selected.baseId) && (
-                      <option value={selected.baseId}>Base histórica (inactiva)</option>
-                    )}
-                    {bases.map((base) => (
-                      <option key={base.id} value={base.id}>
-                        {base.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                <h3 className="sr-only">{stepTitle}</h3>
+                <div className="grid gap-3 lg:grid-cols-2">
+                  {baseField}
+                  {callField}
+                </div>
+                <DispatchTimeline
+                  form={form}
+                  onChange={setForm}
+                  onNow={quickTime}
+                  activeStep={step}
+                  after={{ t4At: institutionField }}
+                />
+                {firstResponseBlock}
+              </div>
+            )}
+            {!desktop && step === 0 && (
+              <div className="space-y-3">
+                {baseField}
                 <DispatchTimeFields
                   timeKey="t0At"
                   timeLabel="Hora de despacho"
@@ -2186,60 +2662,13 @@ export function EfaDispatchStepper({
                   onChange={setForm}
                   onNow={() => quickTime("t0At")}
                 />
-                <label className="block">
-                  Llamada vinculada
-                  <select
-                    className="mt-1 h-11 w-full min-w-0 max-w-full rounded border px-3"
-                    value={form.communicationId}
-                    onChange={(event) => {
-                      const call = calls.find((item) => item.id === event.target.value);
-                      setForm({
-                        ...form,
-                        communicationId: event.target.value,
-                        ...(!selected && call ? { priority: call.priority ?? "" } : {}),
-                      });
-                    }}
-                  >
-                    <option value="">Sin llamada</option>
-                    {availableDispatchOrigins(calls, selected?.communicationId ?? null).map(
-                      (call) => (
-                        <option key={call.id} value={call.id}>
-                          {dispatchCallOptionLabel(call)}
-                        </option>
-                      ),
-                    )}
-                  </select>
-                  {selectedCall && (
-                    <p className="break-words text-sm text-muted-foreground">
-                      Llamada seleccionada:{" "}
-                      {selectedCall.state === "cancelled"
-                        ? "anulada"
-                        : selectedCall.state === "finalized"
-                          ? "finalizada"
-                          : "en curso"}
-                      .
-                    </p>
-                  )}
-                </label>
-                <p className="text-sm text-muted-foreground">
-                  La prioridad se copia al crear; cambiar después el vínculo no la modifica. Se
-                  permiten borradores parciales y las horas son opcionales.
-                </p>
-                <DispatchFirstResponseBlock
-                  key={selected?.id ?? "new"}
-                  role={form.firstResponseRole}
-                  at={form.firstResponseAt}
-                  onRoleChange={(value) => setForm({ ...form, firstResponseRole: value })}
-                  onAtChange={(value) => setForm({ ...form, firstResponseAt: value })}
-                  onNow={() =>
-                    setForm({ ...form, firstResponseAt: captureDispatchTime(new Date()) })
-                  }
-                />
+                {callField}
+                {firstResponseBlock}
               </div>
             )}
-            {step >= 1 && step < dispatchPriorityStep && (
+            {!desktop && step >= 1 && step < dispatchPriorityStep && (
               <div className="space-y-3">
-                <h3 className="font-medium">{stepTitle}</h3>
+                <h3 className="sr-only">{stepTitle}</h3>
                 {(() => {
                   const [key, title] = timeSteps[step]!;
                   return (
@@ -2252,26 +2681,7 @@ export function EfaDispatchStepper({
                         onChange={setForm}
                         onNow={() => quickTime(key)}
                       />
-                      {key === "t4At" && (
-                        <DispatchInstitutionField
-                          institutions={institutions}
-                          institutionsLoaded={institutionsLoaded}
-                          value={form.institutionId}
-                          historicalInstitution={
-                            selected?.institutionIsActive === false
-                              ? {
-                                  id: selected.institutionId,
-                                  name: selected.institutionName ?? null,
-                                }
-                              : null
-                          }
-                          onChange={(institutionId) => setForm({ ...form, institutionId })}
-                          onInstitutionsChanged={setInstitutions}
-                        />
-                      )}
-                      <p className="text-sm">
-                        Las horas son independientes; no se valida el orden cronológico.
-                      </p>
+                      {key === "t4At" && institutionField}
                     </>
                   );
                 })()}
@@ -2279,8 +2689,9 @@ export function EfaDispatchStepper({
             )}
             {step === dispatchPriorityStep && (
               <div className="space-y-3">
-                <h3>Prioridad</h3>
+                <h3 className="sr-only">Prioridad</h3>
                 <select
+                  aria-label="Prioridad"
                   className="h-12 w-full min-w-0 max-w-full rounded border px-3"
                   value={form.priority}
                   onChange={(event) =>
@@ -2302,8 +2713,9 @@ export function EfaDispatchStepper({
             )}
             {step === dispatchResultStep && (
               <div className="space-y-3">
-                <h3>Resultado</h3>
+                <h3 className="sr-only">Resultado</h3>
                 <select
+                  aria-label="Resultado"
                   className="h-12 w-full min-w-0 max-w-full rounded border px-3"
                   value={form.result}
                   onChange={(event) =>
@@ -2331,7 +2743,8 @@ export function EfaDispatchStepper({
               <div className="min-w-0 space-y-3">
                 <p>
                   La finalización es manual y exige prioridad y resultado. Ninguna hora cierra el
-                  despacho automáticamente.
+                  despacho automáticamente, y las horas son independientes: no se valida su orden
+                  cronológico.
                 </p>
                 <ul className="space-y-1 text-sm">
                   {!selected && (
@@ -2340,7 +2753,7 @@ export function EfaDispatchStepper({
                       <button
                         type="button"
                         className="ml-1 inline-flex min-h-11 items-center px-1 underline"
-                        onClick={() => setStep(0)}
+                        onClick={() => goToStep(0)}
                       >
                         Ir a Base
                       </button>
@@ -2352,7 +2765,7 @@ export function EfaDispatchStepper({
                       <button
                         type="button"
                         className="ml-1 inline-flex min-h-11 items-center px-1 underline"
-                        onClick={() => setStep(0)}
+                        onClick={() => goToStep(0)}
                       >
                         Ir a Base
                       </button>
@@ -2364,7 +2777,7 @@ export function EfaDispatchStepper({
                       <button
                         type="button"
                         className="ml-1 inline-flex min-h-11 items-center px-1 underline"
-                        onClick={() => setStep(dispatchPriorityStep)}
+                        onClick={() => goToStep(dispatchPriorityStep)}
                       >
                         Ir a Prioridad
                       </button>
@@ -2376,7 +2789,7 @@ export function EfaDispatchStepper({
                       <button
                         type="button"
                         className="ml-1 inline-flex min-h-11 items-center px-1 underline"
-                        onClick={() => setStep(dispatchResultStep)}
+                        onClick={() => goToStep(dispatchResultStep)}
                       >
                         Ir a Resultado
                       </button>
@@ -2402,60 +2815,60 @@ export function EfaDispatchStepper({
                 )}
               </div>
             )}
-            <div className="grid min-w-0 grid-cols-2 gap-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
               <button
                 type="button"
                 disabled={step === 0}
-                className="min-h-11 min-w-0 rounded border px-2 text-sm sm:px-4"
-                onClick={() => setStep((value) => Math.max(0, value - 1))}
+                className={`${ctaClasses.ghost} min-w-0 flex-1 sm:flex-none`}
+                onClick={() => goToStep(Math.max(0, step - 1))}
               >
                 Anterior
               </button>
               <button
                 type="button"
                 disabled={step === dispatchLastStep}
-                className="min-h-11 min-w-0 rounded bg-primary px-2 text-sm text-primary-foreground sm:px-4"
-                onClick={() => setStep((value) => Math.min(dispatchLastStep, value + 1))}
+                className={`${ctaClasses.next} min-w-0 flex-1 sm:flex-none`}
+                onClick={() => goToStep(Math.min(dispatchLastStep, step + 1))}
               >
                 Siguiente
               </button>
-            </div>
-            <div className="flex min-w-0 items-center gap-2">
-              <button
-                type="button"
-                className={`min-h-11 rounded bg-primary text-sm text-primary-foreground ${isDispatchReviewStep(step) && selected?.state !== "finalized" ? "min-w-0 flex-1 px-2" : "shrink-0 px-4"}`}
-                disabled={busy || !queueReady || !form.baseId}
-                onClick={() => void save()}
-              >
-                {selected ? "Guardar cambios" : "Guardar borrador"}
-              </button>
-              {isDispatchReviewStep(step) && selected?.state !== "finalized" && (
+              <div className="flex w-full min-w-0 items-center gap-2 sm:ml-auto sm:w-auto">
+                {isDispatchReviewStep(step) && selected?.state !== "finalized" && (
+                  <button
+                    type="button"
+                    className={`${ctaClasses.teal} min-w-0 flex-1 sm:flex-none`}
+                    disabled={
+                      busy ||
+                      !ready ||
+                      !queueReady ||
+                      queueLocked ||
+                      !canWrite ||
+                      !episodeCanEdit ||
+                      !selected ||
+                      !selected.canEdit ||
+                      !form.priority ||
+                      !form.result ||
+                      dirty
+                    }
+                    onClick={() =>
+                      selected &&
+                      setFinalizeConfirmationTarget(
+                        `${currentUserId}:${episodeId}:${selected.id}:${selected.version}`,
+                      )
+                    }
+                  >
+                    Finalizar despacho
+                  </button>
+                )}
                 <button
                   type="button"
-                  className="min-h-11 min-w-0 flex-1 rounded border px-2 text-sm"
-                  disabled={
-                    busy ||
-                    !ready ||
-                    !queueReady ||
-                    queueLocked ||
-                    !canWrite ||
-                    !episodeCanEdit ||
-                    !selected ||
-                    !selected.canEdit ||
-                    !form.priority ||
-                    !form.result ||
-                    dirty
-                  }
-                  onClick={() =>
-                    selected &&
-                    setFinalizeConfirmationTarget(
-                      `${currentUserId}:${episodeId}:${selected.id}:${selected.version}`,
-                    )
-                  }
+                  className={`${ctaClasses.save} min-w-0 flex-1 sm:flex-none`}
+                  disabled={busy || !queueReady || !form.baseId}
+                  onClick={() => void save()}
                 >
-                  Finalizar despacho
+                  {selected ? "Guardar cambios" : "Guardar borrador"}
                 </button>
-              )}
+              </div>
             </div>
             {error && errorSurface === "form" && (
               <p role="alert" className="text-sm text-destructive">
@@ -2523,7 +2936,7 @@ export function EfaDispatchStepper({
                 />
               </label>
               <button
-                className="min-h-11 rounded border px-4"
+                className={ctaClasses.indigo}
                 disabled={busy || !supportReason.trim()}
                 onClick={() => {
                   const requestedAt = captureActionTimestamp(new Date());
@@ -2539,7 +2952,7 @@ export function EfaDispatchStepper({
                 Solicitar apoyo · Ahora
               </button>
               <button
-                className="min-h-11 rounded border px-4"
+                className={ctaClasses.ghost}
                 disabled={busy || !supportReason.trim() || !inputToIso(supportAt)}
                 onClick={() =>
                   void freeze("support-create", {

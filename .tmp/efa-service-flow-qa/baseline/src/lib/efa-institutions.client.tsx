@@ -49,13 +49,13 @@ export function EfaInstitutionPicker({
         <Label htmlFor="efa-institution-choice">Institución o destino</Label>
         <select
           id="efa-institution-choice"
-          className="min-h-11 w-full rounded-md border bg-background px-3"
+          className="min-h-11 w-full rounded-sm text-blue-800 border bg-background/60 px-2"
           value={value}
           onChange={(event) => onChange(event.target.value)}
         >
-          <option value="">Selecciona una institución o destino</option>
+          <option value="" className="text-blue-800">Selecciona una institución o destino</option>
           {institutions.map((institution) => (
-            <option key={institution.id} value={institution.id}>
+            <option key={institution.id} value={institution.id} className="text-blue-800">
               {institution.name}
             </option>
           ))}

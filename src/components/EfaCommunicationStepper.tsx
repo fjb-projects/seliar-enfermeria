@@ -1,6 +1,8 @@
 import { Button } from "@/components/ui/button";
 import { useEffect, useRef, useState } from "react";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Check, Clock, History, Plus } from "lucide-react";
+import { ctaClasses } from "@/lib/cta-classes";
+import { PriorityMark } from "@/components/EfaServiceSelector";
 import { createClientOnlyFn, useServerFn } from "@tanstack/react-start";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -31,6 +33,7 @@ import type {
   CommunicationQueueStore,
 } from "@/lib/efa-communications.queue";
 import type { EfaEpisodeSectionPosition } from "@/lib/efa-episode-position";
+import type { EfaServiceMetadataStore } from "@/lib/efa-service-metadata";
 import { directionLabel, formatDateTimeMinutes, priorityLabel } from "@/lib/efa-labels";
 
 const loadCommunicationClient = createClientOnlyFn(() => import("@/lib/efa-communications.client"));
@@ -228,7 +231,7 @@ export function CommunicationActionRow({
     <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
       <Button
         type="button"
-        className="min-h-11 w-full min-w-0 bg-slate-600 px-4 text-white hover:bg-slate-700 sm:w-auto dark:bg-slate-500 dark:hover:bg-slate-400"
+        className={`${ctaClasses.save} w-full min-w-0 sm:w-auto`}
         disabled={!canSave}
         onClick={onSave}
       >
@@ -237,7 +240,7 @@ export function CommunicationActionRow({
       {showFinalize && (
         <Button
           type="button"
-          className="min-h-11 w-full min-w-0 bg-emerald-800 px-4 text-white hover:bg-emerald-900 sm:w-auto dark:bg-emerald-700 dark:hover:bg-emerald-600"
+          className={`${ctaClasses.teal} w-full min-w-0 sm:w-auto`}
           disabled={!canFinalize}
           onClick={onFinalize}
         >
@@ -247,7 +250,7 @@ export function CommunicationActionRow({
       {showFinalizeAndContinue && (
         <Button
           type="button"
-          className="min-h-11 w-full min-w-0 bg-orange-700 px-4 font-semibold text-white shadow-sm hover:bg-orange-800 sm:w-auto dark:bg-orange-600 dark:hover:bg-orange-500"
+          className={`${ctaClasses.next} w-full min-w-0 sm:w-auto`}
           disabled={!canFinalize}
           onClick={onFinalizeAndContinue}
         >
@@ -274,8 +277,7 @@ export function EfaCommunicationStepper({
   const stepName = communicationSteps[currentStep];
   // The last step has no "next": the action row below owns the forward actions.
   const isLastStep = currentStep === communicationSteps.length - 1;
-  const stepNavigationClassName =
-    "min-h-11 min-w-0 w-full bg-background text-foreground hover:bg-accent";
+  const stepNavigationClassName = (role: "ghost" | "next") => `${ctaClasses[role]} min-w-0 w-full`;
   const headingRef = useRef<HTMLHeadingElement>(null);
   const previousStepRef = useRef(currentStep);
 
@@ -294,21 +296,16 @@ export function EfaCommunicationStepper({
   return (
     <section aria-labelledby="communication-step-heading" className="space-y-4">
       <div className="space-y-3">
-        <div className="flex items-center justify-between gap-3">
-          <h3
-            ref={headingRef}
-            id="communication-step-heading"
-            tabIndex={-1}
-            className="scroll-mt-20 text-base font-semibold outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          >
-            Paso {currentStep + 1} de {communicationSteps.length}: {stepName}
-          </h3>
-          <span className="text-sm text-muted-foreground" aria-hidden="true">
-            {currentStep + 1}/{communicationSteps.length}
-          </span>
-        </div>
+        <h3
+          ref={headingRef}
+          id="communication-step-heading"
+          tabIndex={-1}
+          className="sr-only scroll-mt-20 outline-none"
+        >
+          Paso {currentStep + 1} de {communicationSteps.length}: {stepName}
+        </h3>
         <progress
-          className="h-2 w-full accent-primary"
+          className="sr-only"
           aria-label="Progreso de la llamada"
           value={currentStep + 1}
           max={communicationSteps.length}
@@ -344,7 +341,7 @@ export function EfaCommunicationStepper({
         <Button
           type="button"
           variant="outline"
-          className={stepNavigationClassName}
+          className={stepNavigationClassName("ghost")}
           aria-label="Paso anterior"
           disabled={currentStep === 0}
           onClick={() => onStepChange(currentStep - 1)}
@@ -355,7 +352,7 @@ export function EfaCommunicationStepper({
           <Button
             type="button"
             variant="outline"
-            className={stepNavigationClassName}
+            className={stepNavigationClassName("next")}
             aria-label="Siguiente paso"
             onClick={() => onStepChange(currentStep + 1)}
           >
@@ -438,10 +435,58 @@ export function CommunicationServiceEcho({
   if (!episode || !isValidInstant(episode.eventAt)) return null;
   const address = episode.address?.trim();
   return (
-    <p className="min-w-0 break-words rounded-md border p-3 text-sm text-muted-foreground">
+    <p className="min-w-0 break-words text-[13px] text-muted-foreground">
       Servicio: {formatDateTimeMinutes(episode.eventAt)}
       {address ? ` · Dirección del servicio: ${address}` : ""}
     </p>
+  );
+}
+
+/** One call needs no switcher once it is open; with several, each one is a chip. */
+export function shouldShowCallSwitcher(callCount: number, hasSelected: boolean) {
+  return callCount > 1 || (callCount === 1 && !hasSelected);
+}
+
+/** Tab-like chips to move between the calls of a service. Expects calls oldest first. */
+export function CommunicationCallSwitcher({
+  calls,
+  selectedId,
+  disabled,
+  onSelect,
+}: {
+  calls: EfaCommunicationView[];
+  selectedId: string | null;
+  disabled: boolean;
+  onSelect: (call: EfaCommunicationView) => void;
+}) {
+  return (
+    <ul className="flex min-w-0 flex-wrap gap-2" aria-label="Llamadas registradas">
+      {calls.map((call, index) => {
+        const active = selectedId === call.id;
+        return (
+          <li key={call.id}>
+            <Button
+              type="button"
+              variant="ghost"
+              aria-pressed={active}
+              aria-label={`Llamada ${index + 1}. ${directionLabel(call.direction)}, ${communicationStateLabel(call.state)}, ${priorityLabel(call.priority)}`}
+              className={`min-h-11 gap-2 rounded-lg border border-white/15 px-3 ${active ? "bg-white/15 ring-1 ring-inset ring-white/30" : ""}`}
+              disabled={disabled}
+              onClick={() => onSelect(call)}
+            >
+              <PriorityMark item={{ priority: call.priority }} />
+              <span className="font-medium">Llamada {index + 1}</span>
+              <span className="t-clock text-[13px] text-muted-foreground">
+                {call.startedAt ? formatDateTimeMinutes(call.startedAt).slice(-5) : "sin hora"}
+              </span>
+              {call.state === "finalized" && (
+                <Check aria-hidden="true" className="size-4 text-emerald-300" />
+              )}
+            </Button>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
@@ -470,6 +515,7 @@ export function EfaCommunicationPanel({
   episode,
   initialPosition,
   onPositionChange,
+  serviceMetadata,
 }: {
   episode?: CommunicationServiceContext | undefined;
   episodeId: string;
@@ -485,6 +531,7 @@ export function EfaCommunicationPanel({
   initialPosition?: EfaEpisodeSectionPosition | null;
   /** Reports the selected call and step after the initial restore. */
   onPositionChange?: (position: EfaEpisodeSectionPosition) => void;
+  serviceMetadata?: EfaServiceMetadataStore | undefined;
 }) {
   const listForEpisode = useServerFn(listEfaCommunicationsForEpisode);
   const listNotices = useServerFn(listEfaCommunicationNotices);
@@ -575,6 +622,12 @@ export function EfaCommunicationPanel({
   const currentContext = () =>
     activeRef.current && ownerRef.current === currentUserId && episodeRef.current === episodeId;
 
+  function readSavedCalls(targetEpisode = episodeId) {
+    const load = async () =>
+      (await listForEpisode({ data: targetEpisode })) as EfaCommunicationView[];
+    return serviceMetadata ? serviceMetadata.readCalls(targetEpisode, load) : load();
+  }
+
   function noteCallEditorInteraction() {
     initialSelectionRevisionRef.current += 1;
     initialSelectionClaimedRef.current = true;
@@ -602,11 +655,9 @@ export function EfaCommunicationPanel({
   }
 
   async function reloadCalls() {
-    const [nextCalls, nextNotices] = await Promise.all([
-      listForEpisode({ data: episodeId }),
-      listNotices(),
-    ]);
+    const [nextCalls, nextNotices] = await Promise.all([readSavedCalls(), listNotices()]);
     if (!currentContext()) return;
+    serviceMetadata?.publishCalls(episodeId, nextCalls as EfaCommunicationView[]);
     setCalls(nextCalls as EfaCommunicationView[]);
     callsRef.current = nextCalls as EfaCommunicationView[];
     const refreshedSelected = (nextCalls as EfaCommunicationView[]).find(
@@ -653,8 +704,9 @@ export function EfaCommunicationPanel({
           ? null
           : (callsRef.current.find((call) => call.id === payload["communicationId"]) ?? null);
       if (entry.kind === "finalize" && !currentCall) {
-        const latest = (await listForEpisode({ data: episodeId })) as EfaCommunicationView[];
+        const latest = await readSavedCalls();
         if (!stillCurrent()) return;
+        serviceMetadata?.publishCalls(episodeId, latest);
         callsRef.current = latest;
         setCalls(latest);
         currentCall = latest.find((call) => call.id === payload["communicationId"]) ?? null;
@@ -706,8 +758,9 @@ export function EfaCommunicationPanel({
     if (!currentContext()) return;
     if (entry.kind !== "create" && entry.status !== "confirmed-cleanup-failed") {
       try {
-        const latest = (await listForEpisode({ data: episodeId })) as EfaCommunicationView[];
+        const latest = await readSavedCalls();
         if (!currentContext() || !canWriteRef.current) return;
+        serviceMetadata?.publishCalls(episodeId, latest);
         callsRef.current = latest;
         setCalls(latest);
         const communicationId = (entry.payload as { communicationId: string }).communicationId;
@@ -787,6 +840,7 @@ export function EfaCommunicationPanel({
     const ownsEditor = selectedOperationRef.current === entry.operationId;
     if (result.status === "confirmed" || result.status === "confirmed-cleanup-failed") {
       const saved = (result as { result: EfaCommunicationMutationResult }).result;
+      serviceMetadata?.upsertCall(episodeId, saved.communication);
       confirmedOutcomeRef.current = {
         operationId: entry.operationId,
         status: result.status,
@@ -1003,7 +1057,7 @@ export function EfaCommunicationPanel({
       const client = await loadCommunicationClient();
       if (!stillSelected()) return;
       const outcome = await client.loadCurrentConflictVersion(
-        async () => (await listForEpisode({ data: ticket.episode })) as EfaCommunicationView[],
+        () => readSavedCalls(ticket.episode),
         ticket.communication,
         stillSelected,
       );
@@ -1014,6 +1068,7 @@ export function EfaCommunicationPanel({
       }
       const found = outcome.communication;
       const latest = outcome.rows;
+      serviceMetadata?.publishCalls(episodeId, latest);
       callsRef.current = latest;
       setCalls(latest);
       setConflictCurrent(found);
@@ -1243,6 +1298,7 @@ export function EfaCommunicationPanel({
             });
       if (!currentContext()) return;
       const updated = (result as EfaCommunicationMutationResult).communication;
+      serviceMetadata?.upsertCall(episodeId, updated);
       callsRef.current = [updated, ...callsRef.current.filter((call) => call.id !== updated.id)];
       setCalls(callsRef.current);
       selectedCallRef.current = updated;
@@ -1423,11 +1479,9 @@ export function EfaCommunicationPanel({
       if (!active || !currentContext()) return;
       setQueueReady(true);
       try {
-        const [nextCalls, nextNotices] = await Promise.all([
-          listForEpisode({ data: episodeId }),
-          listNotices(),
-        ]);
+        const [nextCalls, nextNotices] = await Promise.all([readSavedCalls(), listNotices()]);
         if (!active || !currentContext()) return;
+        serviceMetadata?.publishCalls(episodeId, nextCalls as EfaCommunicationView[]);
         setCalls(nextCalls as EfaCommunicationView[]);
         callsRef.current = nextCalls as EfaCommunicationView[];
         const ids = new Set((nextCalls as EfaCommunicationView[]).map((call) => call.id));
@@ -1495,8 +1549,9 @@ export function EfaCommunicationPanel({
 
     void (async () => {
       try {
-        const freshCalls = (await listForEpisode({ data: episodeId })) as EfaCommunicationView[];
+        const freshCalls = await readSavedCalls();
         if (!currentContext() || !canApplyInitialCallSelection(target, expectedRevision)) return;
+        serviceMetadata?.publishCalls(episodeId, freshCalls);
         callsRef.current = freshCalls;
         setCalls(freshCalls);
         const initialCall = freshCalls.find((call) => call.id === target.communicationId);
@@ -1617,6 +1672,13 @@ export function EfaCommunicationPanel({
           : selected
             ? "Guardado"
             : "Sin guardar";
+  const orderedCalls = [...calls].sort((left, right) =>
+    left.createdAt.localeCompare(right.createdAt),
+  );
+  const showCallSwitcher = shouldShowCallSwitcher(orderedCalls.length, selected !== null);
+  const selectedLabel = selected
+    ? `Llamada ${orderedCalls.findIndex((call) => call.id === selected.id) + 1}`
+    : "Nueva llamada";
   const pendingCreateRecovery =
     canWrite && episodeCanEdit && Boolean(queueError) && pendingEntry?.kind === "create";
   const selectedQueued =
@@ -1638,25 +1700,51 @@ export function EfaCommunicationPanel({
   return (
     <div className="space-y-3" aria-label={`Llamadas de ${episodeLabel}`}>
       <Card className="min-w-0 border-0 bg-transparent p-0 shadow-none">
-        <CardHeader className="space-y-2 p-0 pb-1">
-          <CardTitle>Llamadas</CardTitle>
-          <details className="text-sm text-muted-foreground">
-            <summary className="min-h-11 cursor-pointer py-2 font-medium">
-              Guardado y privacidad
-            </summary>
-            <p>
-              Las llamadas enviadas quedan en este dispositivo. Los campos sin enviar no son un
-              respaldo; la cola temporal contiene datos privados del episodio.
-            </p>
-          </details>
-          {!canWrite && (
-            <p className="rounded-md border p-3 text-sm">
-              Solo lectura: tu acceso vigente no permite editar llamadas.
-            </p>
-          )}
-        </CardHeader>
+        <CardTitle className="sr-only">Llamadas</CardTitle>
         <CardContent className="min-w-0 space-y-3 p-0">
-          <CommunicationServiceEcho episode={episode} />
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            {showCallSwitcher && (
+              <CommunicationCallSwitcher
+                calls={orderedCalls}
+                selectedId={selected?.id ?? null}
+                disabled={busy || Boolean(pendingEntry)}
+                onSelect={(call) => void selectCall(call)}
+              />
+            )}
+            {calls.length === 0 &&
+              (!callsReady ? (
+                error ? (
+                  <p role="alert" className="rounded-md border border-destructive p-3 text-sm">
+                    {error}
+                  </p>
+                ) : (
+                  <p role="status" className="text-sm text-muted-foreground">
+                    Cargando llamadas…
+                  </p>
+                )
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Todavía no hay llamadas en este episodio.
+                </p>
+              ))}
+            {canWrite ? (
+              <Button
+                type="button"
+                variant="outline"
+                className={`${ctaClasses.indigo} sm:ml-auto`}
+                disabled={!canCreateCall}
+                onClick={() => void startNew()}
+              >
+                <Plus aria-hidden="true" className="size-4" />
+                Nueva llamada
+              </Button>
+            ) : (
+              <p className="rounded-md border p-3 text-sm">
+                Solo lectura: tu acceso vigente no permite editar llamadas.
+              </p>
+            )}
+          </div>
+          {episode?.address?.trim() && <CommunicationServiceEcho episode={episode} />}
           {queueError && (
             <p role="alert" className="rounded-md border p-3 text-sm">
               {queueError}
@@ -1755,73 +1843,6 @@ export function EfaCommunicationPanel({
               )}
             </div>
           )}
-          {calls.length > 0 ? (
-            <ul className="space-y-2" aria-label="Llamadas registradas">
-              {calls.map((call) => (
-                <li key={call.id} className="rounded-lg border p-3">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <p className="font-medium">
-                      {directionLabel(call.direction)} · {communicationStateLabel(call.state)} ·{" "}
-                      {priorityLabel(call.priority)}
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="min-h-11"
-                        disabled={busy || Boolean(pendingEntry)}
-                        onClick={() => void selectCall(call)}
-                      >
-                        {canWrite && call.canEdit ? "Ver / editar" : "Ver llamada"}
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="min-h-11"
-                        disabled={busy}
-                        onClick={() => void showHistory(call)}
-                      >
-                        Historial
-                      </Button>
-                    </div>
-                  </div>
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    Inicio real: {call.startedAt ? nowBue(call.startedAt) : "sin registrar"} · fin
-                    real: {call.endedAt ? nowBue(call.endedAt) : "sin registrar"}
-                  </p>
-                  {historyFor === call.id && (
-                    <ol className="mt-3 space-y-3 border-l pl-4" aria-label="Historial de cambios">
-                      {history.map((audit) => (
-                        <li key={audit.id}>
-                          <p className="text-sm font-medium">
-                            {audit.action === "created"
-                              ? "Llamada registrada"
-                              : audit.action === "updated"
-                                ? "Datos corregidos"
-                                : "Llamada finalizada"}{" "}
-                            · versión {audit.versionBefore ?? "—"} → {audit.versionAfter} ·{" "}
-                            {nowBue(audit.occurredAt)}
-                          </p>
-                          {audit.beforeState && (
-                            <p className="text-xs text-muted-foreground">
-                              Antes: {formatState(audit.beforeState)}
-                            </p>
-                          )}
-                          <p className="text-xs text-muted-foreground">
-                            Después: {formatState(audit.afterState)}
-                          </p>
-                        </li>
-                      ))}
-                    </ol>
-                  )}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              Todavía no hay llamadas en este episodio.
-            </p>
-          )}
           {notices.map((notice) =>
             notice.readAt ? null : (
               <div key={notice.id} className="rounded-md border p-3 text-sm">
@@ -1837,16 +1858,6 @@ export function EfaCommunicationPanel({
               </div>
             ),
           )}
-          {canWrite && (
-            <Button
-              type="button"
-              className="min-h-11 w-full sm:w-auto"
-              disabled={!canCreateCall}
-              onClick={() => void startNew()}
-            >
-              Nueva llamada
-            </Button>
-          )}
         </CardContent>
       </Card>
 
@@ -1858,24 +1869,72 @@ export function EfaCommunicationPanel({
         pendingCreateRecovery,
       }) && (
         <Card className="min-w-0 border-0 bg-transparent p-0 shadow-none">
-          <CardHeader className="p-0 pb-1">
+          <CardHeader className="flex-row flex-wrap items-center justify-between gap-x-3 gap-y-1 space-y-0 p-0 pb-1">
             <CardTitle
               ref={initialCallHeadingRef}
               role="heading"
               aria-level={3}
               tabIndex={-1}
-              className="focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+              className={`focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 ${selected && showCallSwitcher ? "sr-only" : "font-display text-lg"}`}
             >
               {selected
                 ? selected.state === "cancelled"
-                  ? `Ver llamada anulada · versión ${selected.version}`
-                  : `Editar llamada · versión ${selected.version}`
+                  ? `${selectedLabel} · anulada`
+                  : selectedLabel
                 : "Nueva llamada"}
             </CardTitle>
-            <p className="text-sm text-muted-foreground" aria-live="polite">
-              Estado del guardado: <span className="font-medium text-foreground">{saveStatus}</span>
-            </p>
+            <div className="flex items-center gap-1">
+              <p
+                className={`flex items-center gap-1.5 text-[13px] ${saveStatus === "Guardado" ? "text-muted-foreground" : "text-amber-800"}`}
+                aria-live="polite"
+                {...(selected ? { title: `Versión ${selected.version}` } : {})}
+              >
+                <span className="sr-only">Estado del guardado: </span>
+                {saveStatus === "Guardado" && <Check aria-hidden="true" className="size-3.5" />}
+                {saveStatus}
+              </p>
+              {selected && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="min-h-11 min-w-11 px-2"
+                  aria-label="Historial de la llamada"
+                  aria-expanded={historyFor === selected.id}
+                  disabled={busy}
+                  onClick={() =>
+                    historyFor === selected.id ? setHistoryFor(null) : void showHistory(selected)
+                  }
+                >
+                  <History aria-hidden="true" className="size-4" />
+                </Button>
+              )}
+            </div>
           </CardHeader>
+          {selected && historyFor === selected.id && (
+            <ol className="space-y-3 border-l pl-4" aria-label="Historial de cambios">
+              {history.map((audit) => (
+                <li key={audit.id}>
+                  <p className="text-sm font-medium">
+                    {audit.action === "created"
+                      ? "Llamada registrada"
+                      : audit.action === "updated"
+                        ? "Datos corregidos"
+                        : "Llamada finalizada"}{" "}
+                    · versión {audit.versionBefore ?? "—"} → {audit.versionAfter} ·{" "}
+                    {nowBue(audit.occurredAt)}
+                  </p>
+                  {audit.beforeState && (
+                    <p className="text-xs text-muted-foreground">
+                      Antes: {formatState(audit.beforeState)}
+                    </p>
+                  )}
+                  <p className="text-xs text-muted-foreground">
+                    Después: {formatState(audit.afterState)}
+                  </p>
+                </li>
+              ))}
+            </ol>
+          )}
           <CardContent className="min-w-0 space-y-3 p-0">
             <EfaCommunicationStepper
               step={step}
@@ -1949,7 +2008,7 @@ export function EfaCommunicationPanel({
                     <Button
                       type="button"
                       variant="outline"
-                      className="min-h-11 w-full min-[360px]:w-auto"
+                      className={`${ctaClasses.indigo} w-full min-[360px]:w-auto`}
                       disabled={
                         !(selected ? canEditSelected : canCreateCall) ||
                         Boolean(pendingEntry) ||
@@ -1957,6 +2016,7 @@ export function EfaCommunicationPanel({
                       }
                       onClick={() => void captureTime(step === 1 ? "startedAt" : "endedAt")}
                     >
+                      <Clock aria-hidden="true" className="size-4" />
                       Ahora
                     </Button>
                   </div>

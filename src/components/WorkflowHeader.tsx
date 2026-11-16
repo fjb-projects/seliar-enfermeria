@@ -14,6 +14,8 @@ type WorkflowHeaderProps = {
   eyebrow: string;
   title: string;
   accountSlot?: ReactNode;
+  /** Optional control at the far end of the title row (for example an on-demand info popover). */
+  titleAction?: ReactNode | undefined;
   accountDetails?: ReactNode;
   accountInteractionHandlers?: Pick<
     HTMLAttributes<HTMLElement>,
@@ -29,6 +31,7 @@ export function WorkflowHeader({
   eyebrow,
   title,
   accountSlot,
+  titleAction,
   accountDetails,
   accountInteractionHandlers,
   compactLogo = false,
@@ -64,6 +67,18 @@ export function WorkflowHeader({
     };
   }, []);
 
+  const desktopTitle = (
+    <>
+      {eyebrow && (
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          {eyebrow}
+        </p>
+      )}
+      <h1 className="font-display text-xl font-semibold leading-tight text-foreground">{title}</h1>
+      <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+    </>
+  );
+
   return (
     <>
       <header
@@ -83,9 +98,11 @@ export function WorkflowHeader({
               <img src="/logoSIES.jpg" alt="Logo SIES" className="h-full w-full object-contain" />
             </span>
             <div className="min-w-0">
-              <p className="text-[9px] font-bold uppercase leading-3 tracking-[0.18em] text-primary-foreground/65 sm:text-[10px] sm:leading-normal">
-                {eyebrow}
-              </p>
+              {eyebrow && (
+                <p className="text-[9px] font-bold uppercase leading-3 tracking-[0.18em] text-primary-foreground/65 sm:text-[10px] sm:leading-normal">
+                  {eyebrow}
+                </p>
+              )}
               <h1 className="font-display text-base font-semibold leading-5 text-primary-foreground sm:text-lg sm:leading-normal">
                 {title}
               </h1>
@@ -93,7 +110,14 @@ export function WorkflowHeader({
                 {description}
               </p>
             </div>
-            {accountSlot && <div className="ml-auto shrink-0">{accountSlot}</div>}
+            {titleAction ? (
+              <div className="ml-auto flex shrink-0 items-center gap-1">
+                {titleAction}
+                {accountSlot}
+              </div>
+            ) : (
+              accountSlot && <div className="ml-auto shrink-0">{accountSlot}</div>
+            )}
           </div>
         </div>
         {accountDetails}
@@ -102,13 +126,14 @@ export function WorkflowHeader({
         <div
           className={`mx-auto hidden w-full ${contentWidths[contentWidth]} px-4 pt-4 sm:px-6 md:block`}
         >
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            {eyebrow}
-          </p>
-          <h1 className="font-display text-xl font-semibold leading-tight text-foreground">
-            {title}
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+          {titleAction ? (
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">{desktopTitle}</div>
+              {titleAction}
+            </div>
+          ) : (
+            desktopTitle
+          )}
         </div>
       )}
     </>

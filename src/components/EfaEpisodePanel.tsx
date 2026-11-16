@@ -7,7 +7,6 @@ import {
   EfaActionConfirmation,
   isActionConfirmationCurrent,
 } from "@/components/EfaActionConfirmation";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -16,6 +15,12 @@ import { EfaDispatchStepper } from "@/components/EfaDispatchStepper";
 import { EfaPoliceCoordinationPanel } from "@/components/EfaPoliceCoordinationPanel";
 import { EfaObservationPanel } from "@/components/EfaObservationPanel";
 import { EfaEpisodeSummary } from "@/components/EfaEpisodeSummary";
+import { EfaServiceMenu } from "@/components/EfaServiceMenu";
+import { EfaServiceSelector, ServicePriorityTag } from "@/components/EfaServiceSelector";
+import { useEfaServiceMetadata } from "@/hooks/use-efa-service-metadata";
+import { selectorListRequest } from "@/lib/efa-service-metadata";
+import { listEfaCommunicationsForEpisode } from "@/lib/efa-communications.functions";
+import { listEfaDispatchesForEpisode } from "@/lib/efa-dispatches.functions";
 import { readSession } from "@/lib/auth.functions";
 import {
   createEfaEpisode,
@@ -185,6 +190,20 @@ export function canBeginNewService(state: {
 }) {
   return state.queueReady && state.queueAvailable && !state.pending && state.hasSelection;
 }
+// eslint-disable-next-line react-refresh/only-export-components
+export function selectActiveSelectorEpisodes<
+  T extends {
+    id: string;
+    originGuardId: string;
+    state: "draft" | "closed";
+    eventAt: Date | string;
+    cancelledAt?: string | null;
+  },
+>(episodes: T[], guardId: string | null): T[] {
+  return selectGuardWorkspaceEpisodes(episodes, guardId).filter(
+    (episode) => episode.state === "draft" && !episode.cancelledAt,
+  );
+}
 // What the panel does with the editor once a write is confirmed. A confirmed create always
 // hands the editor back as a blank "new service" form, even when the first-call continuation
 // stays reachable; a write whose local cleanup failed keeps its frozen form untouched.
@@ -250,13 +269,6 @@ export const formatEpisodeDate = (value: Date | string) =>
   new Date(value).toLocaleString("es-AR", { timeZone: "America/Argentina/Buenos_Aires" });
 type EpisodeClientHelpers = typeof import("@/lib/efa-episodes.client");
 
-const SERVICE_INTRO_NOTICE_VERSION = "v1";
-const SERVICE_INTRO_NOTICE_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
-
-function serviceIntroNoticeStorageKey(userId: string) {
-  return `efa-service-intro:${SERVICE_INTRO_NOTICE_VERSION}:${encodeURIComponent(userId)}`;
-}
-
 export function EfaEpisodePanel({
   initialEpisodes,
   initialNotices,
@@ -282,16 +294,23 @@ export function EfaEpisodePanel({
   const listNotices = useServerFn(listEfaEpisodeNotices);
   const getEpisode = useServerFn(getEfaEpisode);
   const acknowledgeNotice = useServerFn(markEfaEpisodeNoticeRead);
-  const [serviceIntroNotice, setServiceIntroNotice] = useState({
-    ownerUserId: currentUserId,
-    visible: true,
-    feedback: "",
-  });
+  const listSelectorCalls = useServerFn(listEfaCommunicationsForEpisode);
+  const listSelectorDispatches = useServerFn(listEfaDispatchesForEpisode);
   const [episodes, setEpisodes] = useState(initialEpisodes);
   const [notices, setNotices] = useState(initialNotices);
   const [form, setForm] = useState<EpisodeFormValues>(emptyForm);
   const [registerFirstCall, setRegisterFirstCall] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [workSurface, setWorkSurface] = useState<"editor" | "workspace" | "history">(
+    initialEpisodes.some(
+      (episode) =>
+        episode.originGuardId === openOwnGuard?.id &&
+        episode.state === "draft" &&
+        !episode.cancelledAt,
+    )
+      ? "workspace"
+      : "editor",
+  );
   const [historyFor, setHistoryFor] = useState<string | null>(null);
   const [workspaceEpisodeId, setWorkspaceEpisodeId] = useState<string | null>(null);
   const [activeWorkspaceSection, setActiveWorkspaceSection] =
@@ -357,64 +376,6 @@ export function EfaEpisodePanel({
   workspaceEpisodeIdRef.current = workspaceEpisodeId;
   activeWorkspaceSectionRef.current = activeWorkspaceSection;
   visitedWorkspaceSectionsRef.current = visitedWorkspaceSections;
-  const serviceIntroNoticeVisible =
-    serviceIntroNotice.ownerUserId !== currentUserId || serviceIntroNotice.visible;
-  const serviceIntroNoticeFeedback =
-    serviceIntroNotice.ownerUserId === currentUserId ? serviceIntroNotice.feedback : "";
-
-  useEffect(() => {
-    const storageKey = serviceIntroNoticeStorageKey(currentUserId);
-    try {
-      const storedValue = window.localStorage.getItem(storageKey);
-      const closedAt = storedValue === null ? Number.NaN : Number(storedValue);
-      const now = Date.now();
-      const validTimestamp =
-        storedValue !== null &&
-        /^\d+$/.test(storedValue) &&
-        Number.isFinite(closedAt) &&
-        Number.isSafeInteger(closedAt) &&
-        closedAt > 0 &&
-        closedAt <= now;
-
-      if (!validTimestamp) {
-        if (storedValue !== null) window.localStorage.removeItem(storageKey);
-        setServiceIntroNotice({ ownerUserId: currentUserId, visible: true, feedback: "" });
-        return;
-      }
-
-      const isWithinDismissalPeriod = now - closedAt < SERVICE_INTRO_NOTICE_DURATION_MS;
-      if (!isWithinDismissalPeriod) window.localStorage.removeItem(storageKey);
-      setServiceIntroNotice({
-        ownerUserId: currentUserId,
-        visible: !isWithinDismissalPeriod,
-        feedback: "",
-      });
-    } catch {
-      setServiceIntroNotice({
-        ownerUserId: currentUserId,
-        visible: true,
-        feedback:
-          "No se pudo consultar el almacenamiento del navegador; el aviso permanecerá visible.",
-      });
-    }
-  }, [currentUserId]);
-
-  function dismissServiceIntroNotice() {
-    const storageKey = serviceIntroNoticeStorageKey(currentUserId);
-    const closedAt = Date.now();
-    try {
-      window.localStorage.setItem(storageKey, String(closedAt));
-      setServiceIntroNotice({ ownerUserId: currentUserId, visible: false, feedback: "" });
-    } catch {
-      setServiceIntroNotice({
-        ownerUserId: currentUserId,
-        visible: false,
-        feedback:
-          "No se pudo recordar esta preferencia; el aviso volverá a mostrarse al regresar a esta sección.",
-      });
-    }
-  }
-
   function setActiveConflict(next: ActiveEpisodeConflict | null) {
     conflictRef.current = next;
     setConflict(next);
@@ -455,6 +416,17 @@ export function EfaEpisodePanel({
       episode.version,
     ].join(":");
   const activeGuardEpisodes = selectGuardWorkspaceEpisodes(episodes, openOwnGuard?.id ?? null);
+  const selectorEpisodes = selectActiveSelectorEpisodes(episodes, openOwnGuard?.id ?? null);
+  const historicalEpisodes = activeGuardEpisodes.filter(
+    (episode) => episode.state === "closed" || episode.cancelledAt,
+  );
+  const serviceMetadata = useEfaServiceMetadata({
+    ownerUserId: currentUserId,
+    guardId: openOwnGuard?.id ?? null,
+    episodeIds: selectorEpisodes.map((episode) => episode.id),
+    loadCalls: (episodeId) => listSelectorCalls(selectorListRequest(episodeId)),
+    loadDispatches: (episodeId) => listSelectorDispatches(selectorListRequest(episodeId)),
+  });
   const pendingQueueEntry = pending
     ? (queueEntries.find(
         (entry) => entry.ownerUserId === currentUserId && entry.operationId === pending.operationId,
@@ -501,12 +473,12 @@ export function EfaEpisodePanel({
         hasSelection: Boolean(selectedId),
       })
     )
-      return;
+      return false;
     if (
       formDirty &&
       !window.confirm("¿Descartar los cambios sin guardar y empezar un servicio nuevo?")
     )
-      return;
+      return false;
     advanceEpisodeNavigationRevision();
     setSelectedId(null);
     setRegisterFirstCall(true);
@@ -515,6 +487,8 @@ export function EfaEpisodePanel({
     setError("");
     setSaveError("");
     setMessage("");
+    setWorkSurface("editor");
+    return true;
   }
 
   function editEpisode(episode: EpisodeView) {
@@ -538,6 +512,7 @@ export function EfaEpisodePanel({
     setError("");
     setSaveError("");
     setMessage("");
+    setWorkSurface("editor");
   }
 
   function openWorkspace(episodeId: string, section?: EfaEpisodeWorkspaceSection) {
@@ -576,6 +551,7 @@ export function EfaEpisodePanel({
     setVisitedWorkspaceSections(selection.visited);
     setWorkspaceEpisodeId(selection.episodeId);
     setActiveWorkspaceSection(selection.section);
+    setWorkSurface("workspace");
     visitedWorkspaceSectionsRef.current = selection.visited;
     workspaceEpisodeIdRef.current = selection.episodeId;
     activeWorkspaceSectionRef.current = selection.section;
@@ -1690,138 +1666,751 @@ export function EfaEpisodePanel({
 
   if (queueOwnerId !== currentUserId) {
     return (
-      <Card>
-        <CardContent className="p-5 text-sm text-muted-foreground">
-          Cargando el historial y las operaciones locales de la cuenta activa…
-        </CardContent>
-      </Card>
+      <p role="status" className="py-5 text-sm text-muted-foreground">
+        Cargando el historial y las operaciones locales de la cuenta activa…
+      </p>
     );
   }
 
   return (
-    <div
-      className="min-w-0 space-y-3 sm:space-y-4"
-      onClickCapture={advanceEpisodeNavigationRevision}
-    >
-      <Card>
-        <CardHeader className="px-3 py-3 sm:px-6 sm:py-6">
-          <CardTitle>Servicios de la guardia</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3 px-3 pb-3 pt-0 sm:px-6 sm:pb-6">
-          {serviceIntroNoticeVisible ? (
-            <aside
-              aria-label="Información sobre los servicios y el guardado"
-              className="flex items-start gap-2 rounded-lg border border-sky-200 bg-sky-50 p-3 text-sky-950"
-            >
-              <p className="min-w-0 flex-1 text-sm">
-                Los servicios activos aparecen primero. Solo se conservan las operaciones enviadas;
-                el texto que aún no enviaste puede perderse.
-              </p>
-              <Button
-                type="button"
-                variant="ghost"
-                className="min-h-11 min-w-11 shrink-0 px-2 text-sky-950 hover:bg-sky-100"
-                aria-label="Cerrar aviso"
-                title="Cerrar aviso"
-                onClick={dismissServiceIntroNotice}
-              >
-                <X aria-hidden="true" className="size-4" />
-              </Button>
-            </aside>
-          ) : (
-            <details className="rounded-md border border-sky-200 bg-sky-50/60 px-3 text-sm text-sky-950">
-              <summary className="min-h-11 cursor-pointer py-3 font-medium">
-                Información sobre la lista y los datos no enviados
-              </summary>
-              <p className="pb-3">
-                Los servicios activos aparecen primero. Solo se conservan las operaciones enviadas;
-                el texto que aún no enviaste puede perderse.
-              </p>
-            </details>
-          )}
-          {serviceIntroNoticeFeedback && (
-            <p role="status" className="text-sm text-muted-foreground">
-              {serviceIntroNoticeFeedback}
+    <div className="min-w-0 space-y-4 font-sans" onClickCapture={advanceEpisodeNavigationRevision}>
+      <section
+        aria-label="Estado de la guardia y guardado"
+        className="card-focus card-focus--flat space-y-2 px-4 py-2 empty:hidden"
+      >
+        {!openOwnGuard && (
+          <div className="space-y-3 border-b pb-5">
+            <h2 className="text-lg font-semibold">No hay una guardia abierta</h2>
+            <p className="max-w-prose text-sm text-muted-foreground">
+              Esta vista muestra las atenciones de tu guardia en curso. Para registrar un servicio,
+              inicia primero tu guardia EFA.
             </p>
-          )}
-          {!canWrite && (
-            <p className="rounded-md bg-muted p-3 text-sm">
-              Solo lectura: se requiere acceso EFA vigente para editar.
-            </p>
-          )}
-          <div className="flex min-w-0 flex-col gap-2 rounded-md border p-2 sm:flex-row sm:items-center sm:justify-between sm:p-3">
-            <p className="text-sm">
-              {openOwnGuard
-                ? `Guardia propia abierta desde ${formatEpisodeDate(openOwnGuard.startedAt)}.`
-                : "Sin guardia propia abierta."}{" "}
-              Solo se muestran servicios de la guardia abierta; no es el historial completo.
-            </p>
-            <Button asChild variant="outline" className="min-h-11 w-full sm:w-auto">
-              <Link to="/guardia-efa">Volver a mi guardia EFA</Link>
+            <Button asChild className="min-h-11 w-full sm:w-auto">
+              <Link to="/guardia-efa">Ir a mi guardia EFA</Link>
             </Button>
           </div>
-          {!queueReady && (
-            <p role="status" className="rounded-md border p-3 text-sm">
-              Preparando el almacenamiento local antes de habilitar guardados…
-            </p>
-          )}
-          {!queueAvailable && queueReady && (
-            <p role="alert" className="rounded-md border border-destructive/50 p-3 text-sm">
-              La cola local no está disponible. No se enviará ninguna operación hasta poder
-              conservarla primero en este dispositivo.
-            </p>
-          )}
-          <p className="rounded-md bg-muted p-1 text-xs text-muted-foreground">
-            Las operaciones enviadas y sus datos privados, incluida la dirección, se guardan en
-            IndexedDB legible por este origen.
+        )}
+        {!canWrite && (
+          <p className="rounded-md bg-muted p-3 text-sm">
+            Solo lectura: se requiere acceso EFA vigente para editar.
           </p>
-          {queueError && (
-            <p role="alert" className="text-sm text-destructive">
-              {queueError}
-            </p>
-          )}
-          {queueEntries.length > 0 && (
-            <details className="rounded-md border p-3 text-sm">
-              <summary className="min-h-11 cursor-pointer py-2 font-medium">
-                Operaciones conservadas en este dispositivo ({queueEntries.length})
-              </summary>
-              <div className="space-y-2 pt-2">
-                <Label htmlFor="episode-pending-operation">Seleccionar operación</Label>
-                <select
-                  id="episode-pending-operation"
-                  className="min-h-11 w-full rounded-md border bg-background px-3"
-                  value={selectedQueueOperationId.current ?? ""}
-                  onChange={(event) => selectQueuedOperation(event.target.value)}
-                  disabled={busy}
-                >
-                  <option value="">Selecciona una operación</option>
-                  {queueEntries.map((entry) => (
-                    <option
-                      key={`${entry.ownerUserId}:${entry.operationId}`}
-                      value={entry.operationId}
-                    >
-                      {queueOperationLabel(entry)} · {entry.createdAt} ·{" "}
-                      {queueStatusLabel(entry.status)}
-                    </option>
-                  ))}
-                </select>
+        )}
+        {!queueReady && (openOwnGuard || selected || pending) && (
+          <p role="status" className="rounded-md border p-3 text-sm">
+            Preparando el almacenamiento local antes de habilitar guardados…
+          </p>
+        )}
+        {!queueAvailable && queueReady && (
+          <p role="alert" className="rounded-md border border-destructive/50 p-3 text-sm">
+            La cola local no está disponible. No se enviará ninguna operación hasta poder
+            conservarla primero en este dispositivo.
+          </p>
+        )}
+
+        {queueError && (
+          <p role="alert" className="text-sm text-destructive">
+            {queueError}
+          </p>
+        )}
+        {queueEntries.length > 0 && (
+          <details className="rounded-md border p-3 text-sm">
+            <summary className="min-h-11 cursor-pointer py-2 font-medium">
+              Operaciones conservadas en este dispositivo ({queueEntries.length})
+            </summary>
+            <div className="space-y-2 pt-2">
+              <Label htmlFor="episode-pending-operation">Seleccionar operación</Label>
+              <select
+                id="episode-pending-operation"
+                className="min-h-11 w-full rounded-md border bg-background px-3"
+                value={selectedQueueOperationId.current ?? ""}
+                onChange={(event) => selectQueuedOperation(event.target.value)}
+                disabled={busy}
+              >
+                <option value="">Selecciona una operación</option>
                 {queueEntries.map((entry) => (
-                  <div
+                  <option
                     key={`${entry.ownerUserId}:${entry.operationId}`}
-                    className="flex flex-col gap-2 border-t pt-2 sm:flex-row sm:items-center sm:justify-between"
+                    value={entry.operationId}
                   >
-                    <span>
-                      {queueOperationLabel(entry)} · {queueStatusLabel(entry.status)}
-                    </span>
-                    {entry.status !== "pending" && (
+                    {queueOperationLabel(entry)} · {entry.createdAt} ·{" "}
+                    {queueStatusLabel(entry.status)}
+                  </option>
+                ))}
+              </select>
+              {queueEntries.map((entry) => (
+                <div
+                  key={`${entry.ownerUserId}:${entry.operationId}`}
+                  className="flex flex-col gap-2 border-t pt-2 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <span>
+                    {queueOperationLabel(entry)} · {queueStatusLabel(entry.status)}
+                  </span>
+                  {entry.status !== "pending" && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="min-h-11"
+                      disabled={busy}
+                      onClick={() => void discardPausedOperation(entry)}
+                    >
+                      Descartar esta operación pausada
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
+        {error && (
+          <p role="alert" className="text-sm text-destructive">
+            {error}
+          </p>
+        )}
+        {message && (
+          <p role="status" className="text-sm text-green-700">
+            {message}
+          </p>
+        )}
+        {refreshWarning && (
+          <p role="status" className="text-sm text-amber-800">
+            {refreshWarning}
+          </p>
+        )}
+        {pending && (
+          <div className="rounded-md border border-amber-500/50 bg-amber-50 p-3 text-sm">
+            Operación pendiente de confirmación. Los campos están congelados para conservar la misma
+            identidad y el mismo contenido.
+            {pendingQueueEntry?.status !== "pending" &&
+              serverConfirmedOperationId !== pending.operationId && (
+                <span className="mt-1 block">
+                  Estado pausado: requiere resolver el conflicto o el permiso antes de cualquier
+                  reintento.
+                </span>
+              )}
+            <Button
+              className="mt-3 min-h-11 w-full sm:w-auto"
+              disabled={
+                busy ||
+                !canWrite ||
+                !queueReady ||
+                (serverConfirmedOperationId !== pending.operationId && !queueAvailable) ||
+                (serverConfirmedOperationId !== pending.operationId &&
+                  pendingQueueEntry !== null &&
+                  pendingQueueEntry?.status !== "pending")
+              }
+              onClick={() => void retryPending()}
+            >
+              {serverConfirmedOperationId === pending.operationId
+                ? "Limpiar cola local ya confirmada"
+                : pendingQueueEntry
+                  ? "Reintentar misma operación"
+                  : "Guardar operación localmente y reintentar"}
+            </Button>
+          </div>
+        )}
+        {conflict && (
+          <Button
+            variant="outline"
+            className="min-h-11"
+            disabled={busy}
+            onClick={() => void loadServerVersion()}
+          >
+            Cargar versión actual del servidor
+          </Button>
+        )}
+        {selected && canWrite && openOwnGuard && (
+          <Button
+            variant="outline"
+            className="min-h-11"
+            onClick={beginCreate}
+            disabled={Boolean(pending) || Boolean(conflict)}
+          >
+            Nuevo servicio
+          </Button>
+        )}
+      </section>
+
+      <div className="flex min-w-0 items-start gap-4 lg:gap-6" data-efa-layout="focused-workspace">
+        {openOwnGuard && (
+          <EfaServiceSelector
+            items={selectorEpisodes.map((episode) => ({
+              id: episode.id,
+              label: accessibleDisplayName(episode),
+              ...(serviceMetadata.snapshot.get(episode.id) ?? {
+                priority: null,
+                mobiles: [],
+                status: "loading" as const,
+              }),
+            }))}
+            selectedId={workspaceEpisodeId}
+            canCreate={
+              canWrite &&
+              queueReady &&
+              queueAvailable &&
+              !busy &&
+              !pending &&
+              !conflict &&
+              !serverConfirmedOperationId
+            }
+            onCreate={() => {
+              if (selectedId) return beginCreate();
+              setWorkSurface("editor");
+              return true;
+            }}
+            onSelect={(id) => openWorkspace(id)}
+            historyCount={historicalEpisodes.length}
+            onHistory={() => setWorkSurface("history")}
+            onRetry={(id) => void serviceMetadata.reload(id)}
+          />
+        )}
+        <div className="min-w-0 flex-1 space-y-4">
+          {canWrite && (selected || openOwnGuard) && (
+            <section
+              hidden={workSurface !== "editor"}
+              data-efa-surface="editor"
+              aria-labelledby="efa-editor-heading"
+              className="card-focus space-y-4 p-4 sm:p-5"
+            >
+              <h2
+                id="efa-editor-heading"
+                className="font-display text-2xl font-semibold leading-tight"
+              >
+                {episodeFormTitle(selected)}
+              </h2>
+              <div className="grid max-w-3xl gap-4 lg:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="episode-event-at" className="font-semibold">
+                    Fecha y hora del hecho
+                  </Label>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Input
+                      id="episode-event-at"
+                      className="h-11 min-h-11 w-64 min-w-0 max-w-full"
+                      type="datetime-local"
+                      value={form.eventAt}
+                      disabled={!queueReady || busy || Boolean(pending) || Boolean(conflict)}
+                      onChange={(event) => setForm({ ...form, eventAt: event.target.value })}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="min-h-11"
+                      disabled={!queueReady || busy || Boolean(pending) || Boolean(conflict)}
+                      onClick={() => {
+                        const ticket = ownerTicketRef.current;
+                        const queue = queueModuleRef.current;
+                        if (!ticket || !queue) return;
+                        void queue
+                          .setEpisodeEventAtForCurrentOwner(
+                            ticket,
+                            (currentTicket) =>
+                              Boolean(ownerFenceRef.current?.isCurrent(currentTicket)),
+                            () =>
+                              episodeHelpersRef.current
+                                ? Promise.resolve(episodeHelpersRef.current)
+                                : loadEpisodeClientHelpers(),
+                            new Date(),
+                            setForm,
+                          )
+                          .catch(() => {
+                            if (ownerFenceRef.current?.isCurrent(ticket)) {
+                              setError(
+                                "No se pudo completar la fecha actual; los demás datos no se modificaron.",
+                              );
+                            }
+                          });
+                      }}
+                    >
+                      Usar Hora Actual
+                    </Button>
+                  </div>
+                  <p className="text-[13px] leading-relaxed text-muted-foreground">
+                    Se interpreta en la zona horaria local del dispositivo y se conserva como un
+                    instante.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="episode-motive" className="font-semibold">
+                    Motivo (opcional)
+                  </Label>
+                  <Textarea
+                    id="episode-motive"
+                    maxLength={2000}
+                    value={form.motive}
+                    disabled={!queueReady || busy || Boolean(pending) || Boolean(conflict)}
+                    onChange={(event) => setForm({ ...form, motive: event.target.value })}
+                    placeholder="Describe brevemente la atención"
+                  />
+                </div>
+                <details className="border-t pt-1 lg:col-span-2">
+                  <summary className="min-h-11 cursor-pointer py-2 font-medium">
+                    Datos opcionales de ubicación e intervención
+                  </summary>
+                  <div className="space-y-3 pt-3">
+                    <div className="space-y-2">
+                      <Label htmlFor="episode-address" className="font-semibold">
+                        Dirección exacta (dato privado)
+                      </Label>
+                      <Textarea
+                        id="episode-address"
+                        maxLength={1000}
+                        value={form.address}
+                        disabled={!queueReady || busy || Boolean(pending) || Boolean(conflict)}
+                        onChange={(event) => setForm({ ...form, address: event.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="episode-intervention" className="font-semibold">
+                        Número de intervención (opcional)
+                      </Label>
+                      <Input
+                        id="episode-intervention"
+                        maxLength={100}
+                        value={form.interventionNumber}
+                        disabled={!queueReady || busy || Boolean(pending) || Boolean(conflict)}
+                        onChange={(event) =>
+                          setForm({ ...form, interventionNumber: event.target.value })
+                        }
+                      />
+                    </div>
+                  </div>
+                </details>
+                <div className="space-y-3 lg:col-span-2">
+                  <p className="text-[13px] leading-relaxed text-muted-foreground">
+                    Si no completas motivo ni dirección, el borrador se identifica por fecha y hora.
+                    El número de intervención conserva ceros iniciales.
+                  </p>
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-5">
+                    {!selected && openOwnGuard && (
+                      <label
+                        htmlFor="episode-register-first-call"
+                        className="flex min-h-11 items-center gap-3 text-sm"
+                      >
+                        <input
+                          id="episode-register-first-call"
+                          type="checkbox"
+                          className="size-4 shrink-0"
+                          checked={registerFirstCall}
+                          disabled={!queueReady || busy || Boolean(pending) || Boolean(conflict)}
+                          onChange={(event) => setRegisterFirstCall(event.target.checked)}
+                        />
+                        <span>Registrar primera llamada</span>
+                      </label>
+                    )}
+                    <Button
+                      className="min-h-11 w-full bg-[var(--brand-orange)] font-semibold text-[#0c0f28] transition-[filter] hover:bg-[var(--brand-orange)] hover:brightness-115 sm:w-auto"
+                      disabled={
+                        !queueReady ||
+                        !queueAvailable ||
+                        busy ||
+                        Boolean(pending) ||
+                        Boolean(conflict) ||
+                        Boolean(serverConfirmedOperationId)
+                      }
+                      onClick={save}
+                    >
+                      {episodeSaveActionLabel(Boolean(selected), registerFirstCall)}
+                    </Button>
+                  </div>
+                  {saveError && (
+                    <p role="alert" className="text-sm text-destructive">
+                      {saveError}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </section>
+          )}
+
+          {initialCallContinuation &&
+            (workspaceEpisodeId !== initialCallContinuation.episodeId ||
+              activeWorkspaceSection !== "communications") && (
+              <div role="status" className="rounded-sm border border-sky-300 bg-sky-50 p-3 text-sm">
+                El servicio y su primera llamada están guardados. Puedes continuar cuando quieras.
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="mt-2 min-h-11 w-full sm:w-auto"
+                  onClick={continueToInitialCall}
+                >
+                  Continuar al servicio y su primera llamada
+                </Button>
+              </div>
+            )}
+
+          {openOwnGuard && (
+            <section
+              hidden={workSurface !== "workspace"}
+              data-efa-surface="workspace"
+              aria-labelledby="efa-services-heading"
+              className="card-focus space-y-2 p-4 sm:p-5"
+            >
+              <h2 id="efa-services-heading" className="sr-only">
+                Servicios de esta guardia
+              </h2>
+              {!workspaceEpisodeId && (
+                <div className="space-y-3 py-8 sm:py-14">
+                  <h3 className="text-xl font-semibold">Elegí un servicio para continuar</h3>
+                  <p className="max-w-prose text-sm text-muted-foreground">
+                    Usá el selector de servicios activos para abrir sus llamadas, despachos, apoyo
+                    policial y conductas.
+                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="min-h-11"
+                    onClick={() => setWorkSurface("editor")}
+                    disabled={!canWrite}
+                  >
+                    Nuevo servicio
+                  </Button>
+                </div>
+              )}
+              <div className="min-w-0 divide-y divide-border">
+                {activeGuardEpisodes.length === 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    {openOwnGuard
+                      ? "Todavía no hay servicios registrados en esta guardia."
+                      : "No hay una guardia EFA abierta para mostrar servicios."}
+                  </p>
+                )}
+                {activeGuardEpisodes.map((episode) => (
+                  <article
+                    key={episode.id}
+                    hidden={workspaceEpisodeId !== episode.id}
+                    data-episode-workspace={episode.id}
+                    className="min-w-0 space-y-4 py-2"
+                  >
+                    <div className="space-y-1.5">
+                      <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-2">
+                        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
+                          <ServicePriorityTag metadata={serviceMetadata.snapshot.get(episode.id)} />
+                          <h3 className="min-w-0 break-words font-display text-lg font-semibold leading-tight">
+                            {displayName(episode)}
+                          </h3>
+                          <span
+                            className={`inline-flex items-center px-1 text-sm font-medium ${
+                              episode.cancelledAt
+                                ? "text-destructive"
+                                : episode.state === "closed"
+                                  ? "text-muted-foreground"
+                                  : "text-primary"
+                            }`}
+                          >
+                            {episode.cancelledAt
+                              ? `Anulado · ${episode.cancelledFromState === "closed" ? "Cerrado" : "Activo"}`
+                              : episode.state === "closed"
+                                ? "Cerrado"
+                                : "Activo"}
+                          </span>
+                          <span className="t-clock text-[13px] text-muted-foreground">
+                            Hecho {formatEpisodeDate(episode.eventAt)}
+                          </span>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                          {canWrite && episode.canEdit && episode.state === "draft" && (
+                            <Button
+                              variant="outline"
+                              className="min-h-11 max-w-full shrink-0 whitespace-normal px-3 text-sm"
+                              disabled={
+                                !queueReady ||
+                                !queueAvailable ||
+                                busy ||
+                                Boolean(pending) ||
+                                Boolean(conflict) ||
+                                formDirty ||
+                                Boolean(serverConfirmedOperationId)
+                              }
+                              onClick={() =>
+                                setClosingServiceTarget({
+                                  key: episodeCloseTargetKey(episode),
+                                  episodeId: episode.id,
+                                })
+                              }
+                            >
+                              <LockKeyhole aria-hidden="true" className="size-4" />
+                              Cerrar servicio
+                            </Button>
+                          )}
+                          <EfaServiceMenu
+                            capturedAt={formatEpisodeDate(episode.createdAt)}
+                            updatedAt={formatEpisodeDate(episode.updatedAt)}
+                            version={episode.version}
+                            history={{ disabled: busy, onSelect: () => showHistory(episode.id) }}
+                            {...(canWrite && episode.canManage
+                              ? {
+                                  cancellation: episode.cancelledAt
+                                    ? {
+                                        label: "Reactivar",
+                                        ariaLabel: `Reactivar episodio ${displayName(episode)}`,
+                                        destructive: false,
+                                        disabled: busy || Boolean(pending) || Boolean(conflict),
+                                        onSelect: () =>
+                                          void changeEpisodeCancellation(episode, "reactivate"),
+                                      }
+                                    : {
+                                        label: "Anular",
+                                        ariaLabel: `Anular episodio ${displayName(episode)}`,
+                                        destructive: true,
+                                        disabled: busy || Boolean(pending) || Boolean(conflict),
+                                        onSelect: () =>
+                                          void changeEpisodeCancellation(episode, "cancel"),
+                                      },
+                                }
+                              : {})}
+                            {...(canWrite && episode.canEdit
+                              ? {
+                                  edit: {
+                                    disabled:
+                                      !queueReady || busy || Boolean(pending) || Boolean(conflict),
+                                    onSelect: () => editEpisode(episode),
+                                  },
+                                }
+                              : {})}
+                          />
+                        </div>
+                      </div>
+                      {workspaceEpisodeId !== episode.id && (
+                        <div className="flex min-w-0">
+                          <Button
+                            variant="outline"
+                            className="min-h-11 max-w-full px-3 text-sm"
+                            aria-label={`Abrir área de trabajo de ${accessibleDisplayName(episode)}`}
+                            onClick={() => openWorkspace(episode.id)}
+                          >
+                            <PanelsTopLeft aria-hidden="true" className="size-4" />
+                            Abrir área
+                          </Button>
+                        </div>
+                      )}
+                      <EfaActionConfirmation
+                        open={closingServiceTarget?.episodeId === episode.id}
+                        onOpenChange={(open) => {
+                          if (!open) setClosingServiceTarget(null);
+                        }}
+                        capturedTargetKey={
+                          closingServiceTarget?.episodeId === episode.id
+                            ? closingServiceTarget.key
+                            : null
+                        }
+                        currentTargetKey={episodeCloseTargetKey(episode)}
+                        title="Cerrar servicio"
+                        description="El servicio quedará cerrado y no podrá reabrirse. La guardia y sus llamadas, despachos y otros registros se conservarán sin cambios."
+                        confirmLabel="Cerrar servicio"
+                        onConfirm={(targetKey) => closeService(episode.id, targetKey)}
+                      />
+                    </div>
+                    {workspaceEpisodeId === episode.id && (
+                      <EfaEpisodeWorkspace
+                        key={`${currentUserId}:${episode.id}`}
+                        episodeLabel={accessibleDisplayName(episode)}
+                        activeSection={activeWorkspaceSection}
+                        onSelectSection={(section) => openWorkspace(episode.id, section)}
+                      >
+                        {visitedWorkspaceSections.has("communications") && (
+                          <div hidden={activeWorkspaceSection !== "communications"}>
+                            <EfaCommunicationPanel
+                              serviceMetadata={serviceMetadata.store}
+                              episodeId={episode.id}
+                              episodeLabel={accessibleDisplayName(episode)}
+                              currentUserId={currentUserId}
+                              canWrite={canWrite}
+                              episodeCanEdit={episode.canEdit}
+                              episode={{ eventAt: episode.eventAt, address: episode.address }}
+                              initialCallTarget={
+                                initialCallContinuation?.episodeId === episode.id &&
+                                activeWorkspaceSection === "communications"
+                                  ? {
+                                      operationId: initialCallContinuation.operationId,
+                                      communicationId: initialCallContinuation.communicationId,
+                                    }
+                                  : null
+                              }
+                              initialPosition={workspaceSectionPositions.communications ?? null}
+                              onPositionChange={(position) =>
+                                saveEpisodeSectionPosition(
+                                  getEpisodePositionStorage(),
+                                  currentUserId,
+                                  episode.id,
+                                  "communications",
+                                  position,
+                                )
+                              }
+                              onContinueToDispatches={() => {
+                                openWorkspace(episode.id, "dispatches");
+                              }}
+                              onInitialCallSelected={(operationId, communicationId) => {
+                                setInitialCallContinuation((current) => {
+                                  if (
+                                    current?.operationId !== operationId ||
+                                    current.communicationId !== communicationId
+                                  )
+                                    return current;
+                                  initialCallContinuationRef.current = null;
+                                  return null;
+                                });
+                              }}
+                            />
+                          </div>
+                        )}
+                        {visitedWorkspaceSections.has("dispatches") && (
+                          <div hidden={activeWorkspaceSection !== "dispatches"}>
+                            <EfaDispatchStepper
+                              serviceMetadata={serviceMetadata.store}
+                              episodeId={episode.id}
+                              episodeLabel={accessibleDisplayName(episode)}
+                              currentUserId={currentUserId}
+                              canWrite={canWrite}
+                              episodeCanEdit={episode.canEdit}
+                              initialPosition={workspaceSectionPositions.dispatches ?? null}
+                              onPositionChange={(position) =>
+                                saveEpisodeSectionPosition(
+                                  getEpisodePositionStorage(),
+                                  currentUserId,
+                                  episode.id,
+                                  "dispatches",
+                                  position,
+                                )
+                              }
+                            />
+                          </div>
+                        )}
+                        {visitedWorkspaceSections.has("police") && (
+                          <div hidden={activeWorkspaceSection !== "police"}>
+                            <EfaPoliceCoordinationPanel
+                              episodeId={episode.id}
+                              episodeLabel={accessibleDisplayName(episode)}
+                              currentUserId={currentUserId}
+                              canWrite={canWrite}
+                              episodeCanEdit={episode.canEdit}
+                              isActive={activeWorkspaceSection === "police"}
+                            />
+                          </div>
+                        )}
+                        {visitedWorkspaceSections.has("observations") && (
+                          <div hidden={activeWorkspaceSection !== "observations"}>
+                            <EfaObservationPanel
+                              root={{
+                                guardId: episode.originGuardId,
+                                episodeId: episode.id,
+                                ownerUserId: episode.ownerUserId,
+                                guardEndedAt: null,
+                              }}
+                              title="Conductas observadas"
+                              compact
+                              currentUserId={currentUserId}
+                              canWrite={canWrite}
+                              isAdmin={isAdmin}
+                            />
+                          </div>
+                        )}
+                      </EfaEpisodeWorkspace>
+                    )}
+                    {historyFor === episode.id && (
+                      <details className="border-t pt-3" open>
+                        <summary className="min-h-11 cursor-pointer py-2 font-medium">
+                          Resumen del servicio
+                        </summary>
+                        <div className="pt-2">
+                          <EfaEpisodeSummary
+                            key={episode.id}
+                            episode={episode}
+                            presentation="plain"
+                          />
+                        </div>
+                      </details>
+                    )}
+                  </article>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {openOwnGuard && (
+            <section
+              hidden={workSurface !== "history"}
+              data-efa-surface="history"
+              className="card-focus space-y-4 p-4 sm:p-5"
+              aria-label="Servicios cerrados y anulados"
+            >
+              <h2 className="font-display text-xl font-semibold leading-tight">
+                Servicios cerrados y anulados
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                Se conservan los registros y las acciones permitidas de esta guardia.
+              </p>
+              {historicalEpisodes.length === 0 && (
+                <p className="text-sm text-muted-foreground">
+                  Todavía no hay servicios cerrados o anulados.
+                </p>
+              )}
+              <div className="divide-y divide-border">
+                {historicalEpisodes.map((episode) => (
+                  <div
+                    key={episode.id}
+                    className="flex min-w-0 flex-wrap items-center justify-between gap-3 py-3"
+                  >
+                    <div className="min-w-0">
+                      <p className="break-words font-medium">{displayName(episode)}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {episode.cancelledAt ? "Anulado" : "Cerrado"} ·{" "}
+                        {formatEpisodeDate(episode.eventAt)}
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="min-h-11"
+                      onClick={() => openWorkspace(episode.id)}
+                    >
+                      Consultar servicio
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+          {notices.length === 0 ? (
+            <p className="card-focus card-focus--flat px-4 py-3 text-sm text-muted-foreground">
+              <span className="font-medium text-foreground">Avisos de corrección</span> · No tienes
+              avisos pendientes.
+            </p>
+          ) : (
+            <details
+              aria-labelledby="efa-notices-heading"
+              className="card-focus card-focus--flat space-y-3 p-4 sm:p-5"
+              open={notices.some((notice) => !notice.readAt) ? true : undefined}
+            >
+              <summary
+                id="efa-notices-heading"
+                className="min-h-11 cursor-pointer py-2 text-base font-semibold"
+              >
+                Avisos de corrección
+                {notices.some((notice) => !notice.readAt)
+                  ? ` (${notices.filter((notice) => !notice.readAt).length} sin leer)`
+                  : ""}
+              </summary>
+              <div className="space-y-3">
+                {notices.map((notice) => (
+                  <div
+                    key={notice.id}
+                    className="flex flex-col gap-3 border-b pb-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div>
+                      <p className="text-sm">Un administrador corrigió un episodio.</p>
+                      <p className="text-xs text-muted-foreground">
+                        Aviso del {formatEpisodeDate(notice.createdAt)}
+                        {notice.readAt ? ` · leído ${formatEpisodeDate(notice.readAt)}` : ""}
+                      </p>
+                    </div>
+                    {!notice.readAt && (
                       <Button
-                        type="button"
                         variant="outline"
                         className="min-h-11"
                         disabled={busy}
-                        onClick={() => void discardPausedOperation(entry)}
+                        onClick={() => void markRead(notice.id)}
                       >
-                        Descartar esta operación pausada
+                        Marcar como leído
                       </Button>
                     )}
                   </div>
@@ -1829,543 +2418,8 @@ export function EfaEpisodePanel({
               </div>
             </details>
           )}
-          {error && (
-            <p role="alert" className="text-sm text-destructive">
-              {error}
-            </p>
-          )}
-          {message && (
-            <p role="status" className="text-sm text-green-700">
-              {message}
-            </p>
-          )}
-          {refreshWarning && (
-            <p role="status" className="text-sm text-amber-800">
-              {refreshWarning}
-            </p>
-          )}
-          {pending && (
-            <div className="rounded-md border border-amber-500/50 bg-amber-50 p-3 text-sm">
-              Operación pendiente de confirmación. Los campos están congelados para conservar la
-              misma identidad y el mismo contenido.
-              {pendingQueueEntry?.status !== "pending" &&
-                serverConfirmedOperationId !== pending.operationId && (
-                  <span className="mt-1 block">
-                    Estado pausado: requiere resolver el conflicto o el permiso antes de cualquier
-                    reintento.
-                  </span>
-                )}
-              <Button
-                className="mt-3 min-h-11 w-full sm:w-auto"
-                disabled={
-                  busy ||
-                  !canWrite ||
-                  !queueReady ||
-                  (serverConfirmedOperationId !== pending.operationId && !queueAvailable) ||
-                  (serverConfirmedOperationId !== pending.operationId &&
-                    pendingQueueEntry !== null &&
-                    pendingQueueEntry?.status !== "pending")
-                }
-                onClick={() => void retryPending()}
-              >
-                {serverConfirmedOperationId === pending.operationId
-                  ? "Limpiar cola local ya confirmada"
-                  : pendingQueueEntry
-                    ? "Reintentar misma operación"
-                    : "Guardar operación localmente y reintentar"}
-              </Button>
-            </div>
-          )}
-          {conflict && (
-            <Button
-              variant="outline"
-              className="min-h-11"
-              disabled={busy}
-              onClick={() => void loadServerVersion()}
-            >
-              Cargar versión actual del servidor
-            </Button>
-          )}
-          {canWrite && !selected && !openOwnGuard && !pending && (
-            <p className="rounded-md border p-3 text-sm">
-              Para registrar un servicio, abre primero tu guardia EFA. Esta vista no muestra
-              servicios de guardias anteriores.
-            </p>
-          )}
-          {selected && canWrite && openOwnGuard && (
-            <Button
-              variant="outline"
-              className="min-h-11"
-              onClick={beginCreate}
-              disabled={Boolean(pending) || Boolean(conflict)}
-            >
-              Nuevo servicio
-            </Button>
-          )}
-        </CardContent>
-      </Card>
-
-      {canWrite && (selected || openOwnGuard) && (
-        <Card>
-          <CardHeader className="px-3 py-3 sm:px-6 sm:py-6">
-            <CardTitle>{episodeFormTitle(selected)}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3 px-3 pb-3 pt-0 sm:px-6 sm:pb-6">
-            <div className="space-y-2">
-              <Label htmlFor="episode-event-at">Fecha y hora del hecho</Label>
-              <Input
-                id="episode-event-at"
-                className="h-11 min-h-11 w-full min-w-0 max-w-full"
-                type="datetime-local"
-                value={form.eventAt}
-                disabled={!queueReady || busy || Boolean(pending) || Boolean(conflict)}
-                onChange={(event) => setForm({ ...form, eventAt: event.target.value })}
-              />
-              <Button
-                type="button"
-                variant="outline"
-                className="min-h-11"
-                disabled={!queueReady || busy || Boolean(pending) || Boolean(conflict)}
-                onClick={() => {
-                  const ticket = ownerTicketRef.current;
-                  const queue = queueModuleRef.current;
-                  if (!ticket || !queue) return;
-                  void queue
-                    .setEpisodeEventAtForCurrentOwner(
-                      ticket,
-                      (currentTicket) => Boolean(ownerFenceRef.current?.isCurrent(currentTicket)),
-                      () =>
-                        episodeHelpersRef.current
-                          ? Promise.resolve(episodeHelpersRef.current)
-                          : loadEpisodeClientHelpers(),
-                      new Date(),
-                      setForm,
-                    )
-                    .catch(() => {
-                      if (ownerFenceRef.current?.isCurrent(ticket)) {
-                        setError(
-                          "No se pudo completar la fecha actual; los demás datos no se modificaron.",
-                        );
-                      }
-                    });
-                }}
-              >
-                Usar ahora
-              </Button>
-              <p className="text-xs text-muted-foreground">
-                Se interpreta en la zona horaria local del dispositivo y se conserva como un
-                instante.
-              </p>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="episode-motive">Motivo (opcional)</Label>
-              <Textarea
-                id="episode-motive"
-                maxLength={2000}
-                value={form.motive}
-                disabled={!queueReady || busy || Boolean(pending) || Boolean(conflict)}
-                onChange={(event) => setForm({ ...form, motive: event.target.value })}
-                placeholder="Describe brevemente la atención"
-              />
-            </div>
-            <details className="rounded-md border p-3">
-              <summary className="min-h-11 cursor-pointer py-2 font-medium">
-                Datos opcionales de ubicación e intervención
-              </summary>
-              <div className="space-y-3 pt-3">
-                <div className="space-y-2">
-                  <Label htmlFor="episode-address">Dirección exacta (dato privado)</Label>
-                  <Textarea
-                    id="episode-address"
-                    maxLength={1000}
-                    value={form.address}
-                    disabled={!queueReady || busy || Boolean(pending) || Boolean(conflict)}
-                    onChange={(event) => setForm({ ...form, address: event.target.value })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="episode-intervention">Número de intervención (opcional)</Label>
-                  <Input
-                    id="episode-intervention"
-                    maxLength={100}
-                    value={form.interventionNumber}
-                    disabled={!queueReady || busy || Boolean(pending) || Boolean(conflict)}
-                    onChange={(event) =>
-                      setForm({ ...form, interventionNumber: event.target.value })
-                    }
-                  />
-                </div>
-              </div>
-            </details>
-            <p className="text-xs text-muted-foreground">
-              Si no completas motivo ni dirección, el borrador se identifica por fecha y hora. El
-              número de intervención conserva ceros iniciales.
-            </p>
-            {!selected && openOwnGuard && (
-              <label
-                htmlFor="episode-register-first-call"
-                className="flex min-h-11 items-center gap-3 rounded-md border px-3 py-2 text-sm"
-              >
-                <input
-                  id="episode-register-first-call"
-                  type="checkbox"
-                  className="size-4 shrink-0"
-                  checked={registerFirstCall}
-                  disabled={!queueReady || busy || Boolean(pending) || Boolean(conflict)}
-                  onChange={(event) => setRegisterFirstCall(event.target.checked)}
-                />
-                <span>Registrar primera llamada</span>
-              </label>
-            )}
-            <Button
-              className="min-h-11 w-full sm:w-auto"
-              disabled={
-                !queueReady ||
-                !queueAvailable ||
-                busy ||
-                Boolean(pending) ||
-                Boolean(conflict) ||
-                Boolean(serverConfirmedOperationId)
-              }
-              onClick={save}
-            >
-              {episodeSaveActionLabel(Boolean(selected), registerFirstCall)}
-            </Button>
-            {saveError && (
-              <p role="alert" className="text-sm text-destructive">
-                {saveError}
-              </p>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {initialCallContinuation &&
-        (workspaceEpisodeId !== initialCallContinuation.episodeId ||
-          activeWorkspaceSection !== "communications") && (
-          <div role="status" className="rounded-md border border-sky-300 bg-sky-50 p-3 text-sm">
-            El servicio y su primera llamada están guardados. Puedes continuar cuando quieras.
-            <Button
-              type="button"
-              variant="outline"
-              className="mt-2 min-h-11 w-full sm:w-auto"
-              onClick={continueToInitialCall}
-            >
-              Continuar al servicio y su primera llamada
-            </Button>
-          </div>
-        )}
-
-      <Card>
-        <CardHeader className="px-3 py-3 sm:px-6 sm:py-6">
-          <CardTitle>Servicios de esta guardia</CardTitle>
-        </CardHeader>
-        <CardContent className="min-w-0 space-y-3 px-3 pb-3 pt-0 sm:px-6 sm:pb-6">
-          {activeGuardEpisodes.length === 0 && (
-            <p className="text-sm text-muted-foreground">
-              {openOwnGuard
-                ? "Todavía no hay servicios registrados en esta guardia."
-                : "No hay una guardia EFA abierta para mostrar servicios."}
-            </p>
-          )}
-          {activeGuardEpisodes.map((episode) => (
-            <article
-              key={episode.id}
-              className={`min-w-0 space-y-2 rounded-lg border p-2 sm:space-y-2.5 sm:p-4 ${
-                episode.cancelledAt
-                  ? "border-rose-200 bg-rose-50/70 dark:border-rose-900 dark:bg-rose-950/20"
-                  : episode.state === "closed"
-                    ? "border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950/40"
-                    : "border-sky-200 bg-sky-50/60 dark:border-sky-900 dark:bg-sky-950/20"
-              }`}
-            >
-              <div className="space-y-1.5">
-                <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-2">
-                  <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-1">
-                    <h3 className="min-w-0 break-words font-semibold leading-5">
-                      {displayName(episode)}
-                    </h3>
-                    <span
-                      className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${
-                        episode.cancelledAt
-                          ? "bg-rose-100 text-rose-900 dark:bg-rose-950 dark:text-rose-100"
-                          : episode.state === "closed"
-                            ? "bg-muted text-muted-foreground"
-                            : "bg-sky-50 text-sky-800"
-                      }`}
-                    >
-                      {episode.cancelledAt
-                        ? `Anulado · ${episode.cancelledFromState === "closed" ? "Cerrado" : "Activo"}`
-                        : episode.state === "closed"
-                          ? "Cerrado"
-                          : "Activo"}
-                    </span>
-                    <span className="text-xs text-muted-foreground">
-                      Hecho {formatEpisodeDate(episode.eventAt)}
-                    </span>
-                  </div>
-                  {canWrite && episode.canEdit && episode.state === "draft" && (
-                    <Button
-                      variant="outline"
-                      className="min-h-11 max-w-full shrink-0 whitespace-normal border-slate-300 bg-slate-100 px-2.5 text-sm text-slate-900 hover:bg-slate-200 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700 sm:px-3"
-                      disabled={
-                        !queueReady ||
-                        !queueAvailable ||
-                        busy ||
-                        Boolean(pending) ||
-                        Boolean(conflict) ||
-                        formDirty ||
-                        Boolean(serverConfirmedOperationId)
-                      }
-                      onClick={() =>
-                        setClosingServiceTarget({
-                          key: episodeCloseTargetKey(episode),
-                          episodeId: episode.id,
-                        })
-                      }
-                    >
-                      <LockKeyhole aria-hidden="true" className="size-4" />
-                      Cerrar servicio
-                    </Button>
-                  )}
-                </div>
-                {workspaceEpisodeId !== episode.id && (
-                  <div className="flex min-w-0">
-                    <Button
-                      variant="outline"
-                      className="min-h-11 max-w-full border-sky-200 bg-sky-50 px-2.5 text-sm text-sky-950 hover:bg-sky-100 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100 dark:hover:bg-sky-950/60 sm:px-3"
-                      aria-label={`Abrir área de trabajo de ${accessibleDisplayName(episode)}`}
-                      onClick={() => openWorkspace(episode.id)}
-                    >
-                      <PanelsTopLeft aria-hidden="true" className="size-4" />
-                      Abrir área
-                    </Button>
-                  </div>
-                )}
-                <EfaActionConfirmation
-                  open={closingServiceTarget?.episodeId === episode.id}
-                  onOpenChange={(open) => {
-                    if (!open) setClosingServiceTarget(null);
-                  }}
-                  capturedTargetKey={
-                    closingServiceTarget?.episodeId === episode.id ? closingServiceTarget.key : null
-                  }
-                  currentTargetKey={episodeCloseTargetKey(episode)}
-                  title="Cerrar servicio"
-                  description="El servicio quedará cerrado y no podrá reabrirse. La guardia y sus llamadas, despachos y otros registros se conservarán sin cambios."
-                  confirmLabel="Cerrar servicio"
-                  onConfirm={(targetKey) => closeService(episode.id, targetKey)}
-                />
-                <details className="border-t pt-2">
-                  <summary className="min-h-11 cursor-pointer py-3 font-medium">
-                    Ver detalles
-                  </summary>
-                  <div className="space-y-3 pt-1">
-                    <p className="text-xs text-muted-foreground">
-                      Capturado {formatEpisodeDate(episode.createdAt)} · actualizado{" "}
-                      {formatEpisodeDate(episode.updatedAt)} · versión {episode.version}
-                    </p>
-                    <div className="flex flex-wrap gap-1.5">
-                      <Button
-                        variant="outline"
-                        className="min-h-11 border-indigo-200 bg-indigo-50 px-3 text-indigo-950 hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-100 dark:hover:bg-indigo-950/60"
-                        disabled={busy}
-                        onClick={() => showHistory(episode.id)}
-                      >
-                        <History aria-hidden="true" className="size-4" />
-                        Ver historial
-                      </Button>
-                      {canWrite &&
-                        episode.canManage &&
-                        (episode.cancelledAt ? (
-                          <Button
-                            variant="outline"
-                            className="min-h-11 border-emerald-200 bg-emerald-50 px-3 text-emerald-950 hover:bg-emerald-100"
-                            disabled={busy || Boolean(pending) || Boolean(conflict)}
-                            aria-label={`Reactivar episodio ${displayName(episode)}`}
-                            onClick={() => void changeEpisodeCancellation(episode, "reactivate")}
-                          >
-                            Reactivar
-                          </Button>
-                        ) : (
-                          <Button
-                            variant="outline"
-                            className="min-h-11 border-rose-200 bg-rose-50 px-3 text-rose-950 hover:bg-rose-100"
-                            disabled={busy || Boolean(pending) || Boolean(conflict)}
-                            aria-label={`Anular episodio ${displayName(episode)}`}
-                            onClick={() => void changeEpisodeCancellation(episode, "cancel")}
-                          >
-                            Anular
-                          </Button>
-                        ))}
-                      {canWrite && episode.canEdit && (
-                        <Button
-                          variant="outline"
-                          className="min-h-11 border-amber-200 bg-amber-50 px-3 text-amber-950 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
-                          disabled={!queueReady || busy || Boolean(pending) || Boolean(conflict)}
-                          onClick={() => editEpisode(episode)}
-                        >
-                          <Pencil aria-hidden="true" className="size-4" />
-                          Editar
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                </details>
-              </div>
-              {workspaceEpisodeId === episode.id && (
-                <EfaEpisodeWorkspace
-                  key={`${currentUserId}:${episode.id}`}
-                  episodeLabel={accessibleDisplayName(episode)}
-                  activeSection={activeWorkspaceSection}
-                  onSelectSection={(section) => openWorkspace(episode.id, section)}
-                >
-                  {visitedWorkspaceSections.has("communications") && (
-                    <div hidden={activeWorkspaceSection !== "communications"}>
-                      <EfaCommunicationPanel
-                        episodeId={episode.id}
-                        episodeLabel={accessibleDisplayName(episode)}
-                        currentUserId={currentUserId}
-                        canWrite={canWrite}
-                        episodeCanEdit={episode.canEdit}
-                        episode={{ eventAt: episode.eventAt, address: episode.address }}
-                        initialCallTarget={
-                          initialCallContinuation?.episodeId === episode.id &&
-                          activeWorkspaceSection === "communications"
-                            ? {
-                                operationId: initialCallContinuation.operationId,
-                                communicationId: initialCallContinuation.communicationId,
-                              }
-                            : null
-                        }
-                        initialPosition={workspaceSectionPositions.communications ?? null}
-                        onPositionChange={(position) =>
-                          saveEpisodeSectionPosition(
-                            getEpisodePositionStorage(),
-                            currentUserId,
-                            episode.id,
-                            "communications",
-                            position,
-                          )
-                        }
-                        onContinueToDispatches={() => {
-                          openWorkspace(episode.id, "dispatches");
-                        }}
-                        onInitialCallSelected={(operationId, communicationId) => {
-                          setInitialCallContinuation((current) => {
-                            if (
-                              current?.operationId !== operationId ||
-                              current.communicationId !== communicationId
-                            )
-                              return current;
-                            initialCallContinuationRef.current = null;
-                            return null;
-                          });
-                        }}
-                      />
-                    </div>
-                  )}
-                  {visitedWorkspaceSections.has("dispatches") && (
-                    <div hidden={activeWorkspaceSection !== "dispatches"}>
-                      <EfaDispatchStepper
-                        episodeId={episode.id}
-                        episodeLabel={accessibleDisplayName(episode)}
-                        currentUserId={currentUserId}
-                        canWrite={canWrite}
-                        episodeCanEdit={episode.canEdit}
-                        initialPosition={workspaceSectionPositions.dispatches ?? null}
-                        onPositionChange={(position) =>
-                          saveEpisodeSectionPosition(
-                            getEpisodePositionStorage(),
-                            currentUserId,
-                            episode.id,
-                            "dispatches",
-                            position,
-                          )
-                        }
-                      />
-                    </div>
-                  )}
-                  {visitedWorkspaceSections.has("police") && (
-                    <div hidden={activeWorkspaceSection !== "police"}>
-                      <EfaPoliceCoordinationPanel
-                        episodeId={episode.id}
-                        episodeLabel={accessibleDisplayName(episode)}
-                        currentUserId={currentUserId}
-                        canWrite={canWrite}
-                        episodeCanEdit={episode.canEdit}
-                        isActive={activeWorkspaceSection === "police"}
-                      />
-                    </div>
-                  )}
-                  {visitedWorkspaceSections.has("observations") && (
-                    <div hidden={activeWorkspaceSection !== "observations"}>
-                      <EfaObservationPanel
-                        root={{
-                          guardId: episode.originGuardId,
-                          episodeId: episode.id,
-                          ownerUserId: episode.ownerUserId,
-                          guardEndedAt: null,
-                        }}
-                        title="Conductas observadas"
-                        compact
-                        currentUserId={currentUserId}
-                        canWrite={canWrite}
-                        isAdmin={isAdmin}
-                      />
-                    </div>
-                  )}
-                </EfaEpisodeWorkspace>
-              )}
-              {historyFor === episode.id && (
-                <details className="border-t pt-3" open>
-                  <summary className="min-h-11 cursor-pointer py-2 font-medium">
-                    Resumen del servicio
-                  </summary>
-                  <div className="pt-2">
-                    <EfaEpisodeSummary key={episode.id} episode={episode} />
-                  </div>
-                </details>
-              )}
-            </article>
-          ))}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="px-3 py-3 sm:px-6 sm:py-6">
-          <CardTitle>Avisos de corrección</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3 px-3 pb-3 pt-0 sm:px-6 sm:pb-6">
-          {notices.length === 0 && (
-            <p className="text-sm text-muted-foreground">No tienes avisos pendientes.</p>
-          )}
-          {notices.map((notice) => (
-            <div
-              key={notice.id}
-              className="flex flex-col gap-3 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between"
-            >
-              <div>
-                <p className="text-sm">Un administrador corrigió un episodio.</p>
-                <p className="text-xs text-muted-foreground">
-                  Aviso del {formatEpisodeDate(notice.createdAt)}
-                  {notice.readAt ? ` · leído ${formatEpisodeDate(notice.readAt)}` : ""}
-                </p>
-              </div>
-              {!notice.readAt && (
-                <Button
-                  variant="outline"
-                  className="min-h-11"
-                  disabled={busy}
-                  onClick={() => void markRead(notice.id)}
-                >
-                  Marcar como leído
-                </Button>
-              )}
-            </div>
-          ))}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </div>
   );
 }

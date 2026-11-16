@@ -8,6 +8,12 @@ import {
 import { CompensatoryBankPanel } from "./CompensatoryBankPanel";
 
 describe("CompensatoryOperationalWorkspace", () => {
+  it("offers a consolidated export independently of the selected agent", () => {
+    const html = renderToStaticMarkup(<CompensatoryOperationalWorkspace initialStaff={[]} />);
+    expect(html).toContain("Exportar horas");
+    expect(html).toContain("Herramientas");
+    expect(html).toContain("Cargar solicitud");
+  });
   it("removes an expired unresolved request from pending and keeps its history read-only", () => {
     const initialWorkspace = {
       serviceDay: "2026-11-05", staff: [], audits: [],

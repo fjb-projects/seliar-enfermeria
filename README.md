@@ -32,6 +32,20 @@ email suggestions. Discarding is disabled while a submission is in progress.
 Drafts are restored in the same browser without an expiry, but attached photos
 are not saved across reloads.
 
+## Public compensatory requests
+
+The `/compensatorio` staff list includes active agents whose operational role is
+`Movil` **or** whose operational status is `SI` (either or both). These are the
+second `FUNCION` and `OPERATIVO` columns of the combined roster CSV. Comparisons
+ignore case, accents, and surrounding whitespace; missing values do not qualify.
+Names shared by multiple active profiles remain excluded to avoid ambiguity.
+
+The server applies the same eligibility rule when receiving a new public request,
+not just when listing names. Existing request history and exact idempotent retries
+are unchanged. This restriction does not change administrative request entry or
+deactivate staff. Previously imported profiles must have these directory fields
+populated; uploading the CSV alone does not save or update them.
+
 ## Built with
 
 - TanStack Start

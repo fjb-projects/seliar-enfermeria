@@ -1,3 +1,4 @@
+import { ctaClasses } from "@/lib/cta-classes";
 import { useState } from "react";
 import { MessageSquarePlus } from "lucide-react";
 import {
@@ -40,17 +41,21 @@ export function canSaveFollowUp(input: { busy: boolean; mode: FollowUpTimeMode; 
 export function FollowUpOpenButton({
   disabled,
   onClick,
+  hint,
 }: {
   disabled: boolean;
   onClick: () => void;
+  /** Why the button is unavailable; shown as a tooltip. */
+  hint?: string;
 }) {
   return (
     <button
       type="button"
       aria-haspopup="dialog"
       disabled={disabled}
+      {...(hint ? { title: hint } : {})}
       onClick={onClick}
-      className="inline-flex min-h-11 items-center gap-2 rounded border-2 border-primary bg-accent px-3 text-sm font-semibold text-accent-foreground shadow-sm hover:bg-accent/80 disabled:cursor-not-allowed disabled:opacity-60"
+      className={ctaClasses.teal}
     >
       <MessageSquarePlus aria-hidden="true" className="size-4 shrink-0" />
       Comunicaciones de seguimiento

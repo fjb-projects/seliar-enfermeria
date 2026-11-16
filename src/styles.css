@@ -171,12 +171,6 @@
   }
 
   body {
-    background-color: var(--workflow-background-2)
-    background-image:
-      linear-gradient(var(--paper-line) 1px, transparent 1px),
-      linear-gradient(90deg, var(--paper-line) 1px, transparent 1px);
-    background-size: 32px 32px;
-    background-attachment: fixed;
     color: var(--color-foreground);
     font-family: var(--font-sans);
     font-variant-numeric: tabular-nums;
@@ -195,6 +189,133 @@
 }
 
 @layer utilities {
+  .bg-santafe-focus {
+    background:
+      linear-gradient(rgb(12 15 40 / 0.55), rgb(12 15 40 / 0.55)),
+      linear-gradient(110deg, #f6e38a -5%, #ffa070 18%, #f27aa6 42%, #7d86f2 72%, #4558e0 105%);
+    background-attachment: fixed;
+  }
+
+  .card-focus {
+    background: rgb(12 15 40 / 0.45);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgb(255 255 255 / 0.18);
+    border-radius: 10px;
+    color: #f2f3ff;
+  }
+
+  /* Radio-log numerals for times and unit data: the display face already loaded for headings. */
+  .t-clock {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.02em;
+  }
+
+  /* Secondary strips (status, notices): same family, no blur, so the working surface is the only full glass. */
+  .card-focus.card-focus--flat {
+    background: rgb(12 15 40 / 0.32);
+    backdrop-filter: none;
+    border-color: rgb(255 255 255 / 0.1);
+  }
+
+  .card-focus label {
+    color: #c4c8f0;
+  }
+
+  .card-focus input {
+    background: rgb(255 255 255 / 0.08);
+    border: 1px solid rgb(255 255 255 / 0.25);
+    color: #f2f3ff;
+  }
+
+  .card-focus input:focus {
+    border: 2px solid #a9b2ff;
+    outline: none;
+  }
+
+  main.bg-santafe-focus h1 {
+    color: #f2f3ff;
+  }
+  main.bg-santafe-focus .text-muted-foreground {
+    color: #c4c8f0;
+  }
+  .card-focus input[type="datetime-local"] {
+    color-scheme: dark;
+  }
+
+  .card-focus textarea,
+  .card-focus select {
+    background: rgb(255 255 255 / 0.08);
+    border: 1px solid rgb(255 255 255 / 0.25);
+    color: #f2f3ff;
+  }
+  /* The native option list ignores the translucent field background: give it the glass navy. */
+  .card-focus select {
+    color-scheme: dark;
+  }
+  .card-focus select option {
+    background-color: #151a45;
+    color: #f2f3ff;
+  }
+  .card-focus select option:disabled {
+    color: #9aa0d6;
+  }
+  .card-focus textarea:focus-visible,
+  .card-focus select:focus-visible {
+    outline: 2px solid #a9b2ff;
+    outline-offset: 2px;
+  }
+  .card-focus .text-muted-foreground {
+    color: #c4c8f0;
+  }
+  .card-focus .text-foreground { color: #f2f3ff; }
+  .card-focus :is(.bg-background, .bg-card, .bg-muted, [class~="bg-muted/50"], [class~="bg-muted/30"]):not(input, textarea, select) {
+    background-color: rgb(12 15 40 / .92);
+    color: #f2f3ff;
+  }
+  /* Status and stepper tones re-tinted for the dark glass; the light-theme utilities stay untouched elsewhere. */
+  .card-focus .text-card-foreground {
+    color: #f2f3ff;
+  }
+  .card-focus .text-primary {
+    color: #7fe3d6;
+  }
+  .card-focus .text-destructive {
+    color: #ffa3a3;
+  }
+  .card-focus .text-green-700 {
+    color: #86efac;
+  }
+  .card-focus .text-amber-800 {
+    color: #fcd34d;
+  }
+  .card-focus .bg-emerald-50 {
+    background-color: rgb(52 211 153 / 0.16);
+    border-color: rgb(110 231 183 / 0.45);
+    color: #d1fae5;
+  }
+  .card-focus .bg-amber-50 {
+    background-color: rgb(251 191 36 / 0.14);
+    border-color: rgb(252 211 77 / 0.4);
+    color: #fef3c7;
+  }
+  .card-focus .ring-primary {
+    --tw-ring-color: #a9b2ff;
+  }
+  .card-focus .ring-offset-2 {
+    --tw-ring-offset-color: rgb(12 15 40);
+  }
+  .card-focus input::placeholder,
+  .card-focus textarea::placeholder {
+    color: #c4c8f0;
+  }
+  .card-focus button.bg-indigo-400,
+  .card-focus a.bg-indigo-400 {
+    background: rgb(255 255 255 / 0.08);
+    color: #f2f3ff;
+  }
+
   .workflow-background {
     background-color: white;
     background-image: var(--workflow-background);

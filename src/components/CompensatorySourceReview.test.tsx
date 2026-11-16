@@ -51,6 +51,11 @@ describe("compensatory source review", () => {
     expect(html).toContain("Volver al banco");
     expect(html).toContain("Directorio de agentes (CSV)");
     expect(html).toContain("Exportación de compensatorios (JSON)");
+    expect(html).toContain(
+      "Incluye hoy y fechas futuras, según Buenos Aires. Desactiva para mostrar todas las fechas.",
+    );
+    expect(html).toContain("Solo fechas futuras");
+    expect(html).toMatch(/<input[^>]*id="source-future-only"[^>]*checked=""/);
     expect(html).toContain("Importar agentes seleccionados");
     expect(html).toContain("Licenciatura");
     expect(html).toContain("La importación crea agentes nuevos y no modifica DNIs existentes.");

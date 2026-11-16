@@ -6,7 +6,9 @@ import {
   acknowledgePoliceCoordinationSave,
   EfaPoliceCoordinationPanel,
   mergePoliceMutationResult,
+  policeEventDraftDirty,
   policeEventRequiresDispatch,
+  policeSaveStatus,
   policeQueueContextAllows,
   resolvePoliceCreateCleanup,
   restorePoliceEventDraft,
@@ -40,8 +42,8 @@ describe("EfaPoliceCoordinationPanel", () => {
     notes,
   });
 
-  it("explains that police support can start early and dispatches can be associated later", () => {
-    const html = renderToStaticMarkup(
+  const render = () =>
+    renderToStaticMarkup(
       <EfaPoliceCoordinationPanel
         episodeId="episode-1"
         episodeLabel="Episodio de prueba"
@@ -51,46 +53,69 @@ describe("EfaPoliceCoordinationPanel", () => {
       />,
     );
 
-    expect(html).toContain(
-      "Puede iniciar una coordinación antes de registrar una llamada o un despacho.",
-    );
-    expect(html).toContain(
-      "Más adelante podrá asociar los despachos de este episodio, incluso si siguen como borrador.",
-    );
+  it("keeps the header to the title and the access status", () => {
+    const html = render();
+
+    expect(html).toContain("Acceso EFA vigente");
+    expect(html).not.toContain("Puede iniciar una coordinación antes de registrar una llamada");
   });
 
-  it("keeps all three coordination steps available from compact navigation", () => {
-    const html = renderToStaticMarkup(
-      <EfaPoliceCoordinationPanel
-        episodeId="episode-1"
-        episodeLabel="Episodio de prueba"
-        currentUserId="owner"
-        canWrite={true}
-        episodeCanEdit={true}
-      />,
-    );
+  it("keeps all three coordination steps available from one labeled rail", () => {
+    const html = render();
 
-    expect(html).toContain("Ver pasos");
+    expect(html).not.toContain("Ver pasos");
     expect(html).toContain('aria-label="Ir a Datos"');
     expect(html).toContain('aria-label="Ir a Despachos"');
     expect(html).toContain('aria-label="Ir a Eventos e historial"');
     expect(html.match(/aria-current="step"/g)).toHaveLength(1);
+    expect(html.match(/aria-label="Pasos de coordinación"/g)).toHaveLength(1);
   });
 
-  it("places the coordination step controls after the Datos fields", () => {
-    const html = renderToStaticMarkup(
-      <EfaPoliceCoordinationPanel
-        episodeId="episode-1"
-        episodeLabel="Episodio de prueba"
-        currentUserId="owner"
-        canWrite={true}
-        episodeCanEdit={true}
-      />,
-    );
+  it("puts the rail before the Datos fields and the previous/next footer after them", () => {
+    const html = render();
 
-    expect(html.indexOf("Iniciador")).toBeLessThan(html.indexOf("Ver pasos"));
-    expect(html.indexOf("Ver pasos")).toBeLessThan(html.indexOf(">Anterior</button>"));
-    expect(html.match(/aria-label="Pasos de coordinación"/g)).toHaveLength(1);
+    expect(html.indexOf("Ir a Datos")).toBeLessThan(html.indexOf("Iniciador"));
+    expect(html.indexOf("Iniciador")).toBeLessThan(html.indexOf(">Anterior</button>"));
+    expect(html.match(/>Anterior<\/button>/g)).toHaveLength(1);
+    expect(html.match(/>Siguiente<\/button>/g)).toHaveLength(1);
+  });
+
+  it("gives the save action the orange role and discard a neutral one", () => {
+    const html = render();
+
+    expect(html).toContain("bg-[var(--brand-orange)]");
+    expect(html).toContain("bg-[#a9b2ff]");
+  });
+
+  describe("policeSaveStatus", () => {
+    const base = { busy: false, queued: false, dirty: false, hasSelected: true };
+    it("reports the most urgent state first", () => {
+      expect(policeSaveStatus({ ...base, busy: true, queued: true, dirty: true })).toBe(
+        "Guardando…",
+      );
+      expect(policeSaveStatus({ ...base, queued: true, dirty: true })).toBe("Pendiente");
+      expect(policeSaveStatus({ ...base, dirty: true })).toBe("Cambios sin guardar");
+      expect(policeSaveStatus(base)).toBe("Guardada");
+      expect(policeSaveStatus({ ...base, hasSelected: false })).toBe("Sin guardar");
+    });
+  });
+
+  describe("policeEventDraftDirty", () => {
+    const blank = {
+      kind: "request",
+      dispatchId: "",
+      occurredAt: "",
+      timeStatus: "not_observed",
+      note: "",
+    };
+    it("is false for the blank draft and true for any edited field", () => {
+      expect(policeEventDraftDirty(blank)).toBe(false);
+      expect(policeEventDraftDirty({ ...blank, note: "x" })).toBe(true);
+      expect(policeEventDraftDirty({ ...blank, kind: "waiting" })).toBe(true);
+      expect(policeEventDraftDirty({ ...blank, occurredAt: "2026-01-01T10:00" })).toBe(true);
+      expect(policeEventDraftDirty({ ...blank, dispatchId: "d1" })).toBe(true);
+      expect(policeEventDraftDirty({ ...blank, timeStatus: "observed" })).toBe(true);
+    });
   });
 
   it("clears only the coordination fields included in a confirmed save", () => {

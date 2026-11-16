@@ -105,7 +105,14 @@ de pendientes y el registro permanece en el historial del agente. El filtro
    licenciatura cuando corresponda a su letra `L`. Corregir filas con DNI faltante o duplicado;
    no fusionar personas ni sobrescribir perfiles por nombre.
 3. Leer el JSON en memoria del navegador, sin almacenar el archivo en el servidor ni en
-   almacenamiento persistente del navegador. Mostrar sus solicitudes pendientes.
+   almacenamiento persistente del navegador. La casilla **Solo fechas futuras**, activada por
+   defecto, muestra las solicitudes cuya **fecha solicitada** sea hoy o posterior, según el día
+   de Buenos Aires, no la fecha de envío. Desactivarla muestra también fechas anteriores sin
+   volver a cargar el archivo; se puede alternar sin perder las vinculaciones de la revisión.
+   Se aceptan fechas `YYYY-MM-DD` y `dd/MM/yyyy`; los datos originales no se reescriben.
+   Con la casilla activada, las solicitudes anteriores se omiten con un aviso del total.
+   Las fechas no válidas permanecen
+   visibles para revisión, sin permitir guardarlas. El filtro no modifica el JSON ni Google Forms.
 4. Para cada solicitud, mostrar los datos originales y permitir elegir entre los agentes
    ya guardados. Las sugerencias por nombre requieren inspección humana.
 5. Usar la acción individual de vincular y guardar. Enviar únicamente los campos revisados

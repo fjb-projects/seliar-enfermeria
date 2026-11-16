@@ -33,6 +33,49 @@ vi.mock("@/lib/efa-mobile-hygiene.functions", () => ({
 const base = { id: "base-a", name: "Central", isActive: true };
 
 describe("EfaMobileArrivalPanel", () => {
+  it("renders identical Buenos Aires arrival labels across server and browser locale output", () => {
+    const arrival: MobileArrivalView = {
+      id: "arrival-ssr",
+      guardId: "guard-a",
+      baseId: base.id,
+      baseNameSnapshot: base.name,
+      role: "nurse",
+      arrivedAt: "2026-11-12T13:43:45.494Z",
+      deletedAt: null,
+      version: 1,
+      canEdit: false,
+    };
+    const render = () =>
+      renderToStaticMarkup(
+        <EfaMobileArrivalPanel
+          guardId="guard-a"
+          bases={[base]}
+          arrivals={[arrival]}
+          canWrite
+          defaultExpandedBaseIds={[base.id]}
+          onArrivalsChange={vi.fn()}
+          onBaseSelectionChange={vi.fn()}
+        />,
+      );
+    const short = vi.spyOn(Date.prototype, "toLocaleTimeString");
+    const full = vi.spyOn(Date.prototype, "toLocaleString");
+    try {
+      short.mockReturnValue("10:43 a.\u00a0m.");
+      full.mockReturnValue("12/11/2026, 10:43 a.\u00a0m.");
+      const server = render();
+      short.mockReturnValue("10:43 a. m.");
+      full.mockReturnValue("12/11/2026, 10:43 a. m.");
+      const client = render();
+      expect(client).toBe(server);
+      expect(client).toContain('aria-label="Enfermería ingresó a las 10:43"');
+      expect(client).toContain('aria-label="Ingreso registrado el 12/11/2026 10:43:45"');
+      expect(client).toContain(">10:43</time>");
+    } finally {
+      short.mockRestore();
+      full.mockRestore();
+    }
+  });
+
   it("offers one-tap registration for each role on a selected mobile", () => {
     const html = renderToStaticMarkup(
       <EfaMobileArrivalPanel
@@ -75,10 +118,7 @@ describe("EfaMobileArrivalPanel", () => {
   describe("mobile card", () => {
     const mobile2 = { id: "mobile-2", name: "Móvil 2", isActive: true };
     const arrivedAt = "2026-10-07T10:05:00.000Z";
-    const shortTime = new Date(arrivedAt).toLocaleTimeString("es-AR", {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+    const shortTime = "07:05";
     const arrivalFor = (
       role: MobileArrivalView["role"],
       overrides: Partial<MobileArrivalView> = {},
@@ -497,10 +537,7 @@ describe("EfaMobileArrivalPanel", () => {
     it("paints a registered role and stops offering it as a button", () => {
       const html = renderChips({ arrivals: [arrival("nurse")] });
       const group = pill(html, "Móvil 2");
-      const time = new Date("2026-10-07T11:10:00.000Z").toLocaleTimeString("es-AR", {
-        hour: "2-digit",
-        minute: "2-digit",
-      });
+      const time = "08:10";
 
       expect(roleButtons(group).map(({ label }) => label)).toEqual([
         "Registrar ingreso de Conducción en Móvil 2",
@@ -764,9 +801,8 @@ describe("EfaMobileArrivalPanel", () => {
       />,
     );
 
-    const date = new Date(arrivedAt);
-    const shortTime = date.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
-    const fullDate = date.toLocaleString("es-AR");
+    const shortTime = "09:08";
+    const fullDate = "07/10/2026 09:08:00";
     expect(html).toContain(
       `dateTime="${arrivedAt}" aria-label="Ingreso registrado el ${fullDate}"`,
     );

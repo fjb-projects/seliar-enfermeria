@@ -4,6 +4,7 @@ import {
   type EpisodeNoticeView,
   type EpisodeView,
 } from "@/components/EfaEpisodePanel";
+import { EfaGuardInfo } from "@/components/EfaGuardInfo";
 import { PrivateAccountShell, type PrivateSession } from "@/components/PrivateAccountShell";
 import type { GuardView } from "@/components/EfaGuardPanel";
 import { readSession } from "@/lib/auth.functions";
@@ -49,8 +50,17 @@ function EfaEpisodesPage() {
   const { episodes, notices, openOwnGuard } = Route.useLoaderData();
   const canWrite = session.roles.includes("efa") || session.roles.includes("admin");
   return (
-    <PrivateAccountShell session={session}>
+    <PrivateAccountShell
+      session={session}
+      title="Atenciones de la guardia"
+      description="Registro y seguimiento de servicios"
+      eyebrow=""
+      surface="santafe-focus"
+      contentWidth="full"
+      titleAction={openOwnGuard ? <EfaGuardInfo startedAt={openOwnGuard.startedAt} /> : undefined}
+    >
       <EfaEpisodePanel
+        key={`${session.user.id}:${openOwnGuard?.id ?? "no-guard"}`}
         initialEpisodes={episodes}
         initialNotices={notices}
         openOwnGuard={openOwnGuard}

@@ -25,7 +25,14 @@ export type PublicCompensatoryRequest = PublicCompensatoryInput & {
   classifiedByUserId: null;
   createdAt: Date;
 };
-type PublicStaff = { id: string; name: string; email: string | null; isActive: boolean };
+type PublicStaff = {
+  id: string;
+  name: string;
+  email: string | null;
+  isActive: boolean;
+  operationalRole: string | null;
+  operationalStatus: string | null;
+};
 
 export interface PublicCompensatoryTransaction {
   listActiveStaff(): Promise<PublicStaff[]>;
@@ -33,7 +40,9 @@ export interface PublicCompensatoryTransaction {
   serviceDay(): Promise<string>;
   lockOperation(operationId: string): Promise<void>;
   findOperation(operationId: string): Promise<PublicCompensatoryRequest | null>;
-  insertRequest(input: Omit<PublicCompensatoryRequest, "id" | "createdAt">): Promise<PublicCompensatoryRequest>;
+  insertRequest(
+    input: Omit<PublicCompensatoryRequest, "id" | "createdAt">,
+  ): Promise<PublicCompensatoryRequest>;
 }
 export interface PublicCompensatoryStore {
   transaction<T>(work: (tx: PublicCompensatoryTransaction) => Promise<T>): Promise<T>;
@@ -73,11 +82,23 @@ function validate(input: PublicCompensatoryInput): PublicCompensatoryInput {
     compensatoryDate: input.compensatoryDate.trim(),
     hours: input.hours.trim(),
   };
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(input.clientOperationId))
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      input.clientOperationId,
+    )
+  )
     throw new Error("El identificador de operación no es válido.");
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(input.staffId))
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      input.staffId,
+    )
+  )
     throw new Error("No se encontró el agente asociado.");
-  if (normalized.requesterEmail.length > 255 || (normalized.requesterEmail !== "" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized.requesterEmail)))
+  if (
+    normalized.requesterEmail.length > 255 ||
+    (normalized.requesterEmail !== "" &&
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized.requesterEmail))
+  )
     throw new Error("El correo electrónico no es válido.");
   if (!normalized.requesterMobile || normalized.requesterMobile.length > 300)
     throw new Error("El teléfono móvil no es válido.");
@@ -90,6 +111,19 @@ function validate(input: PublicCompensatoryInput): PublicCompensatoryInput {
 
 function officialNameKey(name: string) {
   return name.trim().normalize("NFC").replace(/\s+/g, " ").toLocaleLowerCase("es");
+}
+
+function isPublicRequestEligible(agent: PublicStaff) {
+  const key = (value: string | null) =>
+    (value ?? "")
+      .trim()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase();
+  return (
+    agent.isActive &&
+    (key(agent.operationalRole) === "movil" || key(agent.operationalStatus) === "si")
+  );
 }
 
 function payloadHash(input: PublicCompensatoryInput) {
@@ -118,12 +152,17 @@ export function createPublicCompensatoryService(store: PublicCompensatoryStore) 
           counts.set(key, (counts.get(key) ?? 0) + 1);
         }
         return activeStaff
-          .filter((agent) => counts.get(officialNameKey(agent.name)) === 1)
+          .filter(
+            (agent) =>
+              isPublicRequestEligible(agent) && counts.get(officialNameKey(agent.name)) === 1,
+          )
           .map(({ id, name, email }) => ({ id, name, hasProfileEmail: Boolean(email?.trim()) }));
       });
     },
 
-    async submitPublicCompensatoryRequest(rawInput: PublicCompensatoryInput): Promise<{ state: "submitted" }> {
+    async submitPublicCompensatoryRequest(
+      rawInput: PublicCompensatoryInput,
+    ): Promise<{ state: "submitted" }> {
       const input = validate(rawInput);
       const clientPayloadHash = payloadHash(input);
       return store.transaction(async (tx) => {
@@ -139,16 +178,24 @@ export function createPublicCompensatoryService(store: PublicCompensatoryStore) 
         }
 
         const selected = await tx.lockStaff(input.staffId);
-        if (!selected?.isActive) throw new Error("No se pudo identificar el agente seleccionado.");
+        if (!selected || !isPublicRequestEligible(selected))
+          throw new Error("No se pudo identificar el agente seleccionado.");
         const activeStaff = await tx.listActiveStaff();
         const normalizedName = officialNameKey(selected.name);
-        if (activeStaff.filter((agent) => officialNameKey(agent.name) === normalizedName).length !== 1)
+        if (
+          activeStaff.filter((agent) => officialNameKey(agent.name) === normalizedName).length !== 1
+        )
           throw new Error("No se pudo identificar el agente seleccionado.");
         const requesterEmail = selected.email?.trim() || input.requesterEmail;
-        if (!requesterEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(requesterEmail) || requesterEmail.length > 255)
+        if (
+          !requesterEmail ||
+          !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(requesterEmail) ||
+          requesterEmail.length > 255
+        )
           throw new Error("El correo electrónico no es válido.");
         const serviceDay = await tx.serviceDay();
-        if (!isIsoCalendarDate(serviceDay)) throw new Error("No se pudo validar el día de servicio.");
+        if (!isIsoCalendarDate(serviceDay))
+          throw new Error("No se pudo validar el día de servicio.");
         if (input.compensatoryDate < serviceDay)
           throw new Error("La fecha solicitada no puede ser una fecha pasada.");
 

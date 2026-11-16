@@ -51,12 +51,14 @@ const sectionTitles = [
 const render = (
   state: Parameters<typeof EfaEpisodeSummaryView>[0]["state"],
   override: Partial<TestEpisode> = {},
+  presentation: "default" | "plain" = "default",
 ) =>
   renderToStaticMarkup(
     <EfaEpisodeSummaryView
       episode={{ ...episode, ...override }}
       state={state}
       onRetry={() => {}}
+      presentation={presentation}
     />,
   );
 
@@ -151,6 +153,15 @@ describe("episodeFinalStateLine", () => {
 });
 
 describe("EfaEpisodeSummaryView", () => {
+  it("keeps named summary regions without decorative cards or side accents", () => {
+    const html = render({ status: "ready", data: emptyData }, {}, "plain");
+    expect(html).not.toContain("border-l-4");
+    expect(html).not.toContain("rounded-full");
+    expect(html.match(/role="region"/g)).toHaveLength(6);
+    for (const title of sectionTitles) expect(html).toContain(title);
+    expect(render({ status: "ready", data: emptyData })).toContain("border-l-4");
+  });
+
   it("shows the five sections even while loading, with the service data already visible", () => {
     const html = render({ status: "loading" });
     for (const title of sectionTitles) expect(html).toContain(title);

@@ -20,7 +20,7 @@ export function renderResolutionEmailHtml(content: { subject: string; text: stri
   const approved = /:\s*aprobada$/i.test(content.subject);
   const rejected = /:\s*rechazada$/i.test(content.subject);
   const title = approved ? "Solicitud aprobada" : rejected ? "Solicitud rechazada" : content.subject;
-  const accent = rejected ? "#9b3434" : "#245354";
+  const accent = rejected ? "#F09B59" : "#245354";
   const paragraphs = content.text.split(/\n\s*\n/).map((paragraph) => {
     const lines = paragraph.split("\n").map((line) => {
       const separator = line.indexOf(": ");
@@ -35,7 +35,7 @@ export function renderResolutionEmailHtml(content: { subject: string; text: stri
 <body style="margin:0;padding:0;background-color:#f5f5ef;color:#243b3c;font-family:Arial,Helvetica,sans-serif;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tr><td align="center" style="padding:24px 12px;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;border-collapse:collapse;background-color:#ffffff;">
-<tr><td bgcolor="#ff5500" style="padding:24px;background-color:#ff5500;background-image:linear-gradient(135deg,#ff5500,#ffb347);border-bottom:1px solid #dce5e1;">
+<tr><td bgcolor="#0856FF" style="padding:24px;background-color:#0856FF;background-image:linear-gradient(135deg,#ff5500,#ffb347);border-bottom:1px solid #dce5e1;">
 <p style="margin:0 0 6px;font-size:22px;font-weight:bold;color:#1a1a1a;">SeLIAR</p>
 <p style="margin:0;font-size:14px;line-height:1.5;color:#1a1a1a;">Coordinación de Enfermería</p></td></tr>
 <tr><td bgcolor="#ffffff" style="padding:24px 24px 8px;">

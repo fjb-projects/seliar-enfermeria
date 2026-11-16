@@ -7,7 +7,7 @@ import {
   type ComponentProps,
   type FormEvent,
 } from "react";
-import { RefreshCw, Settings2, Plus, FilePlus2 } from "lucide-react";
+import { RefreshCw, Settings2, Plus, FilePlus2, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -22,6 +22,7 @@ import { CompensatoryHoursForm } from "./CompensatoryHoursForm";
 import { CompensatoryHistoryPanel } from "./CompensatoryHistoryPanel";
 import { CompensatoryAdminRequestForm } from "./CompensatoryAdminRequestForm";
 import { CompensatoryCoveragePanel } from "./CompensatoryCoveragePanel";
+import { CompensatoryExportPanel } from "./CompensatoryExportPanel";
 import { CompensatoryNotificationPanel } from "./CompensatoryNotificationPanel";
 import { listCompensatoryNotifications, reviewAndSendCompensatoryNotification } from "@/lib/compensatory-notification.functions";
 import {
@@ -77,6 +78,7 @@ const toolTitles = {
   profile: "Ficha del agente",
   create: "Nuevo agente",
   import: "Importación y vinculaciones",
+  export: "Exportar horas netas",
 };
 type Tool = keyof typeof toolTitles;
 export type RequestEmailPromotionAttempt = {
@@ -584,6 +586,10 @@ export function CompensatoryOperationalWorkspace({
         )}
       </CompensatoryWorkspaceTabPanel>
       <div className="flex flex-wrap gap-2 border-t pt-3">
+        <Button type="button" variant="outline" className="min-h-11 bg-card shadow-none hover:bg-muted" disabled={disabled} onClick={() => setTool("export")}>
+          <Download className="mr-2 size-4" aria-hidden="true" />
+          Exportar horas
+        </Button>
         <Button
           type="button"
           variant="outline"
@@ -889,7 +895,9 @@ export function CompensatoryOperationalWorkspace({
           <DialogHeader>
             <DialogTitle>{tool ? toolTitles[tool] : "Herramientas"}</DialogTitle>
             <DialogDescription>
-              {tool === "coverage"
+              {tool === "export"
+                ? "Listado de horas netas de todos los agentes, sin modificar saldos."
+                : tool === "coverage"
                 ? `${staff.find((person) => person.id === coverageRequest?.staffId)?.name ?? "Solicitud"} · Registrar quién cubre no cambia la aprobación ni el saldo de horas.`
                 : tool === "adminRequest"
                   ? "Carga administrativa de contingencia. El pedido quedará pendiente de resolución."
@@ -914,6 +922,8 @@ export function CompensatoryOperationalWorkspace({
                 </>
               )}
             </div>
+          ) : tool === "export" ? (
+            <CompensatoryExportPanel serviceDay={data?.serviceDay ?? new Intl.DateTimeFormat("en-CA", { timeZone: "America/Argentina/Buenos_Aires" }).format(new Date())} onBusyChange={setToolBusy} />
           ) : tool === "coverage" ? (
             coverageRequest ? (
               <CompensatoryCoveragePanel

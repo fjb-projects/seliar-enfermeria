@@ -15,14 +15,28 @@ const store: PublicCompensatoryStore = {
       const tx: PublicCompensatoryTransaction = {
         async listActiveStaff() {
           return db
-            .select({ id: compensatoryStaff.id, name: compensatoryStaff.name, email: compensatoryStaff.email, isActive: compensatoryStaff.isActive })
+            .select({
+              id: compensatoryStaff.id,
+              name: compensatoryStaff.name,
+              email: compensatoryStaff.email,
+              isActive: compensatoryStaff.isActive,
+              operationalRole: compensatoryStaff.operationalRole,
+              operationalStatus: compensatoryStaff.operationalStatus,
+            })
             .from(compensatoryStaff)
             .where(eq(compensatoryStaff.isActive, true))
             .orderBy(asc(compensatoryStaff.name), asc(compensatoryStaff.id));
         },
         async lockStaff(staffId) {
           const rows = await db
-            .select({ id: compensatoryStaff.id, name: compensatoryStaff.name, email: compensatoryStaff.email, isActive: compensatoryStaff.isActive })
+            .select({
+              id: compensatoryStaff.id,
+              name: compensatoryStaff.name,
+              email: compensatoryStaff.email,
+              isActive: compensatoryStaff.isActive,
+              operationalRole: compensatoryStaff.operationalRole,
+              operationalStatus: compensatoryStaff.operationalStatus,
+            })
             .from(compensatoryStaff)
             .where(eq(compensatoryStaff.id, staffId))
             .for("update")
@@ -59,10 +73,7 @@ const store: PublicCompensatoryStore = {
           return (rows[0] as PublicCompensatoryRequest | undefined) ?? null;
         },
         async insertRequest(input) {
-          const rows = await db
-            .insert(compensatoryRequest)
-            .values(input)
-            .returning();
+          const rows = await db.insert(compensatoryRequest).values(input).returning();
           return rows[0] as PublicCompensatoryRequest;
         },
       };
