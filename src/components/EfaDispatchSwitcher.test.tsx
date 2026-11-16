@@ -3,30 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 import {
   DispatchActionsMenu,
   DispatchSwitcher,
-  dispatchSaveStatus,
-  shouldSaveDraftBeforeMove,
   shouldShowDispatchSwitcher,
 } from "@/components/EfaDispatchStepper";
-
-describe("shouldSaveDraftBeforeMove", () => {
-  const base = { hasPendingEdits: true, state: "draft", editable: true, hasBase: true } as const;
-
-  it("saves pending edits of a draft or of a new dispatch before moving", () => {
-    expect(shouldSaveDraftBeforeMove(base)).toBe(true);
-    expect(shouldSaveDraftBeforeMove({ ...base, state: null })).toBe(true);
-  });
-
-  it("moves without saving when nothing changed", () => {
-    expect(shouldSaveDraftBeforeMove({ ...base, hasPendingEdits: false })).toBe(false);
-  });
-
-  it("never auto-saves a finalized or cancelled dispatch, a read-only editor or a form without base", () => {
-    expect(shouldSaveDraftBeforeMove({ ...base, state: "finalized" })).toBe(false);
-    expect(shouldSaveDraftBeforeMove({ ...base, state: "cancelled" })).toBe(false);
-    expect(shouldSaveDraftBeforeMove({ ...base, editable: false })).toBe(false);
-    expect(shouldSaveDraftBeforeMove({ ...base, hasBase: false })).toBe(false);
-  });
-});
 
 describe("shouldShowDispatchSwitcher", () => {
   it("hides the switcher for none and for a single open dispatch", () => {
@@ -37,23 +15,6 @@ describe("shouldShowDispatchSwitcher", () => {
   it("shows a way into a single dispatch that is not open, and chips for several", () => {
     expect(shouldShowDispatchSwitcher(1, false)).toBe(true);
     expect(shouldShowDispatchSwitcher(2, true)).toBe(true);
-  });
-});
-
-describe("dispatchSaveStatus", () => {
-  const base = { busy: false, queueLocked: false, dirty: false, hasSelected: true };
-
-  it("reports saved only when nothing is pending or edited", () => {
-    expect(dispatchSaveStatus(base)).toBe("Guardado");
-    expect(dispatchSaveStatus({ ...base, hasSelected: false })).toBe("Sin guardar");
-  });
-
-  it("flags busy, queued and edited states, in that order of precedence", () => {
-    expect(dispatchSaveStatus({ ...base, dirty: true })).toBe("Cambios sin guardar");
-    expect(dispatchSaveStatus({ ...base, dirty: true, queueLocked: true })).toBe("Pendiente");
-    expect(dispatchSaveStatus({ ...base, dirty: true, queueLocked: true, busy: true })).toBe(
-      "Guardando…",
-    );
   });
 });
 

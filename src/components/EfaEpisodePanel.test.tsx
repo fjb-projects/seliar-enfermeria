@@ -2,13 +2,21 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { readFileSync } from "node:fs";
 import type { ComponentProps } from "react";
 import { describe, expect, it, vi } from "vitest";
+import { createSaveSnapshot, shouldAutosave } from "@/lib/efa-autosave";
 import {
   createEpisodeSubmissionGate,
   applyAfterEpisodeNavigationStable,
   canAutoOpenInitialCallAfterRefresh,
   canBeginNewService,
+  episodeAutosaveConditions,
+  episodeEditorPendingStatus,
+  episodeFieldsEditable,
+  episodeFormDirty,
   selectActiveSelectorEpisodes,
   episodeFormTitle,
+  episodeSaveStatus,
+  mergeConfirmedEpisode,
+  rebaseEpisodeFormOnServer,
   episodeSaveActionLabel,
   hasFirstCallCreateIntent,
   resolvePostCreateState,
@@ -339,6 +347,56 @@ describe("EfaEpisodePanel", () => {
     expect(episodeSaveActionLabel(true, true)).toBe("Guardar cambios");
   });
 
+  it("offers 'Registrar conducta sin servicio' only to writers with an open own guard", () => {
+    const render = (
+      openOwnGuard: { id: string; startedAt: string; endedAt: null } | null,
+      canWrite: boolean,
+      initialEpisodes: EpisodeView[] = [],
+    ) =>
+      renderToStaticMarkup(
+        <EfaEpisodePanel
+          initialEpisodes={initialEpisodes}
+          initialNotices={[]}
+          openOwnGuard={openOwnGuard}
+          currentUserId="owner"
+          canWrite={canWrite}
+          isAdmin={false}
+        />,
+      );
+    const guard = { id: "guard-1", startedAt: "2026-10-06T09:00:00.000Z", endedAt: null };
+    const html = render(guard, true);
+    const button =
+      html.match(
+        /<button[^>]*>(?:(?!<\/button>)[\s\S])*Registrar conducta sin servicio<\/button>/,
+      )?.[0] ?? "";
+    expect(button).toContain("underline-offset-4");
+    expect(html).not.toContain("Cargando catálogo e historial");
+    expect(render(guard, false)).not.toContain("Registrar conducta sin servicio");
+    expect(render(null, true)).not.toContain("Registrar conducta sin servicio");
+  });
+
+  it("keeps the local storage privacy note in plain language", () => {
+    const html = renderToStaticMarkup(
+      <EfaEpisodePanel
+        initialEpisodes={[episode]}
+        initialNotices={[]}
+        openOwnGuard={{ id: "guard-1", startedAt: "2026-10-06T09:00:00.000Z", endedAt: null }}
+        currentUserId="owner"
+        canWrite={true}
+        isAdmin={false}
+      />,
+    );
+    const note = html.indexOf(
+      "Las operaciones enviadas, incluida la dirección, quedan guardadas en este dispositivo.",
+    );
+
+    expect(note).toBeGreaterThan(html.indexOf("Avisos de corrección"));
+    expect(html).not.toContain("IndexedDB");
+    expect(html).toMatch(
+      /<p class="[^"]*text-xs[^"]*text-muted-foreground[^"]*">Las operaciones enviadas, incluida/,
+    );
+  });
+
   it("limits the visible workspace to the open guard and exposes explicit closure", () => {
     const editable = { ...episode, canEdit: true };
     const older = { ...editable, id: "older", eventAt: "2026-10-05T09:30:00.000Z" };
@@ -521,5 +579,265 @@ describe("active service selector integration", () => {
     expect(selectActiveSelectorEpisodes(records, "guard").map((row) => row.id)).toEqual(["active"]);
     expect(records).toHaveLength(4);
     expect(selectActiveSelectorEpisodes(records, null)).toEqual([]);
+  });
+});
+
+describe("episode header autosave", () => {
+  const draft = { ...episode, canEdit: true };
+  const form = {
+    eventAt: "2026-10-06T06:30",
+    motive: "Caída",
+    address: "",
+    interventionNumber: "",
+  };
+  type ConditionsInput = Parameters<typeof episodeAutosaveConditions>[0];
+  const decide = (overrides: Partial<ConditionsInput> = {}) =>
+    shouldAutosave({
+      ...episodeAutosaveConditions({
+        canWrite: true,
+        selected: draft,
+        currentUserId: "owner",
+        dirty: true,
+        pendingOperation: null,
+        queueEntries: [],
+        queueUsable: true,
+        busy: false,
+        ...overrides,
+      }),
+      online: true,
+    });
+  const updateEntry = (
+    episodeId: string,
+    status: "pending" | "paused-conflict" | "confirmed-cleanup",
+  ) => ({ kind: "update" as const, status, payload: { episodeId } });
+
+  it("autosaves a dirty draft owned by the editor when nothing blocks it", () => {
+    expect(decide()).toEqual({ ok: true });
+  });
+
+  it("never autosaves the create form, a closed or cancelled service, or another user's service", () => {
+    expect(decide({ selected: null })).toEqual({ ok: false, reason: "no_record" });
+    expect(decide({ selected: { ...draft, state: "closed" } })).toEqual({
+      ok: false,
+      reason: "not_draft",
+    });
+    expect(decide({ selected: { ...draft, cancelledAt: "2026-10-07T11:00:00.000Z" } })).toEqual({
+      ok: false,
+      reason: "not_draft",
+    });
+    expect(decide({ selected: { ...draft, canEdit: false } })).toEqual({
+      ok: false,
+      reason: "cannot_write",
+    });
+    expect(decide({ canWrite: false })).toEqual({ ok: false, reason: "cannot_write" });
+    expect(decide({ selected: { ...draft, ownerUserId: "someone-else" } })).toEqual({
+      ok: false,
+      reason: "not_owner",
+    });
+  });
+
+  it("waits for clean forms, the local queue, pending operations and other actions", () => {
+    expect(decide({ dirty: false })).toEqual({ ok: false, reason: "not_dirty" });
+    expect(decide({ queueUsable: false })).toEqual({ ok: false, reason: "queue_unavailable" });
+    expect(decide({ busy: true })).toEqual({ ok: false, reason: "busy" });
+    expect(decide({ queueEntries: [updateEntry("episode-1", "pending")] })).toEqual({
+      ok: false,
+      reason: "pending",
+    });
+    expect(decide({ queueEntries: [updateEntry("episode-1", "paused-conflict")] })).toEqual({
+      ok: false,
+      reason: "pending",
+    });
+    expect(
+      decide({ pendingOperation: { kind: "update", payload: { episodeId: "episode-1" } } }),
+    ).toEqual({ ok: false, reason: "pending" });
+  });
+
+  it("ignores confirmed entries waiting for cleanup and entries of other services", () => {
+    expect(decide({ queueEntries: [updateEntry("episode-1", "confirmed-cleanup")] })).toEqual({
+      ok: true,
+    });
+    expect(decide({ queueEntries: [updateEntry("episode-2", "pending")] })).toEqual({ ok: true });
+  });
+
+  it("reports the live queued operation behind the editor", () => {
+    expect(episodeEditorPendingStatus([], null, "episode-1")).toBeNull();
+    expect(
+      episodeEditorPendingStatus([updateEntry("episode-1", "paused-conflict")], null, "episode-1"),
+    ).toBe("paused-conflict");
+    expect(
+      episodeEditorPendingStatus(
+        [updateEntry("episode-1", "confirmed-cleanup")],
+        null,
+        "episode-1",
+      ),
+    ).toBeNull();
+    expect(
+      episodeEditorPendingStatus([updateEntry("episode-2", "pending")], null, "episode-1"),
+    ).toBeNull();
+    expect(
+      episodeEditorPendingStatus(
+        [],
+        { kind: "update", payload: { episodeId: "episode-1" } },
+        "episode-1",
+      ),
+    ).toBe("pending");
+    expect(episodeEditorPendingStatus([], { kind: "create", payload: {} }, "episode-1")).toBeNull();
+  });
+
+  it("keeps values typed after the snapshot and stays dirty when a save is confirmed", () => {
+    const snapshot = createSaveSnapshot(form);
+    const server = { ...form, motive: "Caída en vía pública" };
+    expect(mergeConfirmedEpisode(snapshot, form, server)).toEqual({
+      keepLocal: false,
+      form: server,
+      dirty: false,
+    });
+    const typed = { ...form, motive: "Caída de altura" };
+    expect(mergeConfirmedEpisode(snapshot, typed, server)).toEqual({
+      keepLocal: true,
+      form: typed,
+      dirty: true,
+    });
+    expect(mergeConfirmedEpisode(null, typed, server)).toEqual({
+      keepLocal: false,
+      form: server,
+      dirty: false,
+    });
+  });
+
+  it("rebases a conflicted form on the server version keeping only fields typed afterwards", () => {
+    const snapshot = createSaveSnapshot(form);
+    const server = { ...form, motive: "Otra sesión", address: "Calle 1" };
+    expect(rebaseEpisodeFormOnServer(snapshot, form, server)).toEqual({
+      form: server,
+      keptLocal: false,
+    });
+    const typed = { ...form, interventionNumber: "007" };
+    expect(rebaseEpisodeFormOnServer(snapshot, typed, server)).toEqual({
+      form: { ...server, interventionNumber: "007" },
+      keptLocal: true,
+    });
+    expect(rebaseEpisodeFormOnServer(null, typed, server)).toEqual({
+      form: server,
+      keptLocal: false,
+    });
+  });
+
+  it("shows the queued, saving, offline and saved states of the service form", () => {
+    const savedAt = "2026-10-06T13:45:00.000Z";
+    const base = { busy: false, dirty: false, savedAt };
+    expect(
+      episodeSaveStatus({
+        ...base,
+        autosave: { kind: "idle" },
+        pendingStatus: "pending",
+        busy: true,
+      }),
+    ).toEqual({ kind: "saving" });
+    expect(
+      episodeSaveStatus({ ...base, autosave: { kind: "idle" }, pendingStatus: "paused-conflict" }),
+    ).toEqual({ kind: "blocked", reason: "pending" });
+    expect(
+      episodeSaveStatus({ ...base, autosave: { kind: "offline" }, pendingStatus: "pending" }),
+    ).toEqual({ kind: "offline" });
+    expect(episodeSaveStatus({ ...base, autosave: { kind: "idle" }, pendingStatus: null })).toEqual(
+      { kind: "saved", at: new Date(savedAt) },
+    );
+    expect(
+      episodeSaveStatus({
+        ...base,
+        autosave: { kind: "saved", at: new Date("2026-10-06T08:00:00.000Z") },
+        pendingStatus: null,
+      }),
+    ).toEqual({ kind: "saved", at: new Date(savedAt) });
+    expect(
+      episodeSaveStatus({ ...base, autosave: { kind: "idle" }, pendingStatus: null, dirty: true }),
+    ).toEqual({ kind: "dirty" });
+    expect(
+      episodeSaveStatus({
+        ...base,
+        autosave: { kind: "saving" },
+        pendingStatus: null,
+        dirty: true,
+      }),
+    ).toEqual({ kind: "saving" });
+    expect(
+      episodeSaveStatus({
+        ...base,
+        autosave: { kind: "idle" },
+        pendingStatus: null,
+        savedAt: "not-a-date",
+      }),
+    ).toEqual({ kind: "idle" });
+  });
+
+  it("keeps an editable draft typeable while its save is pending, never a cancelled or read-only one", () => {
+    type AccessInput = Parameters<typeof episodeFieldsEditable>[0];
+    const access = (overrides: Partial<AccessInput> = {}) =>
+      episodeFieldsEditable({
+        canWrite: true,
+        queueReady: true,
+        selected: draft,
+        pending: null,
+        busy: false,
+        conflict: false,
+        ...overrides,
+      });
+    const update = { kind: "update" as const, payload: { episodeId: "episode-1" } };
+    expect(access()).toBe(true);
+    expect(access({ pending: update, busy: true })).toBe(true);
+    expect(access({ pending: update, conflict: true })).toBe(true);
+    expect(access({ selected: { ...draft, canEdit: false } })).toBe(false);
+    expect(access({ selected: { ...draft, cancelledAt: "2026-10-07T11:00:00.000Z" } })).toBe(false);
+    expect(access({ canWrite: false })).toBe(false);
+    expect(access({ queueReady: false })).toBe(false);
+    expect(access({ pending: { kind: "close", payload: { episodeId: "episode-1" } } })).toBe(false);
+    expect(access({ pending: { kind: "close", payload: { episodeId: "episode-2" } } })).toBe(true);
+    // The create form keeps its freeze: a new service is a manual first save.
+    expect(access({ selected: null })).toBe(true);
+    expect(access({ selected: null, busy: true })).toBe(false);
+    expect(access({ selected: null, pending: { kind: "create", payload: {} } })).toBe(false);
+  });
+
+  it("renders no autosave status line on the create form", () => {
+    const html = renderToStaticMarkup(
+      <EfaEpisodePanel
+        initialEpisodes={[draft]}
+        initialNotices={[]}
+        openOwnGuard={{ id: "guard-1", startedAt: "2026-10-06T09:00:00.000Z", endedAt: null }}
+        currentUserId="owner"
+        canWrite={true}
+        isAdmin={false}
+      />,
+    );
+    expect(html).toContain("Nuevo servicio");
+    expect(html).not.toContain('aria-live="polite"');
+    expect(html).not.toContain("Los campos están congelados");
+  });
+});
+
+describe("episodeFormDirty", () => {
+  const empty = { eventAt: "", motive: "", address: "", interventionNumber: "" };
+
+  it("treats any typed value on the new-service form as unsaved", () => {
+    expect(episodeFormDirty(empty, null)).toBe(false);
+    expect(episodeFormDirty({ ...empty, motive: "Caída" }, null)).toBe(true);
+  });
+
+  it("compares an edited service against its saved values", () => {
+    const record = {
+      eventAt: "2026-10-06T09:30:00.000Z",
+      motive: "Caída",
+      address: null,
+      interventionNumber: null,
+    };
+    const date = new Date(record.eventAt);
+    const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
+      .toISOString()
+      .slice(0, 16);
+    const saved = { eventAt: local, motive: "Caída", address: "", interventionNumber: "" };
+    expect(episodeFormDirty(saved, record)).toBe(false);
+    expect(episodeFormDirty({ ...saved, address: "Calle 1" }, record)).toBe(true);
   });
 });

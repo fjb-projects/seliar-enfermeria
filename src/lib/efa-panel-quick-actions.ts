@@ -21,7 +21,7 @@ const actions: Record<EfaPanelQuickAction["id"], EfaPanelQuickAction> = {
     id: "start-guard",
     to: "/guardia-efa",
     label: "Iniciar guardia EFA",
-    navLabel: "Iniciar guardia",
+    navLabel: "Mi guardia",
     icon: ClipboardClock,
   },
   "continue-episodes": {
@@ -35,14 +35,14 @@ const actions: Record<EfaPanelQuickAction["id"], EfaPanelQuickAction> = {
     id: "manage-guard",
     to: "/guardia-efa",
     label: "Bases y dotación",
-    navLabel: "Bases y dotación",
+    navLabel: "Mi guardia",
     icon: ClipboardClock,
   },
   "consult-guards": {
     id: "consult-guards",
     to: "/guardia-efa",
     label: "Consultar mis guardias",
-    navLabel: "Consultar guardias",
+    navLabel: "Mi guardia",
     icon: ShieldCheck,
   },
   "manage-accounts": {

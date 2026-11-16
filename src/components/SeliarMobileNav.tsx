@@ -170,7 +170,7 @@ export function SeliarMobileNav() {
     } else {
       uniqueItems.set("/guardia-efa", {
         to: "/guardia-efa",
-        label: "Consulta EFA",
+        label: "Mi guardia",
         icon: ClipboardClock,
       });
     }

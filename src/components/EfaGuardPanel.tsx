@@ -9,6 +9,8 @@ import {
 } from "@/components/EfaActionConfirmation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { EfaObservationPanel } from "@/components/EfaObservationPanel";
+import { EfaGuardConductAction } from "@/components/EfaGuardConductSheet";
+import { EfaGuardTimeline, efaGuardTimelineQueryKey } from "@/components/EfaGuardTimeline";
 import type { StaffingCause, StaffingRole, StaffingView } from "@/lib/efa-staffing.server";
 import {
   arriveEfaStaffing,
@@ -736,6 +738,8 @@ export function EfaGuardPanel({
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [observationGuardId, setObservationGuardId] = useState<string | null>(null);
+  // Bumped when the conduct sheet saves, so the open guard's history list reloads.
+  const [guardConductRevision, setGuardConductRevision] = useState(0);
   const [endingGuardTarget, setEndingGuardTarget] = useState<string | null>(null);
 
   useEffect(() => {
@@ -743,6 +747,11 @@ export function EfaGuardPanel({
       setArrivalsByGuard((current) => mergeArrivalSnapshots(current, initialArrivals));
     }
   }, [initialArrivals]);
+  function refreshGuardTimeline(guardId: string) {
+    void queryClient.invalidateQueries({
+      queryKey: efaGuardTimelineQueryKey(currentUserId, guardId),
+    });
+  }
 
   async function refresh() {
     const [nextGuards, nextBases] = await Promise.all([
@@ -931,7 +940,7 @@ export function EfaGuardPanel({
     <div className="min-w-0 space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle>Guardia EFA</CardTitle>
+          <CardTitle>Mi guardia</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4 px-3 pt-0 sm:px-6">
           {error && (
@@ -1006,6 +1015,18 @@ export function EfaGuardPanel({
                   </Link>
                 </Button>
               </div>
+              {canWrite && (
+                <EfaGuardConductAction
+                  appearance="button"
+                  guardId={openOwnGuard.id}
+                  currentUserId={currentUserId}
+                  isAdmin={isAdmin}
+                  onSaved={() => {
+                    setGuardConductRevision((revision) => revision + 1);
+                    refreshGuardTimeline(openOwnGuard.id);
+                  }}
+                />
+              )}
               <section aria-labelledby={mobilesHeadingId} className="min-w-0 space-y-3 pt-2">
                 <div className="space-y-1">
                   <h3
@@ -1064,6 +1085,11 @@ export function EfaGuardPanel({
                   />
                 </div>
               </section>
+              <EfaGuardTimeline
+                guardId={openOwnGuard.id}
+                currentUserId={currentUserId}
+                canWrite={canWrite}
+              />
               <div className="space-y-2 border-t pt-4">
                 <p className="text-sm text-muted-foreground">
                   Al terminar, la guardia no admite nuevos registros.
@@ -1160,7 +1186,10 @@ export function EfaGuardPanel({
                       Ver conductas observadas
                     </Button>
                     {observationGuardId === guard.id && (
-                      <section key={`${currentUserId}:${guard.id}`} className="space-y-3">
+                      <section
+                        key={`${currentUserId}:${guard.id}:${guard.id === openOwnGuard?.id ? guardConductRevision : 0}`}
+                        className="space-y-3"
+                      >
                         <Button
                           type="button"
                           variant="outline"
@@ -1179,6 +1208,9 @@ export function EfaGuardPanel({
                           currentUserId={currentUserId}
                           canWrite={canWrite && guard.ownerUserId === currentUserId}
                           isAdmin={isAdmin}
+                          {...(guard.id === openOwnGuard?.id
+                            ? { onSaved: () => refreshGuardTimeline(guard.id) }
+                            : {})}
                         />
                       </section>
                     )}

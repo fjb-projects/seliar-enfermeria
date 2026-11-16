@@ -68,7 +68,10 @@ vi.mock("react", async (original) => ({
   },
 }));
 vi.mock("@tanstack/react-query", () => ({ useQueryClient: () => hooks.queryClient }));
-vi.mock("@tanstack/react-start", () => ({ useServerFn: (fn: unknown) => fn }));
+vi.mock("@tanstack/react-start", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@tanstack/react-start")>()),
+  useServerFn: (fn: unknown) => fn,
+}));
 vi.mock("@tanstack/react-router", () => ({ Link: () => null }));
 vi.mock("./EfaMobileArrivalPanel", () => ({ EfaMobileArrivalPanel: () => null }));
 vi.mock("@/components/EfaObservationPanel", () => ({ EfaObservationPanel: () => null }));
